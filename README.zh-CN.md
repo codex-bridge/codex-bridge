@@ -35,18 +35,19 @@ Bridge 进程和 Codex Runtime。
 ## 兼容性
 
 Codex App Server 的 Schema 与具体版本相关。当前 Bridge 基线验证日期为
-2026-10-11：
+2026-10-12：
 
-**本项目最新验证的 Codex CLI 版本：`0.160.0`。**
+**本项目最新验证的 Codex CLI 版本：`0.162.1`。**
 
 | 组件 | 支持范围 | 已验证版本 |
 | --- | --- | --- |
-| Codex CLI | `>=0.158.0 <0.161.0` | `0.160.0` |
+| Codex CLI | `>=0.158.0 <0.163.0` | `0.162.1` |
 | Node.js | `22.22.x` | `22.22.0` |
 | Yarn | `4.8.x` | `4.8.1` |
 
 下限来自代码中保留的 Codex `0.158` 兼容行为，最新的实际协议验证使用
-`0.160.0`。范围外版本应先通过协议检查和项目测试，再视为已经验证。
+`0.162.1`，并包含一次临时 Turn 与命令审批链路。范围外版本应先通过协议检查
+和项目测试，再视为已经验证。
 
 官方资料：[安装 Codex CLI](https://developers.openai.com/codex/cli/)；
 [Codex App Server](https://developers.openai.com/codex/app-server/)。

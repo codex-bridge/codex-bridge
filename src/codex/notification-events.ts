@@ -124,6 +124,9 @@ export function extractCompletedAgentMessage(notification: AppServerNotification
     return null;
   }
 
+  // `phase` is presentation metadata. Codex 0.162.1 can complete commentary,
+  // partial_answer, and final_answer items independently; only turn/completed
+  // is a terminal turn signal, so every completed agent message remains visible.
   return { threadId, text };
 }
 
