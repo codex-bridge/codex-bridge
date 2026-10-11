@@ -1,0 +1,414 @@
+export type AppServerMethodKind =
+  | "request"
+  | "serverRequest"
+  | "notification"
+  | "legacy";
+
+export type AppServerMethodGroup =
+  | "lifecycle"
+  | "thread"
+  | "turn"
+  | "account"
+  | "config"
+  | "skills"
+  | "plugins"
+  | "apps"
+  | "filesystem"
+  | "commands"
+  | "mcp"
+  | "realtime"
+  | "review"
+  | "models"
+  | "marketplace"
+  | "memory"
+  | "collaboration"
+  | "sandbox"
+  | "feedback"
+  | "search"
+  | "git"
+  | "hooks"
+  | "process"
+  | "environment"
+  | "project"
+  | "remoteControl"
+  | "approval"
+  | "events"
+  | "legacy";
+
+export type AppServerMethodStatus =
+  | "used"
+  | "available"
+  | "restricted"
+  | "observed"
+  | "unsupportedLegacy";
+
+export interface AppServerMethodCapability {
+  method: string;
+  kind: AppServerMethodKind;
+  group: AppServerMethodGroup;
+  status: AppServerMethodStatus;
+  notes?: string;
+}
+
+export const APP_SERVER_PROTOCOL_PROBE = {
+  codexCliVersion: "0.158.0",
+  probedAt: "2026-09-29",
+  source: "Codex-generated TypeScript bindings and targeted local read-only probes"
+} as const;
+
+export const APP_SERVER_METHODS = [
+  { method: "initialize", kind: "request", group: "lifecycle", status: "used" },
+  { method: "mcpServer/event/stream/start", kind: "request", group: "mcp", status: "available" },
+  { method: "mcpServer/event/stream/stop", kind: "request", group: "mcp", status: "available" },
+  { method: "plugin/reconcile", kind: "request", group: "plugins", status: "available" },
+  { method: "thread/timeline/list", kind: "request", group: "thread", status: "restricted", notes: "Generated in 0.153.4, but the local runtime returns -32601 (not supported yet)." },
+  { method: "turn/settings/update", kind: "request", group: "turn", status: "restricted", notes: "Experimental; affects the running turn only, not pending approvals, child sessions, or future turns." },
+
+  { method: "thread/start", kind: "request", group: "thread", status: "used" },
+  { method: "thread/resume", kind: "request", group: "thread", status: "used" },
+  { method: "thread/fork", kind: "request", group: "thread", status: "available" },
+  { method: "thread/archive", kind: "request", group: "thread", status: "available" },
+  { method: "thread/delete", kind: "request", group: "thread", status: "available" },
+  { method: "thread/unsubscribe", kind: "request", group: "thread", status: "available" },
+  { method: "thread/increment_elicitation", kind: "request", group: "thread", status: "available" },
+  { method: "thread/decrement_elicitation", kind: "request", group: "thread", status: "available" },
+  { method: "thread/name/set", kind: "request", group: "thread", status: "available" },
+  { method: "thread/goal/set", kind: "request", group: "thread", status: "available" },
+  { method: "thread/goal/get", kind: "request", group: "thread", status: "available" },
+  { method: "thread/goal/clear", kind: "request", group: "thread", status: "available" },
+  { method: "thread/metadata/update", kind: "request", group: "thread", status: "available" },
+  { method: "thread/attachment/add", kind: "request", group: "thread", status: "available" },
+  { method: "thread/attachment/list", kind: "request", group: "thread", status: "available" },
+  { method: "thread/attachment/remove", kind: "request", group: "thread", status: "available" },
+  { method: "thread/memoryMode/set", kind: "request", group: "memory", status: "available" },
+  { method: "memory/status", kind: "request", group: "memory", status: "available" },
+  { method: "memory/reset", kind: "request", group: "memory", status: "available" },
+  { method: "rollout/compress", kind: "request", group: "memory", status: "available" },
+  { method: "thread/unarchive", kind: "request", group: "thread", status: "available" },
+  { method: "thread/compact/start", kind: "request", group: "thread", status: "available" },
+  { method: "thread/shellCommand", kind: "request", group: "thread", status: "available" },
+  { method: "thread/revert", kind: "request", group: "thread", status: "available" },
+  { method: "thread/section/move", kind: "request", group: "thread", status: "available" },
+  {
+    method: "thread/approveGuardianDeniedAction",
+    kind: "request",
+    group: "approval",
+    status: "available"
+  },
+  { method: "thread/settings/update", kind: "request", group: "thread", status: "restricted", notes: "Requires experimentalApi capability and a loaded thread." },
+  { method: "thread/backgroundTerminals/clean", kind: "request", group: "thread", status: "available" },
+  { method: "thread/backgroundTerminals/list", kind: "request", group: "thread", status: "available" },
+  {
+    method: "thread/backgroundTerminals/terminate",
+    kind: "request",
+    group: "thread",
+    status: "available"
+  },
+  { method: "thread/list", kind: "request", group: "thread", status: "used" },
+  { method: "thread/search", kind: "request", group: "thread", status: "restricted", notes: "Requires experimentalApi capability." },
+  {
+    method: "thread/searchOccurrences",
+    kind: "request",
+    group: "search",
+    status: "available",
+    notes: "Discovered in the 0.146.0 runtime unknown-method response; absent from generated TypeScript bindings."
+  },
+  { method: "thread/loaded/list", kind: "request", group: "thread", status: "available" },
+  { method: "thread/read", kind: "request", group: "thread", status: "used" },
+  { method: "thread/turns/list", kind: "request", group: "thread", status: "used" },
+  { method: "thread/items/list", kind: "request", group: "thread", status: "available" },
+  { method: "thread/inject_items", kind: "request", group: "thread", status: "available" },
+  {
+    method: "thread/queue/add",
+    kind: "request",
+    group: "thread",
+    status: "available",
+    notes: "Observed in Codex CLI 0.149.1; requires input and clientUserMessageId. Probe showed it may start execution immediately when the thread is idle."
+  },
+  { method: "thread/queue/delete", kind: "request", group: "thread", status: "available" },
+  { method: "thread/queue/list", kind: "request", group: "thread", status: "available" },
+  { method: "thread/queue/reorder", kind: "request", group: "thread", status: "available" },
+  { method: "thread/queue/start", kind: "request", group: "thread", status: "available" },
+  { method: "thread/queue/update", kind: "request", group: "thread", status: "available" },
+  { method: "threadSection/create", kind: "request", group: "thread", status: "available" },
+  { method: "threadSection/delete", kind: "request", group: "thread", status: "available" },
+  { method: "threadSection/list", kind: "request", group: "thread", status: "available" },
+  { method: "threadSection/update", kind: "request", group: "thread", status: "available" },
+
+  { method: "turn/start", kind: "request", group: "turn", status: "used" },
+  { method: "turn/steer", kind: "request", group: "turn", status: "available" },
+  { method: "turn/interrupt", kind: "request", group: "turn", status: "used" },
+
+  { method: "thread/realtime/start", kind: "request", group: "realtime", status: "available" },
+  { method: "thread/realtime/appendAudio", kind: "request", group: "realtime", status: "available" },
+  { method: "thread/realtime/appendText", kind: "request", group: "realtime", status: "available" },
+  { method: "thread/realtime/appendSpeech", kind: "request", group: "realtime", status: "available" },
+  { method: "thread/realtime/stop", kind: "request", group: "realtime", status: "available" },
+  { method: "thread/realtime/listVoices", kind: "request", group: "realtime", status: "available" },
+
+  { method: "review/start", kind: "request", group: "review", status: "available" },
+  { method: "model/list", kind: "request", group: "models", status: "available" },
+  { method: "permissionProfile/list", kind: "request", group: "approval", status: "used" },
+  {
+    method: "modelProvider/capabilities/read",
+    kind: "request",
+    group: "models",
+    status: "available"
+  },
+  { method: "experimentalFeature/list", kind: "request", group: "config", status: "available" },
+  { method: "experimentalFeature/enablement/set", kind: "request", group: "config", status: "available" },
+  { method: "remoteControl/enable", kind: "request", group: "remoteControl", status: "available" },
+  { method: "remoteControl/disable", kind: "request", group: "remoteControl", status: "available" },
+  { method: "remoteControl/status/read", kind: "request", group: "remoteControl", status: "available" },
+  { method: "remoteControl/pairing/start", kind: "request", group: "remoteControl", status: "available" },
+  { method: "remoteControl/pairing/status", kind: "request", group: "remoteControl", status: "available" },
+  { method: "remoteControl/client/list", kind: "request", group: "remoteControl", status: "available" },
+  { method: "remoteControl/client/revoke", kind: "request", group: "remoteControl", status: "available" },
+  {
+    method: "collaborationMode/list",
+    kind: "request",
+    group: "collaboration",
+    status: "restricted",
+    notes: "Observed, but local app-server returned requires experimentalApi capability."
+  },
+  { method: "mock/experimentalMethod", kind: "request", group: "config", status: "restricted" },
+
+  { method: "skills/list", kind: "request", group: "skills", status: "available" },
+  { method: "skills/extraRoots/set", kind: "request", group: "skills", status: "available" },
+  { method: "hooks/list", kind: "request", group: "hooks", status: "available" },
+  { method: "skills/config/write", kind: "request", group: "skills", status: "available" },
+  { method: "marketplace/add", kind: "request", group: "marketplace", status: "available" },
+  { method: "marketplace/remove", kind: "request", group: "marketplace", status: "available" },
+  { method: "marketplace/upgrade", kind: "request", group: "marketplace", status: "available" },
+  { method: "plugin/list", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/installed", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/read", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/skill/read", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/share/save", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/share/updateTargets", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/share/list", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/share/checkout", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/share/delete", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/install", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/search", kind: "request", group: "plugins", status: "available" },
+  { method: "plugin/uninstall", kind: "request", group: "plugins", status: "available" },
+  { method: "app/list", kind: "request", group: "apps", status: "available" },
+  {
+    method: "app/read",
+    kind: "request",
+    group: "apps",
+    status: "available",
+    notes: "Official manual says it fetches metadata and optional display-only tool summaries for app ids."
+  },
+  {
+    method: "app/installed",
+    kind: "request",
+    group: "apps",
+    status: "available",
+    notes: "Official manual says it reads installed app runtime state, including effective enabled/callable state."
+  },
+
+  { method: "fs/readFile", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/writeFile", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/createDirectory", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/getMetadata", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/readDirectory", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/remove", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/copy", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/watch", kind: "request", group: "filesystem", status: "available" },
+  { method: "fs/unwatch", kind: "request", group: "filesystem", status: "available" },
+
+  { method: "mcpServer/oauth/login", kind: "request", group: "mcp", status: "available" },
+  { method: "config/mcpServer/reload", kind: "request", group: "mcp", status: "available" },
+  { method: "mcpServerStatus/list", kind: "request", group: "mcp", status: "available" },
+  { method: "mcpServer/resource/read", kind: "request", group: "mcp", status: "available" },
+  { method: "mcpServer/tool/call", kind: "request", group: "mcp", status: "available" },
+  { method: "environment/add", kind: "request", group: "environment", status: "available" },
+  { method: "environment/info", kind: "request", group: "environment", status: "available" },
+  {
+    method: "environment/status",
+    kind: "request",
+    group: "environment",
+    status: "available",
+    notes: "Discovered in the 0.146.0 runtime unknown-method response; absent from generated TypeScript bindings."
+  },
+
+  { method: "windowsSandbox/setupStart", kind: "request", group: "sandbox", status: "available" },
+  { method: "windowsSandbox/readiness", kind: "request", group: "sandbox", status: "available" },
+  { method: "account/login/start", kind: "request", group: "account", status: "available" },
+  { method: "account/login/cancel", kind: "request", group: "account", status: "available" },
+  { method: "account/gatewayOAuth/read", kind: "request", group: "account", status: "available" },
+  { method: "account/gatewayOAuth/login", kind: "request", group: "account", status: "available" },
+  { method: "account/gatewayOAuth/cancel", kind: "request", group: "account", status: "available" },
+  { method: "userVerification/status", kind: "request", group: "approval", status: "available" },
+  { method: "userVerification/enroll", kind: "request", group: "approval", status: "available" },
+  { method: "userVerification/delete", kind: "request", group: "approval", status: "available" },
+  { method: "userVerification/verify", kind: "request", group: "approval", status: "available" },
+  { method: "userVerification/cancel", kind: "request", group: "approval", status: "available" },
+  { method: "account/bedrock/discover", kind: "request", group: "account", status: "available" },
+  { method: "account/bedrock/setup", kind: "request", group: "account", status: "available" },
+  { method: "account/logout", kind: "request", group: "account", status: "available" },
+  { method: "account/rateLimits/read", kind: "request", group: "account", status: "used" },
+  {
+    method: "account/rateLimitResetCredit/consume",
+    kind: "request",
+    group: "account",
+    status: "available"
+  },
+  { method: "account/usage/read", kind: "request", group: "account", status: "available" },
+  {
+    method: "account/workspaceMessages/read",
+    kind: "request",
+    group: "account",
+    status: "available"
+  },
+  {
+    method: "account/sendAddCreditsNudgeEmail",
+    kind: "request",
+    group: "account",
+    status: "available"
+  },
+  { method: "account/read", kind: "request", group: "account", status: "used" },
+  { method: "feedback/upload", kind: "request", group: "feedback", status: "available" },
+
+  { method: "command/exec", kind: "request", group: "commands", status: "available" },
+  { method: "command/exec/write", kind: "request", group: "commands", status: "available" },
+  { method: "command/exec/terminate", kind: "request", group: "commands", status: "available" },
+  { method: "command/exec/resize", kind: "request", group: "commands", status: "available" },
+  { method: "process/spawn", kind: "request", group: "process", status: "available" },
+  { method: "process/writeStdin", kind: "request", group: "process", status: "available" },
+  { method: "process/kill", kind: "request", group: "process", status: "available" },
+  { method: "process/resizePty", kind: "request", group: "process", status: "available" },
+
+  { method: "project/create", kind: "request", group: "project", status: "available" },
+  { method: "project/delete", kind: "request", group: "project", status: "available" },
+  { method: "project/import", kind: "request", group: "project", status: "available" },
+  { method: "project/list", kind: "request", group: "project", status: "available" },
+  { method: "project/move", kind: "request", group: "project", status: "available" },
+  { method: "project/read", kind: "request", group: "project", status: "available" },
+  { method: "project/update", kind: "request", group: "project", status: "available" },
+
+  {
+    method: "server/diagnostics",
+    kind: "request",
+    group: "lifecycle",
+    status: "available",
+    notes: "Observed in Codex CLI 0.149.1; candidate for richer bridge diagnostics/status output."
+  },
+
+  { method: "config/read", kind: "request", group: "config", status: "used" },
+  { method: "config/value/write", kind: "request", group: "config", status: "available" },
+  { method: "config/batchWrite", kind: "request", group: "config", status: "available" },
+  { method: "configRequirements/read", kind: "request", group: "config", status: "available" },
+  { method: "externalAgentConfig/detect", kind: "request", group: "config", status: "available" },
+  { method: "externalAgentConfig/import", kind: "request", group: "config", status: "available" },
+  {
+    method: "externalAgentConfig/import/recordHistory",
+    kind: "request",
+    group: "config",
+    status: "available",
+    notes: "Generated TypeScript bindings include ExternalAgentConfigImportHistoryRecordParams."
+  },
+  {
+    method: "externalAgentConfig/import/readHistories",
+    kind: "request",
+    group: "config",
+    status: "available"
+  },
+
+  { method: "getConversationSummary", kind: "request", group: "thread", status: "available" },
+  { method: "gitDiffToRemote", kind: "request", group: "git", status: "available" },
+  { method: "getAuthStatus", kind: "request", group: "account", status: "available" },
+  { method: "fuzzyFileSearch", kind: "request", group: "search", status: "available" },
+  { method: "fuzzyFileSearch/sessionStart", kind: "request", group: "search", status: "available" },
+  { method: "fuzzyFileSearch/sessionUpdate", kind: "request", group: "search", status: "available" },
+  { method: "fuzzyFileSearch/sessionStop", kind: "request", group: "search", status: "available" },
+
+  { method: "mcpServer/elicitation/request", kind: "serverRequest", group: "approval", status: "used" },
+  { method: "item/commandExecution/requestApproval", kind: "serverRequest", group: "approval", status: "used" },
+  { method: "item/fileChange/requestApproval", kind: "serverRequest", group: "approval", status: "used" },
+  { method: "item/permissions/requestApproval", kind: "serverRequest", group: "approval", status: "used" },
+  { method: "item/tool/requestUserInput", kind: "serverRequest", group: "approval", status: "observed" },
+
+  { method: "item/completed", kind: "notification", group: "events", status: "used" },
+  { method: "item/started", kind: "notification", group: "events", status: "used" },
+  { method: "thread/started", kind: "notification", group: "events", status: "observed" },
+  { method: "thread/name/updated", kind: "notification", group: "events", status: "used" },
+  { method: "thread/status/changed", kind: "notification", group: "events", status: "used" },
+  { method: "thread/archived", kind: "notification", group: "events", status: "used" },
+  { method: "thread/deleted", kind: "notification", group: "events", status: "used" },
+  { method: "thread/unarchived", kind: "notification", group: "events", status: "used" },
+  { method: "thread/tokenUsage/updated", kind: "notification", group: "events", status: "used" },
+  { method: "account/rateLimits/updated", kind: "notification", group: "events", status: "used" },
+  { method: "skills/changed", kind: "notification", group: "events", status: "observed" },
+  { method: "item/reasoning/summaryTextDelta", kind: "notification", group: "events", status: "used" },
+  { method: "item/reasoning/summaryPartAdded", kind: "notification", group: "events", status: "used" },
+  { method: "turn/started", kind: "notification", group: "events", status: "used" },
+  { method: "turn/completed", kind: "notification", group: "events", status: "used" },
+  { method: "thread/queue/changed", kind: "notification", group: "events", status: "observed" },
+  { method: "hook/started", kind: "notification", group: "events", status: "observed" },
+  { method: "hook/completed", kind: "notification", group: "events", status: "observed" },
+  { method: "thread/goal/cleared", kind: "notification", group: "events", status: "observed" },
+  { method: "thread/goal/updated", kind: "notification", group: "events", status: "observed" },
+  { method: "thread/compacted", kind: "notification", group: "events", status: "used" },
+  { method: "model/rerouted", kind: "notification", group: "events", status: "used" },
+  { method: "model/verification", kind: "notification", group: "events", status: "used" },
+  { method: "turn/diff/updated", kind: "notification", group: "events", status: "observed" },
+  { method: "serverRequest/resolved", kind: "notification", group: "events", status: "used" },
+  { method: "codex/event/stream_error", kind: "notification", group: "events", status: "used" },
+  { method: "codex/event/error", kind: "notification", group: "events", status: "used" },
+  { method: "error", kind: "notification", group: "events", status: "used" },
+  { method: "item/fileChange/patchUpdated", kind: "notification", group: "events", status: "used", notes: "Structured file-change snapshots used for live edit previews." },
+  { method: "item/fileChange/outputDelta", kind: "notification", group: "events", status: "observed" },
+  { method: "item/commandExecution/outputDelta", kind: "notification", group: "events", status: "observed" },
+  { method: "item/commandExecution/terminalInteraction", kind: "notification", group: "events", status: "observed" },
+  { method: "mcpServer/startupStatus/updated", kind: "notification", group: "events", status: "observed" },
+  { method: "mcpServer/oauthLogin/completed", kind: "notification", group: "events", status: "used" },
+  { method: "remoteControl/status/changed", kind: "notification", group: "events", status: "observed" },
+  { method: "item/agentMessage/delta", kind: "notification", group: "events", status: "observed" },
+  { method: "item/agentMessage/contentDelta", kind: "notification", group: "events", status: "observed" },
+
+  { method: "listConversations", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "resumeConversation", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "sendUserMessage", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "sendUserTurn", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "interruptConversation", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "addConversationListener", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "removeConversationListener", kind: "legacy", group: "legacy", status: "unsupportedLegacy" },
+  { method: "newConversation", kind: "legacy", group: "legacy", status: "unsupportedLegacy" }
+] as const satisfies readonly AppServerMethodCapability[];
+
+export type AppServerKnownMethod = (typeof APP_SERVER_METHODS)[number]["method"];
+
+const APP_SERVER_METHOD_CAPABILITIES = new Map<string, AppServerMethodCapability>(
+  APP_SERVER_METHODS.map((capability) => [capability.method, capability])
+);
+
+export function isKnownAppServerMethod(method: string): method is AppServerKnownMethod {
+  return APP_SERVER_METHOD_CAPABILITIES.has(method);
+}
+
+export function getAppServerMethodCapability(
+  method: string
+): AppServerMethodCapability | null {
+  return APP_SERVER_METHOD_CAPABILITIES.get(method) ?? null;
+}
+
+export function listAppServerMethodCapabilities(filter?: {
+  kind?: AppServerMethodKind;
+  group?: AppServerMethodGroup;
+  status?: AppServerMethodStatus;
+}): AppServerMethodCapability[] {
+  return APP_SERVER_METHODS.filter((capability) => {
+    if (filter?.kind && capability.kind !== filter.kind) {
+      return false;
+    }
+    if (filter?.group && capability.group !== filter.group) {
+      return false;
+    }
+    if (filter?.status && capability.status !== filter.status) {
+      return false;
+    }
+    return true;
+  });
+}
