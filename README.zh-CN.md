@@ -121,6 +121,11 @@ Web UI 没有用户账号或面向公网的认证层。请只监听本机或可�
 
 直接启动时使用 `.env`；使用 PM2 或 Windows 服务脚本时使用 `.env.bridge`。
 
+详细配置步骤：
+
+- [Telegram Bot 配置指南（英文）](docs/telegram-setup.md)
+- [Slack App 配置指南（英文）](docs/slack-setup.md)
+
 Telegram：
 
 - 设置 `TELEGRAM_BOT_TOKEN`。

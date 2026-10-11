@@ -32,6 +32,9 @@ access; the Web UI is not an internet-facing authenticated service.
 
 ## Telegram
 
+For the complete BotFather, allowlist, and verification workflow, see
+[Telegram setup](telegram-setup.md).
+
 ```dotenv
 TELEGRAM_BOT_TOKEN=<token>
 TELEGRAM_ALLOWED_CHAT_IDS=<optional-comma-separated-ids>
@@ -51,6 +54,9 @@ Available commands:
 - `/bot_restart` when running under PM2
 
 ## Slack
+
+For the complete Socket Mode, OAuth scope, event, and verification workflow,
+see [Slack setup](slack-setup.md).
 
 ```dotenv
 SLACK_ENABLED=true

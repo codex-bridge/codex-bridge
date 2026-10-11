@@ -130,6 +130,11 @@ Useful behavior to know:
 Use `.env` for direct starts, or `.env.bridge` with the PM2 and Windows service
 helpers.
 
+Detailed setup:
+
+- [Telegram bot setup](docs/telegram-setup.md)
+- [Slack app setup](docs/slack-setup.md)
+
 Telegram:
 
 - Set `TELEGRAM_BOT_TOKEN`.
