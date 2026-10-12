@@ -12,6 +12,7 @@ import { logger } from "../logging/logger.js";
 import { encodeSlackCallbackValue } from "./callback.js";
 import { renderSlackMessageSpec } from "./message-renderer.js";
 import { messageTransportPlatform } from "../shared/source-address.js";
+import { SlackThreadDelivery } from "./thread-delivery.js";
 
 type SlackChatRef = {
   channelId: string;
@@ -48,11 +49,12 @@ export function parseSlackChatId(chatId: string): SlackChatRef | null {
 
 export class SlackMessageTransport implements BridgeMessageTransport {
   readonly name = "slack";
+  private readonly delivery: SlackThreadDelivery;
 
   constructor(
     private readonly client: WebClient,
     private readonly callbackSecret: string | null = null
-  ) {}
+  ) { this.delivery = new SlackThreadDelivery(client); }
 
   canHandle(chatId: string): boolean {
     return messageTransportPlatform(chatId) === "slack";
@@ -72,23 +74,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     options?: BridgeMessageOptions
   ): Promise<BridgeSentMessage | null> {
     const ref = this.requireSlackChatRef(chatId);
-    const startedAt = Date.now();
-    const response = await this.client.chat.postMessage({
-      channel: ref.channelId,
-      text,
-      thread_ts: ref.threadTs ?? undefined,
-      blocks: this.buildBlocks(chatId, text, options)
-    });
-    const messageId = response.ts ?? null;
-    logger.info("slack.message.send", {
-      channelId: ref.channelId,
-      chatId,
-      messageId,
-      purpose: options?.purpose ?? null,
-      threadTs: ref.threadTs,
-      elapsedMs: Date.now() - startedAt
-    });
-    return messageId ? { message_id: messageId } : null;
+    return this.delivery.send(chatId, ref, { text, blocks: this.buildBlocks(chatId, text, options) }, options);
   }
 
   async editMessageText(
@@ -98,22 +84,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     options?: BridgeMessageOptions
   ): Promise<boolean> {
     const ref = this.requireSlackChatRef(chatId);
-    const startedAt = Date.now();
-    await this.client.chat.update({
-      channel: ref.channelId,
-      ts: messageId,
-      text,
-      blocks: this.buildBlocks(chatId, text, options)
-    });
-    logger.info("slack.message.edit", {
-      channelId: ref.channelId,
-      chatId,
-      messageId,
-      purpose: options?.purpose ?? null,
-      threadTs: ref.threadTs,
-      elapsedMs: Date.now() - startedAt
-    });
-    return true;
+    return this.delivery.edit(chatId, ref, messageId, { text, blocks: this.buildBlocks(chatId, text, options) }, options);
   }
 
   async editMessageSpec(

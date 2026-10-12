@@ -1,10 +1,16 @@
 import type { MessageSpec } from "./messages/types.js";
 
+/** Only separately authored, minimal notices may escape an unavailable thread. */
+export type UnavailableThreadNotice =
+  | { kind: "management"; text: string }
+  | { kind: "action-required" };
+
 export type BridgeMessageOptions = {
   disable_notification?: boolean;
   formattedText?: string;
   messageSpec?: MessageSpec;
   purpose?: string;
+  unavailableThreadNotice?: UnavailableThreadNotice;
   textFormat?: "plain" | "html";
 };
 

@@ -98,7 +98,9 @@ test("slow activation cannot restore an older selection or expose its history", 
 test("Slack parent cards are edited in place without operational buttons, and missing parents are not recreated", async () => {
   const edits: Array<{ channel: string; ts: string; blocks?: Array<{ type: string }> }> = [];
   let missing = false;
-  const transport = new SlackMessageTransport({ chat: {
+  const transport = new SlackMessageTransport({ conversations: {
+    history: async () => ({ ok: true, messages: [{ ts: "next" }] })
+  }, chat: {
     update: async (input: typeof edits[number]) => { edits.push(input); if (missing) throw new Error("message_not_found"); return {}; },
     postMessage: async () => { throw new Error("Must not recreate parent"); }
   } } as unknown as WebClient);
@@ -117,6 +119,7 @@ test("binding in a chat permits the next text immediately and refreshes both own
   const store = new BridgeStore(":memory:");
   t.after(() => store.close());
   const sentTo: string[] = [];
+  const notices: Array<{ source: string; options?: import("../src/bridge/transport.js").BridgeMessageOptions }> = [];
   const cards = new Map<string, MessageSpec>();
   const service = new BridgeService(testConfig(":memory:"), store, {
     sendTurn: async (threadId: string) => { sentTo.push(threadId); return { turnId: "turn" }; }
@@ -124,7 +127,8 @@ test("binding in a chat permits the next text immediately and refreshes both own
   (service as unknown as { runtimeState: string }).runtimeState = "connected";
   service.registerMessageTransport({ name: "slack", canHandle: () => true,
     updateConversationSession: async (source, message) => { cards.set(source, message); },
-    sendMessage: async () => ({ message_id: "sent" }), editMessageText: async () => true,
+    sendMessage: async (source, _text, options) => { notices.push({ source, options }); return { message_id: "sent" }; },
+    editMessageText: async () => true,
     deleteMessage: async () => true, clearMessageActions: async () => true, sendTyping: async () => {} });
   const target = await store.upsertDiscoveredSession({ telegramChatId: old, codexThreadId: "target", pathKey: "/target" });
   const previous = await store.upsertDiscoveredSession({ telegramChatId: next, codexThreadId: "previous", pathKey: "/previous" });
@@ -133,6 +137,7 @@ test("binding in a chat permits the next text immediately and refreshes both own
   store.claimSession(previous.id, next);
   await store.selectSession(next, previous.id);
   await service.requestSessionHandoff(next, target.id);
+  assert.ok(notices.some((notice) => notice.source === old && notice.options?.unavailableThreadNotice?.kind === "management"));
   assert.equal((await service.handleIncomingUserText({ telegramChatId: next, telegramMessageId: "input", text: "hello" })).routed, true);
   assert.deepEqual(sentTo, ["target"]);
   const fields = (source: string) => cards.get(source)?.body.filter((part) => part.type === "field");

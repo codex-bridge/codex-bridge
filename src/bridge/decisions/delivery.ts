@@ -70,7 +70,8 @@ export class DecisionDeliveryService {
     const messageSpec = this.deps.createDecisionMessageSpec(session, decision, actions);
     const sent = await this.deps.sendMessageSpec(
       targetChatId,
-      messageSpec
+      messageSpec,
+      { unavailableThreadNotice: { kind: "action-required" } }
     );
     if (sent) {
       await this.deps.store.updateDecisionMessageTarget(
@@ -142,7 +143,8 @@ export class DecisionDeliveryService {
       messageSpec.session = { id: latestSession.id, directory: latestSession.pathKey };
       const sent = await this.deps.sendMessageSpec(
         ownerSourceId,
-        messageSpec
+        messageSpec,
+        { unavailableThreadNotice: { kind: "action-required" } }
       );
       if (sent) await this.deps.store.updateSessionBatchDecisionMessageId(latestSession.id, String(sent.message_id));
     });

@@ -11,8 +11,10 @@ for (const kind of ["Codex", "Called", "Edited"]) {
   const body = kind === "Called" ? "mcp__test__read\nRead complete." : "Result `file.ts`";
   test(`Slack ${kind} subagent header is bold and remains inside the originating thread`, async () => {
     let payload: Record<string, unknown> | undefined;
-    const client = { chat: { postMessage: async (value: Record<string, unknown>) => {
-      payload = value; return { ts: "2.0001" };
+    const client = { conversations: {
+      history: async () => ({ ok: true, messages: [{ ts: "1.0001" }] })
+    }, chat: { postMessage: async (value: Record<string, unknown>) => {
+      payload = value; return { channel: "C", ts: "2.0001", message: { thread_ts: "1.0001" } };
     } } } as unknown as WebClient;
     await new SlackMessageTransport(client).sendMessage("slack:T:C:1.0001", `${title}\n${body}`, { textFormat: "html" });
     assert.equal(payload?.channel, "C");

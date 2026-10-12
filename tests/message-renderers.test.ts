@@ -42,10 +42,11 @@ test("Codex update has the same concise content on Slack and Telegram", () => {
 test("Slack renders an explicit message spec without inferring actions from text", async () => {
   let payload: Record<string, unknown> | undefined;
   const client = {
+    conversations: { history: async () => ({ ok: true, messages: [{ ts: "1.0001" }] }) },
     chat: {
       postMessage: async (value: Record<string, unknown>) => {
         payload = value;
-        return { ts: "2.0001" };
+        return { channel: "C", ts: "2.0001", message: { thread_ts: "1.0001" } };
       }
     }
   } as unknown as WebClient;

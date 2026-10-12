@@ -18,8 +18,12 @@ function fixture() {
   const telegram = new TelegramMessageTransport({ api: {
     sendRichMessage: async (chatId: string) => { calls.push(`telegram:${chatId}`); return { message_id: 1 }; }
   } } as unknown as Bot, (text) => text);
-  const slack = new SlackMessageTransport({ chat: {
-    postMessage: async ({ channel }: { channel: string }) => { calls.push(`slack:${channel}`); return { ts: "1.0" }; }
+  const slack = new SlackMessageTransport({ conversations: {
+    history: async () => ({ ok: true, messages: [{ ts: "123.456" }] })
+  }, chat: {
+    postMessage: async ({ channel, thread_ts }: { channel: string; thread_ts?: string }) => {
+      calls.push(`slack:${channel}`); return { channel, ts: "1.0", message: { thread_ts } };
+    }
   } } as unknown as WebClient);
   const store = new BridgeStore(":memory:");
   const web = new WebMessageTransport(store);

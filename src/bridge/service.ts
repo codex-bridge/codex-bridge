@@ -279,7 +279,8 @@ export class BridgeService {
         await this.messageOperations.sendLongSpec(event.sourceId, createMessage({
           kind: "system", session: { id: event.threadId, directory: event.directory },
           body: [{ type: "text", text: bindingEventText(event) }]
-        }), { disable_notification: true });
+        }), { disable_notification: true,
+          unavailableThreadNotice: { kind: "management", text: bindingEventText(event) } });
       }
     });
     this.sessionMutationService = new SessionMutationService({
@@ -669,7 +670,7 @@ export class BridgeService {
       sessionOwnershipService: this.sessionOwnershipService,
       decisionDelivery: this.decisionDelivery,
       createMcpInputPromptSpec: (session, decision) => this.runtimePromptFactory.createMcpInput(session, decision),
-      sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
+      sendLongSpec: (chatId, messageSpec, options) => this.messageOperations.sendLongSpec(chatId, messageSpec, options)
     });
     this.compactService = new CompactService({
       store,

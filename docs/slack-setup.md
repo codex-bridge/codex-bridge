@@ -69,6 +69,19 @@ button, select-menu, and modal payloads without a public Request URL. Bridge
 uses these payloads for session actions, approvals, queue input, and runtime
 controls.
 
+Session choices belong to each conversation, even while another conversation
+owns the session. A handoff completes the current choice; selecting a different
+session does not interrupt work already accepted in the previous one.
+
+If a thread's parent message was deleted, Bridge does not recreate it. Conversation
+content, history, tool results, and detailed errors stay thread-only. Minimal
+binding notices may appear at channel root. Approval or input requests may produce
+a separate root reminder to rebind and review, without request details or buttons.
+Bridge checks the parent before sending and verifies Slack's returned destination.
+If deletion races the check and content lands at root, Bridge attempts to retract
+that exact message and logs any failure. This is not an atomic delivery guarantee.
+Unverified parents and uncertain send outcomes are not automatically retried.
+
 Slash commands are optional. If enabled, create only commands that Bridge
 recognizes, such as `/codex`, `/sessions`, `/session_new`, `/goals`,
 `/codex_status`, `/codex_status_full`, `/codex-interrupt`, or `/compact`.

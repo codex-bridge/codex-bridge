@@ -6,6 +6,7 @@ import { helpAction } from "../messages/actions.js";
 import { createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
+import type { BridgeMessageOptions } from "../transport.js";
 import { SessionOwnershipService } from "../sessions/ownership.js";
 import {
   buildAwaitingMcpPrompt,
@@ -33,7 +34,7 @@ export type DecisionCommandDependencies = {
     "clearDecisionMessageActions" | "syncBatchDecisionMessage" | "syncBatchDecisionMessageForSessionId"
   >;
   createMcpInputPromptSpec: (session: SessionRecord, decision: DecisionRecord) => MessageSpec;
-  sendLongSpec: (chatId: string, messageSpec: MessageSpec) => Promise<void>;
+  sendLongSpec: (chatId: string, messageSpec: MessageSpec, options?: BridgeMessageOptions) => Promise<void>;
 };
 
 export class DecisionCommandService {
@@ -118,7 +119,8 @@ export class DecisionCommandService {
           chatId: decision.telegramChatId,
           fields: getDecisionRequestedFields(decision)
         });
-        await this.deps.sendLongSpec(decision.telegramChatId, promptSpec);
+        await this.deps.sendLongSpec(decision.telegramChatId, promptSpec,
+          { unavailableThreadNotice: { kind: "action-required" } });
         return { ok: true, message: "Awaiting MCP JSON input." };
       }
 

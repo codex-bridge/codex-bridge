@@ -5,6 +5,7 @@ import { DecisionDeliveryService } from "../src/bridge/decisions/delivery.js";
 import { createMessage } from "../src/bridge/messages/factory.js";
 import type { MessageSpec } from "../src/bridge/messages/types.js";
 import type { DecisionRecord, SessionRecord } from "../src/shared/types.js";
+import type { BridgeMessageOptions } from "../src/bridge/transport.js";
 
 function session(chatId: string): SessionRecord {
   return {
@@ -38,8 +39,9 @@ function decision(chatId: string, messageId: string | null): DecisionRecord {
   };
 }
 
-function createDeliveryHarness() {
+function createDeliveryHarness(delivered = true) {
   const sent: string[] = [];
+  const sentOptions: Array<BridgeMessageOptions | undefined> = [];
   const deleted: string[] = [];
   const edited: string[] = [];
   const updatedTargets: Array<{ decisionId: string; chatId: string; messageId: string }> = [];
@@ -78,9 +80,10 @@ function createDeliveryHarness() {
       actions
     }),
     getExecpolicyAmendment: () => null,
-    sendMessageSpec: async (chatId) => {
+    sendMessageSpec: async (chatId, _spec, options) => {
       sent.push(chatId);
-      return { message_id: String(nextMessageId++) };
+      sentOptions.push(options);
+      return delivered ? { message_id: String(nextMessageId++) } : null;
     },
     editMessageSpec: async (chatId, messageId) => {
       edited.push(`${chatId}/${messageId}`);
@@ -88,7 +91,7 @@ function createDeliveryHarness() {
     }
   });
 
-  return { service, sent, deleted, edited, updatedTargets };
+  return { service, sent, sentOptions, deleted, edited, updatedTargets };
 }
 
 test("does not resend a pending decision to the same Slack thread", async () => {
@@ -115,9 +118,17 @@ test("retires the old decision message when a session moves to another Slack thr
   assert.deepEqual(harness.deleted, []);
   assert.deepEqual(harness.edited, ["slack:T:C:100.1/42"]);
   assert.deepEqual(harness.sent, ["slack:T:C:100.2"]);
+  assert.deepEqual(harness.sentOptions, [{ unavailableThreadNotice: { kind: "action-required" } }]);
   assert.deepEqual(harness.updatedTargets, [{
     decisionId: "decision-1",
     chatId: "slack:T:C:100.2",
     messageId: "100"
   }]);
+});
+
+test("an undelivered decision with a separate root reminder is not attached as an actionable card", async () => {
+  const harness = createDeliveryHarness(false);
+  await harness.service.sendDecisionMessage(session("slack:T:C:100.2"), decision("slack:T:C:100.2", null));
+  assert.deepEqual(harness.sentOptions, [{ unavailableThreadNotice: { kind: "action-required" } }]);
+  assert.deepEqual(harness.updatedTargets, []);
 });

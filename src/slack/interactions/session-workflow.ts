@@ -16,6 +16,7 @@ import type { BridgeMessageOptions } from "../../bridge/transport.js";
 import { logger } from "../../logging/logger.js";
 import { isLockedSlackThread, isSlackThreadChatId } from "../routing.js";
 import type { SlackMessageTransport } from "../transport.js";
+import { isSlackConversationAnchor } from "./context.js";
 
 type SessionWorkflowAction =
   | { type: "session.create-current" }
@@ -104,7 +105,7 @@ export async function handleSlackSessionWorkflow(input: {
         : await service.activateSessionFromSelector(chatId, action.sessionId);
     } catch (error) {
       if (!(error instanceof SessionActivationError)) throw error;
-      if (context.conversationId !== context.surfaceId) {
+      if (context.conversationId !== context.surfaceId || isSlackConversationAnchor(context)) {
         await transport.sendMessageSpec(context.conversationId, error.messageSpec);
       } else {
         await updateSpec(error.messageSpec);
@@ -112,21 +113,13 @@ export async function handleSlackSessionWorkflow(input: {
       return true;
     }
     const { session, recentMessages } = activation;
-    const selectionActions = isSlackThreadChatId(context.surfaceId)
-      ? await renderSelectedSessionActions(service, chatId, session)
-      : [];
-    const messageSpec = await service.renderSelectedSessionSpec(session, selectionActions);
-    if (context.sourceMessageId) {
-      await transport.editMessageSpec(
-        context.surfaceId,
-        context.sourceMessageId,
-        messageSpec
-      );
-    } else {
-      await transport.sendMessageSpec(
-        context.surfaceId,
-        messageSpec
-      );
+    // The state-change hook already refreshed this anchor with current binding data.
+    // Do not overwrite it with a receipt or an older delayed activation result.
+    if (!isSlackConversationAnchor(context)) {
+      const selectionActions = isSlackThreadChatId(context.surfaceId)
+        ? await renderSelectedSessionActions(service, chatId, session)
+        : [];
+      await updateSpec(await service.renderSelectedSessionSpec(session, selectionActions));
     }
     await service.postSessionSwitchTranscript(chatId, session, recentMessages, {
       ...(action.legacySection ? { heading: "Switched to section" } : {})

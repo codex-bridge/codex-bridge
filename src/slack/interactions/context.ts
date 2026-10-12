@@ -9,6 +9,12 @@ export type SlackActionSource = {
   threadTs: string | null;
 };
 
+/** The selection anchor is maintained by Bridge state changes, not action receipts. */
+export function isSlackConversationAnchor(context: InteractionContext): boolean {
+  const parentTs = parseSlackChatId(context.conversationId)?.threadTs;
+  return Boolean(parentTs && context.sourceMessageId === parentTs);
+}
+
 function isFinalSessionSelectionAction(action: string): boolean {
   return action.startsWith("section:") ||
     (action.startsWith("session:") && !action.startsWith("session-dir:") && !action.startsWith("session-page:"));

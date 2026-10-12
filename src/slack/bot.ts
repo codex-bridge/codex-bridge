@@ -5,6 +5,7 @@ import {
   type SlackActionMiddlewareArgs
 } from "@slack/bolt";
 import type { KnownBlock } from "@slack/types";
+import { WebClient } from "@slack/web-api";
 
 import type { BridgeSlackBotPort } from "../bridge/contracts.js";
 import { helpAction, sessionAction } from "../bridge/messages/actions.js";
@@ -112,7 +113,10 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): S
     socketMode: true,
     token: slackConfig.botToken
   });
-  const transport = new SlackMessageTransport(app.client, config.bridgeCallbackSecret);
+  // A timed-out write may already have succeeded. Do not automatically repeat it.
+  const transport = new SlackMessageTransport(new WebClient(slackConfig.botToken, {
+    retryConfig: { retries: 0 }, rejectRateLimitedCalls: true, timeout: 10_000
+  }), config.bridgeCallbackSecret);
   service.registerMessageTransport(transport);
 
   let botUserId: string | null = null;
