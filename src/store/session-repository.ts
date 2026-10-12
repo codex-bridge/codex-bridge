@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 
 import { chatsTable, sessionsTable } from "./schema.js";
 import { parseSourceAddress } from "../shared/source-address.js";
+import { recordSessionSelection } from "./session-selection.js";
 import type { SessionRecord } from "../shared/types.js";
 
 function now(): number {
@@ -421,18 +422,21 @@ export class SessionRepository {
   }
 
   async selectSession(telegramChatId: string, sessionId: string): Promise<SessionRecord> {
-    const session = await this.getById(sessionId);
-    if (!session) throw new Error(`Unknown session: ${sessionId}`);
-    this.ensureLegacyBinding(sessionId, telegramChatId);
-    await this.ensureChat(telegramChatId);
-    await this.db.update(chatsTable).set({ activeSessionId: sessionId, updatedAt: now() })
-      .where(eq(chatsTable.telegramChatId, telegramChatId)).run();
-    return session;
+    // Keep the write synchronous so a slow activation cannot overwrite a newer selection.
+    return this.sqlite.transaction(() => {
+      const row = this.sqlite.prepare("SELECT * FROM sessions WHERE id = ? AND codex_archived_at IS NULL")
+        .get(sessionId) as Parameters<typeof asSessionRecordFromSql>[0] | undefined;
+      if (!row) throw new Error(`Unknown or archived session: ${sessionId}`);
+      this.ensureLegacyBinding(sessionId, telegramChatId);
+      recordSessionSelection(this.sqlite, telegramChatId, sessionId);
+      return asSessionRecordFromSql(row);
+    }).immediate();
   }
 
-  async clearActiveSession(telegramChatId: string): Promise<void> {
-    await this.ensureChat(telegramChatId);
-    await this.db.update(chatsTable).set({ activeSessionId: null, updatedAt: now() }).where(eq(chatsTable.telegramChatId, telegramChatId)).run();
+  async clearActiveSession(telegramChatId: string, expectedSessionId?: string): Promise<void> {
+    this.sqlite.prepare(`UPDATE chats SET active_session_id = NULL, updated_at = ?
+      WHERE telegram_chat_id = ? AND (? IS NULL OR active_session_id = ?)`)
+      .run(now(), telegramChatId, expectedSessionId ?? null, expectedSessionId ?? null);
   }
 
   async touchSession(sessionId: string): Promise<void> {

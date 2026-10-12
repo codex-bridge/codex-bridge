@@ -47,4 +47,6 @@ export interface BridgeMessageTransport {
     contentBlocks?: unknown[]
   ): Promise<boolean>;
   sendTyping(chatId: string): Promise<void>;
+  /** Refresh an existing conversation anchor; never create a missing one. */
+  updateConversationSession?(chatId: string, messageSpec: MessageSpec): Promise<void>;
 }

@@ -179,6 +179,7 @@ export class BridgeService {
     return this.notificationSessionRouter.compatibilityMap;
   }
   private readonly turnRouteQueue = new KeyedQueue();
+  private readonly sessionCardQueue = new KeyedQueue();
   private webMessageTransport: WebMessageTransport | null = null;
   private readonly notificationDeliveryTargets: NotificationDeliveryTargets;
   private readonly notificationQueue = new KeyedQueue();
@@ -272,6 +273,7 @@ export class BridgeService {
       store,
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
+      onStateChanged: (sourceId) => this.updateConversationSession(sourceId),
       notify: async (event) => {
         if (event.sourceId === WEB_SOURCE_ID) return; // Web uses metadata-only SSE events.
         await this.messageOperations.sendLongSpec(event.sourceId, createMessage({
@@ -282,6 +284,7 @@ export class BridgeService {
     });
     this.sessionMutationService = new SessionMutationService({
       store,
+      onStateChanged: (sourceId) => this.updateConversationSession(sourceId),
       codexClient,
       isRuntimeConnected: () => this.isRuntimeConnected(),
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
@@ -346,6 +349,7 @@ export class BridgeService {
     });
     this.sessionActivationService = new SessionActivationService({
       store,
+      onSelectionChanged: (sourceId) => this.updateConversationSession(sourceId),
       sessionReader: this.sessionReader,
       sessionOwnershipService: this.sessionOwnershipService,
       clearBatchDecisionMessage: (session) => this.decisionDelivery.clearBatchDecisionMessage(session),
@@ -804,6 +808,21 @@ export class BridgeService {
 
   registerMessageTransport(transport: BridgeMessageTransport): void {
     this.messageSender.registerTransport(transport);
+  }
+
+  private async updateConversationSession(sourceId: string): Promise<void> {
+    await this.sessionCardQueue.run(sourceId, async () => {
+      try {
+        const transport = this.messageSender.requireTransport(sourceId);
+        if (!transport.updateConversationSession) return;
+        const current = await this.sessionInteractionService.renderCurrentSessionMenuSection(sourceId);
+        await transport.updateConversationSession(sourceId, current?.messageSpec ?? createMessage({
+          kind: "system", titleLabel: "Codex", body: [{ type: "text", text: "No session selected." }]
+        }));
+      } catch (error) {
+        logger.warn("bridge.session.card_update_failed", { sourceId, error: String(error) });
+      }
+    });
   }
 
   async getActiveSession(telegramChatId: string): Promise<SessionRecord | null> {

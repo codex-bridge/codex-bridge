@@ -119,7 +119,7 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     assertCurrent();
     if (!metadata) return { session: null, outcome: null };
     const sessionId = this.binding.store.registerCatalogSession(metadata, WEB_SOURCE_ID);
-    return this.binding.service.request(WEB_SOURCE_ID, sessionId, expectedVersion, assertCurrent);
+    return this.binding.service.request(WEB_SOURCE_ID, sessionId, expectedVersion, assertCurrent, { select: false });
   }
 
   async cancelBinding(threadId: string, expectedVersion: number | undefined, assertCurrent: () => void): Promise<SessionHandoffCancellation> {
@@ -187,7 +187,7 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     if (!this.operations) throw new Error("Web session operations are unavailable.");
     const session = await this.operations.creation.createSessionForDirectory(WEB_SOURCE_ID, directory, assertCurrent);
     assertCurrent();
-    const binding = await this.operations.binding.request(WEB_SOURCE_ID, session.id, undefined, assertCurrent);
+    const binding = await this.operations.binding.request(WEB_SOURCE_ID, session.id, undefined, assertCurrent, { select: false });
     if (!binding.outcome?.owned) throw new Error("The new session was created, but Web ownership could not be confirmed.");
     return { threadId: session.codexThreadId, sessionId: session.id, leaseVersion: binding.outcome.lease.version };
   }
@@ -201,7 +201,7 @@ export class LocalWebBridgeApi implements WebBridgeApi {
       const sessionId = this.operations.store.registerCatalogSession(metadata, WEB_SOURCE_ID);
       this.operations.store.ensureSessionBinding(sessionId, WEB_SOURCE_ID);
       const message = await this.operations.mutation.unarchiveSession(WEB_SOURCE_ID, sessionId);
-      if (message.kind !== "error") await this.operations.binding.request(WEB_SOURCE_ID, sessionId, undefined, assertCurrent);
+      if (message.kind !== "error") await this.operations.binding.request(WEB_SOURCE_ID, sessionId, undefined, assertCurrent, { select: false });
       return this.operationResult(message);
     }
     const access = await this.operations.access.requireOwned(input.threadId, WEB_SOURCE_ID, input.leaseVersion, assertCurrent);

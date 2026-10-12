@@ -184,6 +184,18 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     // Slack has no chat typing API equivalent for bots.
   }
 
+  async updateConversationSession(chatId: string, messageSpec: MessageSpec): Promise<void> {
+    const ref = this.requireSlackChatRef(chatId);
+    if (!ref.threadTs) return;
+    try {
+      await this.editMessageSpec(chatId, ref.threadTs, { ...messageSpec, actions: [] });
+    } catch (error) {
+      // Deleted parents and user-authored parents are not recreated or replaced.
+      logger.info("slack.session.parent_update_skipped", { chatId,
+        error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   private requireSlackChatRef(chatId: string): SlackChatRef {
     const ref = parseSlackChatId(chatId);
     if (!ref) {

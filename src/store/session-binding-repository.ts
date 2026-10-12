@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
 import { parseSourceAddress } from "../shared/source-address.js";
+import { recordSessionSelection } from "./session-selection.js";
 import type {
   SessionBindingRecord,
   SessionLeaseRecord,
@@ -223,70 +224,76 @@ export class SessionBindingRepository {
     `).get(sessionId));
   }
 
-  requestHandoff(sessionId: string, sourceId: string, transferNow: boolean, expectedVersion?: number): SessionHandoffResult {
+  requestHandoff(sessionId: string, sourceId: string, transferNow: boolean, expectedVersion?: number, select = false): SessionHandoffResult {
     const result = this.sqlite.transaction(() => {
-      const binding = this.ensureBinding(sessionId, sourceId);
-      const lease = this.ensureLease(sessionId);
-      const previousOwnerSourceId = lease.ownerBindingId ? this.getBindingById(lease.ownerBindingId)?.sourceId ?? null : null;
-      const pendingSourceId = lease.pendingBindingId ? this.getBindingById(lease.pendingBindingId)?.sourceId ?? null : null;
-      const unchanged = { previousOwnerSourceId, replacedSourceId: null };
-      if (expectedVersion !== undefined && lease.version !== expectedVersion) {
-        return { owned: false, binding, lease, reason: "stale", pending: false, ...unchanged } satisfies SessionHandoffResult;
-      }
-      if ((lease.state === "active" || lease.state === "handoff_pending") && lease.ownerBindingId === binding.id) {
-        return { owned: true, binding, lease, reason: "already_owned", pending: false, ...unchanged } satisfies SessionHandoffResult;
-      }
-      transferNow = transferNow && !lease.ownerTurnId && !this.hasPendingWork(sessionId);
-      if (lease.state === "unbound") {
-        // An unbound session with accepted work cannot safely acquire a new owner.
-        if (!transferNow) return { owned: false, binding, lease, reason: "unavailable", pending: false, ...unchanged } satisfies SessionHandoffResult;
-        const timestamp = now();
-        this.sqlite.prepare(`
-          UPDATE session_leases
-          SET state = 'active', owner_binding_id = ?, pending_binding_id = NULL,
-            owner_turn_id = NULL, version = version + 1, updated_at = ?
-          WHERE session_id = ? AND state = 'unbound' AND version = ?
-        `).run(binding.id, timestamp, sessionId, lease.version);
-        const claimedLease = this.getLease(sessionId);
-        if (!claimedLease) throw new Error(`Session lease disappeared after handoff: ${sessionId}`);
-        return { owned: true, binding, lease: claimedLease, reason: "claimed", pending: false, ...unchanged } satisfies SessionHandoffResult;
-      }
-      if (lease.state !== "active" && lease.state !== "handoff_pending") {
-        return { owned: false, binding, lease, reason: "unavailable", pending: false, ...unchanged } satisfies SessionHandoffResult;
-      }
-
-      const timestamp = now();
-      if (transferNow) {
-        this.sqlite.prepare(`
-          UPDATE session_leases
-          SET state = 'active', owner_binding_id = ?, pending_binding_id = NULL,
-            owner_turn_id = NULL, version = version + 1, updated_at = ?
-          WHERE session_id = ? AND owner_binding_id IS NOT NULL
-        `).run(binding.id, timestamp, sessionId);
-      } else {
-        this.sqlite.prepare(`
-          UPDATE session_leases
-          SET state = 'handoff_pending', pending_binding_id = ?, version = version + 1, updated_at = ?
-          WHERE session_id = ? AND owner_binding_id IS NOT NULL
-        `).run(binding.id, timestamp, sessionId);
-      }
-      const updatedLease = this.getLease(sessionId);
-      if (!updatedLease) throw new Error(`Session lease disappeared after handoff request: ${sessionId}`);
-      return {
-        owned: transferNow,
-        binding,
-        lease: updatedLease,
-        reason: transferNow ? "claimed" : "owned_by_other",
-        pending: !transferNow,
-        previousOwnerSourceId,
-        replacedSourceId: pendingSourceId && pendingSourceId !== sourceId ? pendingSourceId : null
-      } satisfies SessionHandoffResult;
+      const outcome = this.requestHandoffCurrent(sessionId, sourceId, transferNow, expectedVersion);
+      if (select && (outcome.owned || outcome.pending)) recordSessionSelection(this.sqlite, sourceId, sessionId);
+      return outcome;
     }).immediate();
     if (result.owned) {
       this.sqlite.prepare(`UPDATE sessions SET telegram_chat_id = ?, updated_at = ? WHERE id = ?`)
         .run(sourceId, now(), sessionId);
     }
     return result;
+  }
+
+  private requestHandoffCurrent(sessionId: string, sourceId: string, transferNow: boolean, expectedVersion?: number): SessionHandoffResult {
+    const binding = this.ensureBinding(sessionId, sourceId);
+    const lease = this.ensureLease(sessionId);
+    const previousOwnerSourceId = lease.ownerBindingId ? this.getBindingById(lease.ownerBindingId)?.sourceId ?? null : null;
+    const pendingSourceId = lease.pendingBindingId ? this.getBindingById(lease.pendingBindingId)?.sourceId ?? null : null;
+    const unchanged = { previousOwnerSourceId, replacedSourceId: null };
+    if (expectedVersion !== undefined && lease.version !== expectedVersion) {
+      return { owned: false, binding, lease, reason: "stale", pending: false, ...unchanged } satisfies SessionHandoffResult;
+    }
+    if ((lease.state === "active" || lease.state === "handoff_pending") && lease.ownerBindingId === binding.id) {
+      return { owned: true, binding, lease, reason: "already_owned", pending: false, ...unchanged } satisfies SessionHandoffResult;
+    }
+    transferNow = transferNow && !lease.ownerTurnId && !this.hasPendingWork(sessionId);
+    if (lease.state === "unbound") {
+      // An unbound session with accepted work cannot safely acquire a new owner.
+      if (!transferNow) return { owned: false, binding, lease, reason: "unavailable", pending: false, ...unchanged } satisfies SessionHandoffResult;
+      const timestamp = now();
+      this.sqlite.prepare(`
+        UPDATE session_leases
+        SET state = 'active', owner_binding_id = ?, pending_binding_id = NULL,
+          owner_turn_id = NULL, version = version + 1, updated_at = ?
+        WHERE session_id = ? AND state = 'unbound' AND version = ?
+      `).run(binding.id, timestamp, sessionId, lease.version);
+      const claimedLease = this.getLease(sessionId);
+      if (!claimedLease) throw new Error(`Session lease disappeared after handoff: ${sessionId}`);
+      return { owned: true, binding, lease: claimedLease, reason: "claimed", pending: false, ...unchanged } satisfies SessionHandoffResult;
+    }
+    if (lease.state !== "active" && lease.state !== "handoff_pending") {
+      return { owned: false, binding, lease, reason: "unavailable", pending: false, ...unchanged } satisfies SessionHandoffResult;
+    }
+
+    const timestamp = now();
+    if (transferNow) {
+      this.sqlite.prepare(`
+        UPDATE session_leases
+        SET state = 'active', owner_binding_id = ?, pending_binding_id = NULL,
+          owner_turn_id = NULL, version = version + 1, updated_at = ?
+        WHERE session_id = ? AND owner_binding_id IS NOT NULL
+      `).run(binding.id, timestamp, sessionId);
+    } else {
+      this.sqlite.prepare(`
+        UPDATE session_leases
+        SET state = 'handoff_pending', pending_binding_id = ?, version = version + 1, updated_at = ?
+        WHERE session_id = ? AND owner_binding_id IS NOT NULL
+      `).run(binding.id, timestamp, sessionId);
+    }
+    const updatedLease = this.getLease(sessionId);
+    if (!updatedLease) throw new Error(`Session lease disappeared after handoff request: ${sessionId}`);
+    return {
+      owned: transferNow,
+      binding,
+      lease: updatedLease,
+      reason: transferNow ? "claimed" : "owned_by_other",
+      pending: !transferNow,
+      previousOwnerSourceId,
+      replacedSourceId: pendingSourceId && pendingSourceId !== sourceId ? pendingSourceId : null
+    } satisfies SessionHandoffResult;
   }
 
   cancelHandoff(sessionId: string, sourceId: string, expectedVersion?: number): SessionHandoffCancellation {
@@ -463,6 +470,12 @@ export class SessionBindingRepository {
       if (lease.ownerTurnId || this.hasPendingWork(sessionId)) return null;
       const binding = this.getBindingById(lease.pendingBindingId);
       if (!binding) return null;
+      const selection = this.sqlite.prepare("SELECT active_session_id FROM chats WHERE telegram_chat_id = ?")
+        .get(binding.sourceId) as { active_session_id: string | null } | undefined;
+      if (selection?.active_session_id && selection.active_session_id !== sessionId) {
+        this.cancelHandoff(sessionId, binding.sourceId, lease.version);
+        return null;
+      }
       this.sqlite.prepare(`
         UPDATE session_leases
         SET state = 'active', owner_binding_id = ?, pending_binding_id = NULL, owner_turn_id = NULL,

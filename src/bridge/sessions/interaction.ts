@@ -41,7 +41,11 @@ export class SessionInteractionService {
       session: { id: session.codexThreadId, directory: this.deps.getSessionDirectory(session) },
       body: [
         { type: "field", label: "Session ID", value: session.codexThreadId },
-        { type: "field", label: "Thread", value: this.deps.parseSlackChatId(session.telegramChatId)?.threadTs ?? "n/a" }
+        { type: "field", label: "Thread", value: this.deps.parseSlackChatId(chatId)?.threadTs ?? "n/a" },
+        { type: "field", label: "Binding", value: lease?.state === "external_unknown" ? "In use outside Bridge"
+          : binding && owner?.id === binding.id ? "Bound here"
+          : binding && lease?.pendingBindingId === binding.id ? "Waiting for handoff"
+          : owner ? "In use in another conversation" : "Not bound" }
       ],
       actions
     });

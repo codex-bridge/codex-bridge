@@ -19,6 +19,7 @@ export type SessionActivationDependencies = {
     "assertSessionSwitchCanRelease" | "getSessionOwnershipPrompt" | "releasePreviousSessionAfterClaim"
   >;
   clearBatchDecisionMessage: (session: SessionRecord) => Promise<void>;
+  onSelectionChanged?: (sourceId: string) => Promise<void>;
   isActiveWriterConflictError: (error: unknown) => boolean;
   sessionRefreshCallback: (sessionId: string, leaseVersion?: number) => string;
   createSessionActionSpec: (
@@ -41,17 +42,27 @@ export class SessionActivationService {
     if (!targetSession) {
       throw new Error(`Unknown session: ${sessionId}`);
     }
-    if (previousActiveSession && previousActiveSession.id !== targetSession.id) {
-      await this.deps.sessionOwnershipService.assertSessionSwitchCanRelease(telegramChatId, previousActiveSession);
+    await this.deps.store.selectSession(telegramChatId, sessionId);
+    try {
+      return await this.activateSelectedSession(telegramChatId, targetSession, previousActiveSession);
+    } finally {
+      await this.deps.onSelectionChanged?.(telegramChatId);
     }
-    const targetLeaseBeforeClaim = this.deps.store.getSessionLease(targetSession.id);
-    const targetBindingBeforeClaim = this.deps.store.getSessionBinding(targetSession.id, telegramChatId);
-    const targetWasOwned = Boolean(
-      targetLeaseBeforeClaim && targetBindingBeforeClaim &&
-      targetLeaseBeforeClaim.ownerBindingId === targetBindingBeforeClaim.id &&
-      (targetLeaseBeforeClaim.state === "active" || targetLeaseBeforeClaim.state === "handoff_pending")
-    );
+  }
+
+  private async assertSelected(sourceId: string, sessionId: string): Promise<void> {
+    if ((await this.deps.store.getActiveSession(sourceId))?.id !== sessionId) {
+      throw new SessionActivationError(this.deps.createSessionActionSpec(null, "system",
+        "The session selection changed. Use the latest selected session.", [sessionAction()]));
+    }
+  }
+
+  private async activateSelectedSession(telegramChatId: string, targetSession: SessionRecord,
+    previousActiveSession: SessionRecord | null): Promise<SessionActivationResult> {
+    const sessionId = targetSession.id;
+    await this.assertSelected(telegramChatId, sessionId);
     const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(targetSession, telegramChatId);
+    await this.assertSelected(telegramChatId, sessionId);
     if (ownershipPrompt) throw new SessionActivationError(ownershipPrompt);
     const ownership = this.deps.store.claimSession(sessionId, telegramChatId);
     if (!ownership.owned) {
@@ -65,18 +76,16 @@ export class SessionActivationService {
     this.deps.store.ensureSessionBinding(sessionId, telegramChatId);
     if (previousActiveSession && previousActiveSession.id !== targetSession.id) {
       try {
+        await this.deps.sessionOwnershipService.assertSessionSwitchCanRelease(telegramChatId, previousActiveSession);
         await this.deps.sessionOwnershipService.releasePreviousSessionAfterClaim(telegramChatId, previousActiveSession);
       } catch (error) {
-        if (!targetWasOwned) {
-          this.deps.store.releaseBridgeSessionLock(sessionId, telegramChatId, ownership.lease.version);
-        }
-        throw error;
+        // Navigation does not interrupt accepted work or depend on releasing its lease.
+        logger.info("bridge.session.switch_previous_kept", { sessionId: previousActiveSession.id,
+          chatId: telegramChatId, error: error instanceof Error ? error.message : String(error) });
       }
     }
-    const session = await this.deps.store.selectSession(telegramChatId, sessionId);
-    if (previousActiveSession && previousActiveSession.id !== session.id) {
-      await this.deps.clearBatchDecisionMessage(previousActiveSession);
-    }
+    await this.assertSelected(telegramChatId, sessionId);
+    const session = (await this.deps.store.getSessionById(sessionId))!;
     logger.info("bridge.session.activate", {
       chatId: telegramChatId,
       sessionId,
@@ -84,7 +93,15 @@ export class SessionActivationService {
       pathKey: session.pathKey
     });
     try {
-      return await this.deps.sessionReader.resumeSession(session, telegramChatId);
+      const result = await this.deps.sessionReader.resumeSession(session, telegramChatId);
+      await this.assertSelected(telegramChatId, sessionId);
+      const lease = this.deps.store.getSessionLease(sessionId);
+      const binding = this.deps.store.getSessionBinding(sessionId, telegramChatId);
+      if (!binding || lease?.ownerBindingId !== binding.id) {
+        throw new SessionActivationError(this.deps.createSessionActionSpec(session, "system",
+          "Session ownership changed. Refresh before continuing.", [sessionAction()]));
+      }
+      return result;
     } catch (error) {
       if (!this.deps.isActiveWriterConflictError(error)) throw error;
 

@@ -198,12 +198,14 @@ test("switching sessions releases the previous idle Bridge lease", async () => {
   }
 });
 
-test("a failed previous-thread unsubscribe keeps the old selection and rolls back the target claim", async () => {
+test("a failed previous-thread unsubscribe keeps its lease without undoing the new selection", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-session-switch-unsubscribe-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
   const service = new BridgeService(testConfig(databasePath), store, {
-    unsubscribeThread: async () => { throw new Error("unsubscribe unavailable"); }
+    unsubscribeThread: async () => { throw new Error("unsubscribe unavailable"); },
+    resumeThread: async () => ({ displayPath: null, messages: [] }),
+    listRecentThreadMessages: async () => []
   } as CodexAppServerClient);
   (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
   const chatId = "chat-1";
@@ -224,14 +226,11 @@ test("a failed previous-thread unsubscribe keeps the old selection and rolls bac
     await store.setActiveSession(chatId, previous.id);
     assert.equal(store.claimSession(previous.id, chatId).owned, true);
 
-    await assert.rejects(
-      service.activateSession(chatId, target.id),
-      (error: unknown) => error instanceof SessionActivationError
-    );
+    await service.activateSession(chatId, target.id);
 
-    assert.equal((await store.getActiveSession(chatId))?.id, previous.id);
+    assert.equal((await store.getActiveSession(chatId))?.id, target.id);
     assert.equal(store.getSessionLease(previous.id)?.state, "active");
-    assert.equal(store.getSessionLease(target.id)?.state, "unbound");
+    assert.equal(store.getSessionLease(target.id)?.state, "active");
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -351,7 +350,7 @@ test("Codex account reconnect restores runtime state and releases old Bridge loc
   }
 });
 
-test("an occupied target session does not replace the current session", async () => {
+test("an occupied target records selection without changing either owner's lease", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-session-switch-owner-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
@@ -380,7 +379,7 @@ test("an occupied target session does not replace the current session", async ()
       (error: unknown) => error instanceof SessionActivationError
     );
 
-    assert.equal((await store.getActiveSession(chatId))?.id, previous.id);
+    assert.equal((await store.getActiveSession(chatId))?.id, target.id);
     assert.equal(store.getSessionLease(previous.id)?.ownerBindingId, store.getSessionBinding(previous.id, chatId)?.id);
   } finally {
     store.close();

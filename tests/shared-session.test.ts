@@ -201,7 +201,7 @@ test("shared handoff checks approvals, input and every accepted queue state insi
   }
 });
 
-test("terminal notifications promote ownership without rewriting the finished turn route or selected session", async () => {
+test("terminal notifications promote ownership while preserving its requested selection and the finished turn route", async () => {
   const store = new BridgeStore(":memory:");
   try {
     const session = await store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId: "running", pathKey: "/work" });
@@ -223,7 +223,7 @@ test("terminal notifications promote ownership without rewriting the finished tu
     assert.equal(route?.sourceId, "123");
     assert.equal(route?.bindingId, owner.binding.id);
     assert.equal((await store.getActiveSession("123")), null);
-    assert.equal((await store.getActiveSession("web:local")), null);
+    assert.equal((await store.getActiveSession("web:local"))?.id, session.id);
   } finally { store.close(); }
 });
 

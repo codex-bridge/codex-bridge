@@ -23,7 +23,7 @@ export type SessionBindingResult = {
   outcome: SessionHandoffResult | null;
 };
 
-/** One rule set for all transports. No navigation, resume, interrupt or turn-route mutation. */
+/** Shared ownership rules. Explicit requests record intent; promotion never rewrites it. */
 export class SessionBindingService {
   private readonly listeners = new Set<(event: SessionBindingEvent) => void>();
   private readonly dispatchesByThread = new Map<string, number>();
@@ -33,6 +33,7 @@ export class SessionBindingService {
     inFlightTurnIdByThread: Map<string, string>;
     getSessionDirectory: (session: SessionRecord) => string;
     notify: (event: SessionBindingEvent) => Promise<void>;
+    onStateChanged?: (sourceId: string) => Promise<void>;
   }) {}
 
   subscribe(listener: (event: SessionBindingEvent) => void): () => void {
@@ -65,13 +66,14 @@ export class SessionBindingService {
     return this.dispatchesByThread.has(threadId);
   }
 
-  async request(sourceId: string, sessionId: string, expectedVersion?: number, assertCurrent: () => void = () => {}): Promise<SessionBindingResult> {
+  async request(sourceId: string, sessionId: string, expectedVersion?: number, assertCurrent: () => void = () => {},
+    options?: { select: boolean }): Promise<SessionBindingResult> {
     const session = await this.deps.store.getSessionById(sessionId);
     assertCurrent();
     if (!session || session.codexArchivedAt !== null) return { session, outcome: null };
     // Everything from this check through the transaction is synchronous.
     const outcome = this.deps.store.requestSessionHandoff(session.id, sourceId,
-      !this.isBusy(session.codexThreadId), expectedVersion);
+      !this.isBusy(session.codexThreadId), expectedVersion, options?.select ?? true);
     const events: SessionBindingEvent[] = [];
     if (outcome.replacedSourceId) events.push(this.event(session, "replaced", outcome.replacedSourceId, sourceId, outcome.lease.version));
     if (outcome.owned && outcome.reason === "claimed") {
@@ -119,6 +121,11 @@ export class SessionBindingService {
       for (const listener of this.listeners) {
         try { listener(event); } catch (error) { this.logDeliveryFailure(event, error); }
       }
+    }
+    for (const sourceId of new Set([...events.map((event) => event.sourceId),
+      ...(replySourceId ? [replySourceId] : [])])) {
+      try { await this.deps.onStateChanged?.(sourceId); }
+      catch (error) { logger.warn("bridge.session.card_update_failed", { sourceId, error: String(error) }); }
     }
     for (const event of events) {
       // The requesting chat gets its synchronous action response instead of a duplicate notification.

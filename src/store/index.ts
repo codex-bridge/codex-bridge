@@ -288,8 +288,8 @@ export class BridgeStore {
     return this.sessionRepository.selectSession(telegramChatId, sessionId);
   }
 
-  async clearActiveSession(telegramChatId: string): Promise<void> {
-    return this.sessionRepository.clearActiveSession(telegramChatId);
+  async clearActiveSession(telegramChatId: string, expectedSessionId?: string): Promise<void> {
+    return this.sessionRepository.clearActiveSession(telegramChatId, expectedSessionId);
   }
 
   async touchSession(sessionId: string): Promise<void> {
@@ -342,8 +342,8 @@ export class BridgeStore {
     return this.sessionBindingRepository.claim(sessionId, sourceId);
   }
 
-  requestSessionHandoff(sessionId: string, sourceId: string, transferNow: boolean, expectedVersion?: number): SessionHandoffResult {
-    return this.sessionBindingRepository.requestHandoff(sessionId, sourceId, transferNow, expectedVersion);
+  requestSessionHandoff(sessionId: string, sourceId: string, transferNow: boolean, expectedVersion?: number, select = false): SessionHandoffResult {
+    return this.sessionBindingRepository.requestHandoff(sessionId, sourceId, transferNow, expectedVersion, select);
   }
 
   cancelSessionHandoff(sessionId: string, sourceId: string, expectedVersion?: number): SessionHandoffCancellation {

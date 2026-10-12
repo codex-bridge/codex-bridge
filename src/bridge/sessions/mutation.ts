@@ -26,6 +26,7 @@ export type SessionMutationDependencies = {
   getSessionSelectorChatId: (chatId: string) => string;
   getSessionDirectory: (session: SessionRecord) => string;
   clearSessionState: (session: SessionRecord) => void;
+  onStateChanged?: (sourceId: string) => Promise<void>;
 };
 
 export class SessionMutationService {
@@ -150,7 +151,8 @@ export class SessionMutationService {
       throw new Error("Session ownership changed before the Bridge release completed.");
     }
     try {
-      await this.deps.store.clearActiveSession(telegramChatId);
+      await this.deps.store.clearActiveSession(telegramChatId, session.id);
+      await this.deps.onStateChanged?.(telegramChatId);
     } catch (error) {
       logger.warn("bridge.session.release_selection_cleanup_failed", {
         chatId: telegramChatId,
