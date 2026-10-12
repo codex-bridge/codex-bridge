@@ -11,6 +11,7 @@ Use the Node and Yarn versions pinned in `package.json`.
 corepack yarn install --immutable
 corepack yarn check:language
 corepack yarn check
+corepack yarn check:protocol-evidence
 corepack yarn lint
 corepack yarn test
 corepack yarn build
@@ -94,6 +95,52 @@ codex app-server generate-json-schema --out ./schemas
 
 Generated artifacts are version-specific and should be treated as investigation
 output unless the project explicitly decides to track them.
+
+### Protocol evidence inventory
+
+The compact `src/codex/protocol-evidence.generated.json` snapshot records four
+independent facts: accepted runtime request names, generated types (including
+experimental types), production source references, and explicitly verified live
+requests. It stores method names and repository-relative paths, never raw RPC
+payloads or credentials. Production references are static literals, including
+type declarations; they do not prove an executable path or successful request.
+The legacy `status` field is derived for compatibility and must not drive feature
+availability decisions.
+
+After changing protocol-related source references:
+
+```bash
+corepack yarn protocol:evidence:refresh
+corepack yarn check:protocol-evidence
+```
+
+When adopting a new CLI baseline, update the registry version and run:
+
+```bash
+corepack yarn protocol:evidence:refresh --live
+```
+
+This generates experimental bindings in a temporary directory, discovers accepted
+request names, and validates three read-only capability responses using an
+independent app-server process. The generated directory is printed for inspection
+and can be discarded afterwards. Baseline changes clear old live verification;
+local-only refreshes preserve it. CI checks the source snapshot without needing
+a Codex login or running a real turn.
+
+### Runtime capabilities in Status
+
+Status reads `server/diagnostics`, `configRequirements/read`, and
+`modelProvider/capabilities/read` in parallel with a three-second request timeout.
+Each result is independent: a missing method reports `unsupported`; other errors
+or malformed responses report `unavailable`. Missing fields remain `unknown`,
+and empty allowlists explicitly mean none are allowed.
+
+Basic Status shows process memory, relevant managed restrictions, and reported
+image-generation/Web-search support for the **configured provider**. Full Status
+also shows diagnostic gauges and enabled required features. These global provider
+bounds do not establish the abilities of an older session or its selected model.
+They also do not indicate image-input support. Reads are fresh on every Status
+request, so configuration changes do not reuse cached capabilities.
 
 ## Protocol baseline
 

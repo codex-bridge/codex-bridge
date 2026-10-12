@@ -6,6 +6,9 @@
   "include": [
     "src/**/*.ts",
     "scripts/verify-codex.ts",
-    "scripts/verify-codex/**/*.ts"
+    "scripts/verify-codex/**/*.ts",
+    "scripts/probes/protocol-evidence.ts",
+    "scripts/probes/check-protocol-evidence.ts",
+    "scripts/probes/refresh-protocol-evidence.ts"
   ]
 }

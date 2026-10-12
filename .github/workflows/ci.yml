@@ -38,6 +38,9 @@ jobs:
       - name: Check types
         run: corepack yarn check
 
+      - name: Check protocol evidence
+        run: corepack yarn check:protocol-evidence
+
       - name: Lint
         run: corepack yarn lint
 

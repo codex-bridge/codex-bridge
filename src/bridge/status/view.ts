@@ -31,6 +31,7 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 import { formatCompactDateTime, pickDirectory } from "../sessions/menu-formatters.js";
 import type { TokenUsageTracker } from "./token-usage.js";
 import type { ModelRuntimeEvent } from "../runtime-state.js";
+import { formatConfigRequirements, formatProviderCapabilities, formatServerDiagnostics } from "./capability-formatters.js";
 
 type SessionProviderDetails = {
   activeProvider: string | null;
@@ -86,13 +87,14 @@ export class StatusViewService {
       return this.renderDisconnected(session, full);
     }
 
-    const [threadStatus, accountStatus, rateLimitsStatus, pendingDecisions, goalResult, configState] = await Promise.all([
+    const [threadStatus, accountStatus, rateLimitsStatus, pendingDecisions, goalResult, configState, capabilities] = await Promise.all([
       this.deps.codexClient.readThreadStatus(session.codexThreadId, this.deps.getSessionDirectory(session)),
       this.deps.codexClient.readAccountStatus(),
       this.deps.codexClient.readRateLimitsStatus(),
       this.deps.store.listPendingDecisions(session.id),
       this.deps.readSessionGoal(session),
-      this.deps.readEffectiveConfigSnapshot(this.deps.getSessionDirectory(session))
+      this.deps.readEffectiveConfigSnapshot(this.deps.getSessionDirectory(session)),
+      this.deps.codexClient.readRuntimeCapabilities()
     ]);
 
     const [modelCatalog, mcpServerStatus, loadedThreadsStatus, skillsCatalog, accountUsageStatus, workspaceMessagesStatus] = full
@@ -169,6 +171,7 @@ export class StatusViewService {
     } else {
       lines.push(field("Read", `failed (${configState.error ?? "unknown error"})`));
     }
+    lines.push(...formatConfigRequirements(capabilities.requirements, full));
     lines.push("", section("Thread"));
     lines.push(field("Model", threadStatus.model ?? "unknown"));
     lines.push(field("Reasoning", threadStatus.reasoningEffort ?? "unknown"));
@@ -186,6 +189,7 @@ export class StatusViewService {
     });
     lines.push("", section("Provider"));
     lines.push(...providerLines(providerDetails));
+    lines.push(...formatProviderCapabilities(capabilities.provider));
     if (full) {
       lines.push("", section("Tools"));
       if (mcpServerStatus) lines.push(field("MCP servers", formatMcpServerStatus(mcpServerStatus)));
@@ -195,6 +199,7 @@ export class StatusViewService {
       lines.push(field("Model tool calls", formatModelToolCallStatus(runtimeInfo?.version ?? null)));
     }
     lines.push("", section("Runtime"));
+    lines.push(...formatServerDiagnostics(capabilities.diagnostics, full));
     if (runtimeInfo) lines.push(field("Version", runtimeInfo.version ?? runtimeInfo.userAgent ?? "unknown"));
     lines.push(field("Permissions", permissionParts.join(" · ")));
     if (accountStatus?.email) lines.push(field("Account", accountStatus.email));
@@ -221,7 +226,8 @@ export class StatusViewService {
     if (full && typeof rateLimitsStatus?.resetCreditsAvailable === "number") lines.push(field("Reset credits", `${rateLimitsStatus.resetCreditsAvailable} available`));
     if (full) {
       lines.push("", section("Runtime detail"));
-      lines.push(field("Protocol", `registry ${APP_SERVER_PROTOCOL_PROBE.codexCliVersion} · ${listAppServerMethodCapabilities({ kind: "request" }).length} requests`));
+      const methods = listAppServerMethodCapabilities({ kind: "request" });
+      lines.push(field("Protocol", `baseline ${APP_SERVER_PROTOCOL_PROBE.codexCliVersion} · ${methods.length} requests · ${methods.filter((entry) => entry.evidence.productionReferences.length).length} referenced · ${methods.filter((entry) => entry.evidence.liveVerification).length} live verified`));
       if (runtimeInfo?.userAgent && runtimeInfo.userAgent !== runtimeInfo.version) lines.push(field("Client", formatRuntimeClient(runtimeInfo.userAgent)));
       if (runtimeInfo?.codexHome) lines.push(field("Codex home", runtimeInfo.codexHome));
       const platform = [runtimeInfo?.platformFamily, runtimeInfo?.platformOs].filter(Boolean).join(" / ");

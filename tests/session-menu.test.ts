@@ -2378,6 +2378,11 @@ test("status renders provider and limits as formatted sections", async () => {
     store,
     {
       getRuntimeInfo: () => ({ version: "0.test" }),
+      readRuntimeCapabilities: async () => ({
+        diagnostics: { state: "unavailable", value: null },
+        requirements: { state: "unsupported", value: null },
+        provider: { state: "unavailable", value: null }
+      }),
       readAccountStatus: async () => ({ email: null, plan: null }),
       readCodexConfigSnapshot: async () => ({
         model: "gpt-config",
@@ -2442,6 +2447,8 @@ test("status renders provider and limits as formatted sections", async () => {
     assert.match(status, /\*\*Model\*\* gpt-test/);
     assert.match(status, /\*\*Model\*\* gpt-config/);
     assert.match(status, /\*\*Reasoning\*\* low/);
+    assert.match(status, /\*\*Managed policy\*\* unsupported/);
+    assert.match(status, /\*\*Configured provider capabilities\*\* unavailable/);
     assert.match(status, /\*\*Limits\*\*/);
     assert.match(status, /\*\*weekly\*\* 87% left/);
     assert.doesNotMatch(status, /Limits:/);
@@ -2473,6 +2480,11 @@ test("full status separates MCP server status from model-visible tools", async (
     store,
     {
       getRuntimeInfo: () => ({ version: "0.test" }),
+      readRuntimeCapabilities: async () => ({
+        diagnostics: { state: "available", value: { processId: 123, residentMemoryBytes: 1024 * 1024, physicalFootprintBytes: null, gauges: [{ name: "active_threads", value: 1 }] } },
+        requirements: { state: "available", value: { configured: true, modelProvider: "managed", allowedApprovalPolicies: ["on-request"], allowedApprovalsReviewers: null, allowedSandboxModes: ["workspace-write"], allowedWebSearchModes: [], featureRequirements: { web_search: false } } },
+        provider: { state: "available", value: { imageGeneration: false, webSearch: true } }
+      }),
       readAccountStatus: async () => ({ email: null, plan: null }),
       readAccountUsageStatus: async () => null,
       readLoadedThreadsStatus: async () => ({ total: 1, activeLoaded: true }),
@@ -2545,6 +2557,11 @@ test("full status separates MCP server status from model-visible tools", async (
     assert.match(status, /\*\*MCP startup\*\* 2\/3 ready, 1 failed \(notion\)/);
     assert.match(status, /\*\*MCP tools\*\* 57 listed \(serena 25, playwright 24, notion 8\)/);
     assert.match(status, /\*\*Model tool calls\*\* requires probe for 0.test/);
+    assert.match(status, /\*\*Configured provider capabilities\*\* Image generation: not supported · Web search: supported/);
+    assert.match(status, /\*\*Allowed Web search\*\* none allowed/);
+    assert.match(status, /\*\*Required features\*\* web_search: disabled/);
+    assert.match(status, /\*\*Resident memory\*\* 1.0 MiB/);
+    assert.match(status, /\*\*active_threads\*\* 1/);
     assert.doesNotMatch(status, /\*\*MCP\*\*/);
   } finally {
     store.close();

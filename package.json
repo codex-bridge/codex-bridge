@@ -27,6 +27,8 @@
     "start": "node dist/index.js",
     "native:rebuild": "node scripts/rebuild-better-sqlite3.cjs",
     "probe:protocol": "tsx scripts/probes/probe-method-diff.ts",
+    "check:protocol-evidence": "node --import tsx scripts/probes/check-protocol-evidence.ts",
+    "protocol:evidence:refresh": "node --import tsx scripts/probes/refresh-protocol-evidence.ts",
     "probe:timeline": "tsx scripts/probes/probe-thread-timeline.ts",
     "verify:codex": "node --import tsx scripts/verify-codex.ts",
     "verify:session-refresh": "node --import tsx scripts/verify-codex.ts --scenario session-refresh",

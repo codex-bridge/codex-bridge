@@ -51,6 +51,7 @@ import {
 } from "./thread-api.js";
 import { CodexTurnApi, type SendTurnOptions } from "./turn-api.js";
 import { ThreadRuntimeState } from "./thread-runtime-state.js";
+import { CodexRuntimeCapabilitiesApi, type RuntimeCapabilities } from "./runtime-capabilities.js";
 import type { AppConfig } from "../config/index.js";
 import { logger } from "../logging/logger.js";
 import type { DecisionAction } from "../shared/types.js";
@@ -694,6 +695,13 @@ export class CodexAppServerClient {
 
   async readModelCatalog(): Promise<AppServerModelCatalog | null> {
     return this.getCatalogApi().readModelCatalog();
+  }
+
+  async readRuntimeCapabilities(): Promise<RuntimeCapabilities> {
+    return new CodexRuntimeCapabilitiesApi({
+      connect: () => this.connect(),
+      request: (method, params, options) => this.requestKnownMethod(method, params, options)
+    }).read();
   }
 
   async startCompactThread(threadId: string): Promise<void> {

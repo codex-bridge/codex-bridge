@@ -1,0 +1,724 @@
+{
+  "version": "0.162.1",
+  "generatedAt": "2026-10-12",
+  "includesExperimental": true,
+  "schemaMethods": {
+    "request": [
+      "account/bedrock/checkGovCloudRequirements",
+      "account/bedrock/discover",
+      "account/bedrock/setup",
+      "account/gatewayOAuth/cancel",
+      "account/gatewayOAuth/login",
+      "account/gatewayOAuth/read",
+      "account/login/cancel",
+      "account/login/start",
+      "account/logout",
+      "account/rateLimitResetCredit/consume",
+      "account/rateLimits/read",
+      "account/read",
+      "account/sendAddCreditsNudgeEmail",
+      "account/usage/read",
+      "account/workspaceMessages/read",
+      "app/installed",
+      "app/list",
+      "app/read",
+      "collaborationMode/list",
+      "command/exec",
+      "command/exec/resize",
+      "command/exec/terminate",
+      "command/exec/write",
+      "config/batchWrite",
+      "config/mcpServer/reload",
+      "config/read",
+      "config/value/write",
+      "configRequirements/read",
+      "environment/add",
+      "environment/info",
+      "environment/status",
+      "experimentalFeature/enablement/set",
+      "experimentalFeature/list",
+      "externalAgentConfig/detect",
+      "externalAgentConfig/import",
+      "externalAgentConfig/import/readHistories",
+      "externalAgentConfig/import/recordHistory",
+      "feedback/upload",
+      "fs/copy",
+      "fs/createDirectory",
+      "fs/getMetadata",
+      "fs/readDirectory",
+      "fs/readFile",
+      "fs/remove",
+      "fs/unwatch",
+      "fs/watch",
+      "fs/writeFile",
+      "fuzzyFileSearch",
+      "fuzzyFileSearch/sessionStart",
+      "fuzzyFileSearch/sessionStop",
+      "fuzzyFileSearch/sessionUpdate",
+      "getAuthStatus",
+      "getConversationSummary",
+      "gitDiffToRemote",
+      "hooks/list",
+      "initialize",
+      "marketplace/add",
+      "marketplace/remove",
+      "marketplace/upgrade",
+      "mcpServer/event/stream/start",
+      "mcpServer/event/stream/stop",
+      "mcpServer/oauth/login",
+      "mcpServer/resource/read",
+      "mcpServer/tool/call",
+      "mcpServerStatus/list",
+      "memory/reset",
+      "memory/status",
+      "mock/experimentalMethod",
+      "model/list",
+      "modelProvider/capabilities/read",
+      "permissionProfile/list",
+      "plugin/install",
+      "plugin/installed",
+      "plugin/list",
+      "plugin/read",
+      "plugin/reconcile",
+      "plugin/search",
+      "plugin/share/checkout",
+      "plugin/share/delete",
+      "plugin/share/list",
+      "plugin/share/save",
+      "plugin/share/updateTargets",
+      "plugin/skill/read",
+      "plugin/uninstall",
+      "process/kill",
+      "process/resizePty",
+      "process/spawn",
+      "process/writeStdin",
+      "project/create",
+      "project/delete",
+      "project/import",
+      "project/list",
+      "project/move",
+      "project/read",
+      "project/update",
+      "remoteControl/client/list",
+      "remoteControl/client/revoke",
+      "remoteControl/disable",
+      "remoteControl/enable",
+      "remoteControl/pairing/start",
+      "remoteControl/pairing/status",
+      "remoteControl/status/read",
+      "review/start",
+      "rollout/compress",
+      "server/diagnostics",
+      "skills/config/write",
+      "skills/extraRoots/set",
+      "skills/list",
+      "thread/approveGuardianDeniedAction",
+      "thread/archive",
+      "thread/attachment/add",
+      "thread/attachment/list",
+      "thread/attachment/remove",
+      "thread/attachmentOwner/list",
+      "thread/backgroundTerminals/clean",
+      "thread/backgroundTerminals/list",
+      "thread/backgroundTerminals/terminate",
+      "thread/compact/start",
+      "thread/decrement_elicitation",
+      "thread/delete",
+      "thread/fork",
+      "thread/goal/clear",
+      "thread/goal/get",
+      "thread/goal/set",
+      "thread/increment_elicitation",
+      "thread/inject_items",
+      "thread/items/list",
+      "thread/list",
+      "thread/loaded/list",
+      "thread/memoryMode/set",
+      "thread/metadata/update",
+      "thread/name/set",
+      "thread/prediction/request",
+      "thread/queue/add",
+      "thread/queue/delete",
+      "thread/queue/list",
+      "thread/queue/reorder",
+      "thread/queue/start",
+      "thread/queue/update",
+      "thread/read",
+      "thread/realtime/appendAudio",
+      "thread/realtime/appendSpeech",
+      "thread/realtime/appendText",
+      "thread/realtime/listVoices",
+      "thread/realtime/start",
+      "thread/realtime/stop",
+      "thread/resume",
+      "thread/revert",
+      "thread/search",
+      "thread/searchOccurrences",
+      "thread/section/move",
+      "thread/settings/update",
+      "thread/shellCommand",
+      "thread/start",
+      "thread/timeline/list",
+      "thread/turns/list",
+      "thread/unarchive",
+      "thread/unsubscribe",
+      "threadSection/create",
+      "threadSection/delete",
+      "threadSection/list",
+      "threadSection/update",
+      "turn/interrupt",
+      "turn/settings/update",
+      "turn/start",
+      "turn/steer",
+      "userVerification/cancel",
+      "userVerification/delete",
+      "userVerification/enroll",
+      "userVerification/status",
+      "userVerification/verify",
+      "windowsSandbox/readiness",
+      "windowsSandbox/setupStart"
+    ],
+    "serverRequest": [
+      "account/chatgptAuthTokens/refresh",
+      "applyPatchApproval",
+      "attestation/generate",
+      "currentTime/read",
+      "execCommandApproval",
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/permissions/requestApproval",
+      "item/tool/call",
+      "item/tool/requestUserInput",
+      "mcpServer/elicitation/request"
+    ],
+    "notification": [
+      "account/gatewayOAuth/changed",
+      "account/login/completed",
+      "account/rateLimits/updated",
+      "account/updated",
+      "app/list/updated",
+      "autoApprovalReview/strictReviewRequired",
+      "command/exec/outputDelta",
+      "configWarning",
+      "deprecationNotice",
+      "error",
+      "externalAgentConfig/import/completed",
+      "externalAgentConfig/import/progress",
+      "fs/changed",
+      "fuzzyFileSearch/sessionCompleted",
+      "fuzzyFileSearch/sessionUpdated",
+      "guardianWarning",
+      "hook/completed",
+      "hook/started",
+      "item/agentMessage/delta",
+      "item/autoApprovalReview/completed",
+      "item/autoApprovalReview/started",
+      "item/commandExecution/outputDelta",
+      "item/commandExecution/terminalInteraction",
+      "item/completed",
+      "item/fileChange/outputDelta",
+      "item/fileChange/patchUpdated",
+      "item/mcpToolCall/progress",
+      "item/plan/delta",
+      "item/reasoning/summaryPartAdded",
+      "item/reasoning/summaryTextDelta",
+      "item/reasoning/textDelta",
+      "item/started",
+      "mcpServer/event/stream/notification",
+      "mcpServer/oauthLogin/completed",
+      "mcpServer/startupStatus/updated",
+      "model/rerouted",
+      "model/safetyBuffering/updated",
+      "model/verification",
+      "modelProvider/authRecoveryCompleted",
+      "modelProvider/authRecoveryStarted",
+      "process/exited",
+      "process/outputDelta",
+      "project/changed",
+      "rawResponse/completed",
+      "rawResponseItem/completed",
+      "remoteControl/status/changed",
+      "serverRequest/resolved",
+      "skills/changed",
+      "thread/archived",
+      "thread/attachment/updated",
+      "thread/closed",
+      "thread/compacted",
+      "thread/deleted",
+      "thread/environment/connected",
+      "thread/environment/disconnected",
+      "thread/goal/cleared",
+      "thread/goal/updated",
+      "thread/name/updated",
+      "thread/prediction/updated",
+      "thread/project/updated",
+      "thread/queue/changed",
+      "thread/realtime/closed",
+      "thread/realtime/error",
+      "thread/realtime/item/completed",
+      "thread/realtime/item/started",
+      "thread/realtime/item/transcript/delta",
+      "thread/realtime/itemAdded",
+      "thread/realtime/outputAudio/delta",
+      "thread/realtime/sdp",
+      "thread/realtime/started",
+      "thread/realtime/transcript/delta",
+      "thread/realtime/transcript/done",
+      "thread/reverted",
+      "thread/settings/updated",
+      "thread/started",
+      "thread/status/changed",
+      "thread/tokenUsage/updated",
+      "thread/unarchived",
+      "turn/completed",
+      "turn/diff/updated",
+      "turn/moderationMetadata",
+      "turn/plan/updated",
+      "turn/started",
+      "warning",
+      "windows/worldWritableWarning",
+      "windowsSandbox/setupCompleted"
+    ]
+  },
+  "runtimeRequests": [
+    "account/bedrock/checkGovCloudRequirements",
+    "account/bedrock/discover",
+    "account/bedrock/setup",
+    "account/gatewayOAuth/cancel",
+    "account/gatewayOAuth/login",
+    "account/gatewayOAuth/read",
+    "account/login/cancel",
+    "account/login/start",
+    "account/logout",
+    "account/rateLimitResetCredit/consume",
+    "account/rateLimits/read",
+    "account/read",
+    "account/sendAddCreditsNudgeEmail",
+    "account/usage/read",
+    "account/workspaceMessages/read",
+    "app/installed",
+    "app/list",
+    "app/read",
+    "collaborationMode/list",
+    "command/exec",
+    "command/exec/resize",
+    "command/exec/terminate",
+    "command/exec/write",
+    "config/batchWrite",
+    "config/mcpServer/reload",
+    "config/read",
+    "config/value/write",
+    "configRequirements/read",
+    "environment/add",
+    "environment/info",
+    "environment/status",
+    "experimentalFeature/enablement/set",
+    "experimentalFeature/list",
+    "externalAgentConfig/detect",
+    "externalAgentConfig/import",
+    "externalAgentConfig/import/readHistories",
+    "externalAgentConfig/import/recordHistory",
+    "feedback/upload",
+    "fs/copy",
+    "fs/createDirectory",
+    "fs/getMetadata",
+    "fs/readDirectory",
+    "fs/readFile",
+    "fs/remove",
+    "fs/unwatch",
+    "fs/watch",
+    "fs/writeFile",
+    "fuzzyFileSearch",
+    "fuzzyFileSearch/sessionStart",
+    "fuzzyFileSearch/sessionStop",
+    "fuzzyFileSearch/sessionUpdate",
+    "getAuthStatus",
+    "getConversationSummary",
+    "gitDiffToRemote",
+    "hooks/list",
+    "initialize",
+    "marketplace/add",
+    "marketplace/remove",
+    "marketplace/upgrade",
+    "mcpServer/event/stream/start",
+    "mcpServer/event/stream/stop",
+    "mcpServer/oauth/login",
+    "mcpServer/resource/read",
+    "mcpServer/tool/call",
+    "mcpServerStatus/list",
+    "memory/reset",
+    "memory/status",
+    "mock/experimentalMethod",
+    "model/list",
+    "modelProvider/capabilities/read",
+    "permissionProfile/list",
+    "plugin/install",
+    "plugin/installed",
+    "plugin/list",
+    "plugin/read",
+    "plugin/reconcile",
+    "plugin/search",
+    "plugin/share/checkout",
+    "plugin/share/delete",
+    "plugin/share/list",
+    "plugin/share/save",
+    "plugin/share/updateTargets",
+    "plugin/skill/read",
+    "plugin/uninstall",
+    "process/kill",
+    "process/resizePty",
+    "process/spawn",
+    "process/writeStdin",
+    "project/create",
+    "project/delete",
+    "project/import",
+    "project/list",
+    "project/move",
+    "project/read",
+    "project/update",
+    "remoteControl/client/list",
+    "remoteControl/client/revoke",
+    "remoteControl/disable",
+    "remoteControl/enable",
+    "remoteControl/pairing/start",
+    "remoteControl/pairing/status",
+    "remoteControl/status/read",
+    "review/start",
+    "rollout/compress",
+    "server/diagnostics",
+    "skills/config/write",
+    "skills/extraRoots/set",
+    "skills/list",
+    "thread/approveGuardianDeniedAction",
+    "thread/archive",
+    "thread/attachment/add",
+    "thread/attachment/list",
+    "thread/attachment/remove",
+    "thread/attachmentOwner/list",
+    "thread/backgroundTerminals/clean",
+    "thread/backgroundTerminals/list",
+    "thread/backgroundTerminals/terminate",
+    "thread/compact/start",
+    "thread/decrement_elicitation",
+    "thread/delete",
+    "thread/fork",
+    "thread/goal/clear",
+    "thread/goal/get",
+    "thread/goal/set",
+    "thread/increment_elicitation",
+    "thread/inject_items",
+    "thread/items/list",
+    "thread/list",
+    "thread/loaded/list",
+    "thread/memoryMode/set",
+    "thread/metadata/update",
+    "thread/name/set",
+    "thread/prediction/request",
+    "thread/queue/add",
+    "thread/queue/delete",
+    "thread/queue/list",
+    "thread/queue/reorder",
+    "thread/queue/start",
+    "thread/queue/update",
+    "thread/read",
+    "thread/realtime/appendAudio",
+    "thread/realtime/appendSpeech",
+    "thread/realtime/appendText",
+    "thread/realtime/listVoices",
+    "thread/realtime/start",
+    "thread/realtime/stop",
+    "thread/resume",
+    "thread/revert",
+    "thread/search",
+    "thread/searchOccurrences",
+    "thread/section/move",
+    "thread/settings/update",
+    "thread/shellCommand",
+    "thread/start",
+    "thread/timeline/list",
+    "thread/turns/list",
+    "thread/unarchive",
+    "thread/unsubscribe",
+    "threadSection/create",
+    "threadSection/delete",
+    "threadSection/list",
+    "threadSection/update",
+    "turn/interrupt",
+    "turn/settings/update",
+    "turn/start",
+    "turn/steer",
+    "userVerification/cancel",
+    "userVerification/delete",
+    "userVerification/enroll",
+    "userVerification/status",
+    "userVerification/verify",
+    "windowsSandbox/readiness",
+    "windowsSandbox/setupStart"
+  ],
+  "productionReferences": {
+    "account/rateLimits/read": [
+      "src/codex/catalog-api.ts"
+    ],
+    "account/rateLimits/updated": [
+      "src/codex/notification-events.ts"
+    ],
+    "account/read": [
+      "src/codex/catalog-api.ts"
+    ],
+    "account/usage/read": [
+      "src/codex/catalog-api.ts"
+    ],
+    "account/workspaceMessages/read": [
+      "src/codex/catalog-api.ts"
+    ],
+    "codex/event/error": [
+      "src/codex/notification-events.ts"
+    ],
+    "codex/event/stream_error": [
+      "src/codex/notification-events.ts"
+    ],
+    "config/read": [
+      "src/codex/client.ts"
+    ],
+    "configRequirements/read": [
+      "src/codex/runtime-capabilities.ts"
+    ],
+    "error": [
+      "src/bridge/goals/service.ts",
+      "src/bridge/input/payload.ts",
+      "src/bridge/input/preflight.ts",
+      "src/bridge/input/turn.ts",
+      "src/bridge/messages/runtime-prompts.ts",
+      "src/bridge/messages/types.ts",
+      "src/bridge/notifications/listener.ts",
+      "src/bridge/notifications/recovery.ts",
+      "src/bridge/notifications/subagent-tracker.ts",
+      "src/bridge/service.ts",
+      "src/bridge/sessions/activation.ts",
+      "src/bridge/sessions/compact-service.ts",
+      "src/bridge/sessions/creation.ts",
+      "src/bridge/sessions/interaction.ts",
+      "src/bridge/sessions/mutation.ts",
+      "src/bridge/sessions/ownership.ts",
+      "src/bridge/sessions/stop.ts",
+      "src/bridge/status/formatters.ts",
+      "src/codex/app-server-connection.ts",
+      "src/codex/client.ts",
+      "src/codex/extractors/progress.ts",
+      "src/codex/notification-events.ts",
+      "src/logging/logger.ts",
+      "src/web/bridge-api.ts",
+      "src/web/server.ts"
+    ],
+    "initialize": [
+      "src/codex/app-server-connection.ts"
+    ],
+    "item/agentMessage/contentDelta": [
+      "src/codex/notification-events.ts"
+    ],
+    "item/agentMessage/delta": [
+      "src/codex/app-server-connection.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "item/commandExecution/requestApproval": [
+      "src/bridge/decisions/formatters.ts",
+      "src/codex/client.ts"
+    ],
+    "item/completed": [
+      "src/codex/extractors/events.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "item/fileChange/outputDelta": [
+      "src/codex/notification-events.ts"
+    ],
+    "item/fileChange/patchUpdated": [
+      "src/codex/notification-events.ts"
+    ],
+    "item/fileChange/requestApproval": [
+      "src/bridge/decisions/formatters.ts",
+      "src/codex/client.ts",
+      "src/codex/extractors/approval.ts"
+    ],
+    "item/permissions/requestApproval": [
+      "src/bridge/decisions/formatters.ts",
+      "src/codex/client.ts",
+      "src/codex/extractors/approval.ts"
+    ],
+    "item/reasoning/summaryPartAdded": [
+      "src/codex/extractors/events.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "item/reasoning/summaryTextDelta": [
+      "src/codex/extractors/events.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "item/started": [
+      "src/codex/extractors/events.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "mcpServer/elicitation/request": [
+      "src/bridge/decisions/commands.ts",
+      "src/bridge/decisions/delivery.ts",
+      "src/bridge/decisions/formatters.ts",
+      "src/bridge/input/preflight.ts",
+      "src/bridge/notifications/approval.ts",
+      "src/bridge/notifications/auxiliary.ts",
+      "src/bridge/sessions/transcript.ts",
+      "src/codex/client.ts",
+      "src/codex/extractors/approval.ts"
+    ],
+    "mcpServer/oauthLogin/completed": [
+      "src/codex/notification-events.ts"
+    ],
+    "mcpServer/startupStatus/updated": [
+      "src/codex/notification-events.ts"
+    ],
+    "mcpServerStatus/list": [
+      "src/codex/catalog-api.ts"
+    ],
+    "model/list": [
+      "src/codex/catalog-api.ts"
+    ],
+    "model/rerouted": [
+      "src/codex/client.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "model/verification": [
+      "src/codex/notification-events.ts"
+    ],
+    "modelProvider/capabilities/read": [
+      "src/codex/runtime-capabilities.ts"
+    ],
+    "server/diagnostics": [
+      "src/codex/runtime-capabilities.ts"
+    ],
+    "serverRequest/resolved": [
+      "src/bridge/notifications/listener.ts",
+      "src/codex/client.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "skills/list": [
+      "src/codex/catalog-api.ts"
+    ],
+    "thread/archive": [
+      "src/codex/thread-list-api.ts"
+    ],
+    "thread/archived": [
+      "src/bridge/notifications/dispatcher.ts"
+    ],
+    "thread/compact/start": [
+      "src/codex/catalog-api.ts",
+      "src/codex/error-policy.ts"
+    ],
+    "thread/compacted": [
+      "src/codex/extractors/events.ts"
+    ],
+    "thread/delete": [
+      "src/codex/thread-list-api.ts"
+    ],
+    "thread/deleted": [
+      "src/bridge/notifications/dispatcher.ts"
+    ],
+    "thread/goal/clear": [
+      "src/codex/goal-api.ts"
+    ],
+    "thread/goal/get": [
+      "src/codex/goal-api.ts"
+    ],
+    "thread/goal/set": [
+      "src/codex/goal-api.ts"
+    ],
+    "thread/list": [
+      "src/codex/thread-list-api.ts"
+    ],
+    "thread/loaded/list": [
+      "src/codex/catalog-api.ts"
+    ],
+    "thread/name/set": [
+      "src/codex/thread-list-api.ts"
+    ],
+    "thread/name/updated": [
+      "src/bridge/notifications/listener.ts"
+    ],
+    "thread/queue/add": [
+      "src/codex/queue-api.ts"
+    ],
+    "thread/queue/changed": [
+      "src/bridge/notifications/dispatcher.ts"
+    ],
+    "thread/queue/delete": [
+      "src/codex/queue-api.ts"
+    ],
+    "thread/queue/list": [
+      "src/codex/queue-api.ts"
+    ],
+    "thread/read": [
+      "src/codex/error-policy.ts",
+      "src/codex/thread-api.ts"
+    ],
+    "thread/resume": [
+      "src/codex/error-policy.ts",
+      "src/codex/thread-api.ts"
+    ],
+    "thread/settings/updated": [
+      "src/codex/client.ts"
+    ],
+    "thread/start": [
+      "src/codex/client.ts"
+    ],
+    "thread/tokenUsage/updated": [
+      "src/codex/notification-events.ts"
+    ],
+    "thread/turns/list": [
+      "src/codex/thread-api.ts"
+    ],
+    "thread/unarchive": [
+      "src/codex/thread-list-api.ts"
+    ],
+    "thread/unarchived": [
+      "src/bridge/notifications/dispatcher.ts"
+    ],
+    "thread/unsubscribe": [
+      "src/codex/thread-api.ts"
+    ],
+    "turn/completed": [
+      "src/bridge/notifications/subagent-tracker.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "turn/interrupt": [
+      "src/codex/turn-api.ts"
+    ],
+    "turn/start": [
+      "src/codex/error-policy.ts",
+      "src/codex/turn-api.ts"
+    ],
+    "turn/started": [
+      "src/bridge/notifications/subagent-tracker.ts",
+      "src/codex/notification-events.ts"
+    ],
+    "turn/steer": [
+      "src/codex/error-policy.ts",
+      "src/codex/turn-api.ts"
+    ],
+    "warning": [
+      "src/bridge/notifications/rate-limit-notifier.ts"
+    ]
+  },
+  "liveVerification": {
+    "server/diagnostics": {
+      "version": "0.162.1",
+      "verifiedAt": "2026-10-12",
+      "scenario": "read-only capabilities"
+    },
+    "configRequirements/read": {
+      "version": "0.162.1",
+      "verifiedAt": "2026-10-12",
+      "scenario": "read-only capabilities"
+    },
+    "modelProvider/capabilities/read": {
+      "version": "0.162.1",
+      "verifiedAt": "2026-10-12",
+      "scenario": "read-only capabilities"
+    }
+  }
+}
