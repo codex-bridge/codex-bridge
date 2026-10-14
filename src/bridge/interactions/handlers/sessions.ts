@@ -5,6 +5,7 @@ import type {
 import type { MessageSpec } from "../../messages/types.js";
 import type { SessionInteractionAction } from "../action.js";
 import type { InteractionContext, InteractionDelivery } from "../types.js";
+import { sessionActionResultDelivery, sessionSelectorDelivery } from "../session-delivery.js";
 
 export async function handleOpenSessionsAction(
   service: Pick<BridgeSessionMenuPort, "renderSessionMenu">,
@@ -44,26 +45,21 @@ export async function handleSessionAction(
       break;
     case "session.directory.open":
     case "session.directory.page":
-      message = await service.renderSessionSectionMenu(chatId, action.directoryHash, action.page);
-      break;
+      return sessionSelectorDelivery(await service.renderSessionSectionMenu(chatId, action.directoryHash, action.page));
     case "session.create":
       message = await service.requestCreateSessionFromDirectorySelector(chatId, action.directoryHash);
       break;
     case "session.menu.refresh":
-      message = await service.renderSessionMenu(chatId, 0, { refresh: true, includeUnknownThreads: true });
-      break;
+      return sessionSelectorDelivery(await service.renderSessionMenu(chatId, 0, { refresh: true, includeUnknownThreads: true }));
     case "session.archived.open":
-      message = await service.renderArchivedSessionMenu(chatId, 0);
-      break;
+      return sessionSelectorDelivery(await service.renderArchivedSessionMenu(chatId, 0));
     case "session.archived.page":
-      message = await service.renderArchivedSessionMenu(chatId, action.page);
-      break;
+      return sessionSelectorDelivery(await service.renderArchivedSessionMenu(chatId, action.page));
     case "session.unarchive":
       message = await service.unarchiveSession(chatId, action.sessionId);
       break;
     case "session.menu.page":
-      message = await service.renderSessionMenu(chatId, action.page, { refresh: false, reuseSnapshot: true });
-      break;
+      return sessionSelectorDelivery(await service.renderSessionMenu(chatId, action.page, { refresh: false, reuseSnapshot: true }));
   }
-  return { mode: "edit", target: "surface", message };
+  return sessionActionResultDelivery(context, message);
 }

@@ -224,16 +224,20 @@ test("split messages stop after fallback and do not associate a root notice ID w
   assert.doesNotMatch(JSON.stringify(f.posts), /PRIVATE/);
 });
 
-test("action receipts on the selection anchor are replies, while child menu edits stay in place", async () => {
+test("explicit status cards are protected, while selectors at the same position remain editable", async () => {
   const f = fixture();
   const message = createMessage({ kind: "system", body: [{ type: "text", text: "Binding result" }] });
-  const context = { platform: "slack" as const, conversationId: chatId, surfaceId: "slack:T:C", sourceMessageId: "1.0001" };
+  const context = { platform: "slack" as const, conversationId: chatId, surfaceId: "slack:T:C", sourceMessageId: "1.0001",
+    sourceSurface: "session-status" as const };
   await deliverSlackInteraction(f.transport, context, { mode: "edit", target: "surface", message });
   assert.deepEqual(f.edits, []);
   assert.equal(f.posts[0]?.thread_ts, "1.0001");
-  await deliverSlackInteraction(f.transport, { ...context, surfaceId: chatId, sourceMessageId: "2.0001" },
+  await deliverSlackInteraction(f.transport, { ...context, sourceSurface: "session-selector", surfaceId: chatId, sourceMessageId: "1.0001" },
     { mode: "edit", target: "surface", message });
-  assert.equal(f.edits[0]?.ts, "2.0001");
+  assert.equal(f.edits[0]?.ts, "1.0001");
+  await deliverSlackInteraction(f.transport, { ...context, sourceSurface: "session-selector", surfaceId: chatId, sourceMessageId: "2.0001" },
+    { mode: "edit", target: "surface", message });
+  assert.equal(f.edits[1]?.ts, "2.0001");
 });
 
 test("successful root selection never overwrites its state-maintained parent card", async () => {

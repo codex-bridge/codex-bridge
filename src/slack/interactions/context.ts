@@ -7,10 +7,11 @@ export type SlackActionSource = {
   messageTs: string | null;
   teamId: string;
   threadTs: string | null;
+  surface?: InteractionContext["sourceSurface"];
 };
 
-/** The selection anchor is maintained by Bridge state changes, not action receipts. */
-export function isSlackConversationAnchor(context: InteractionContext): boolean {
+/** Physical position only: selection hooks update this parent during activation. */
+export function isSlackThreadParent(context: InteractionContext): boolean {
   const parentTs = parseSlackChatId(context.conversationId)?.threadTs;
   return Boolean(parentTs && context.sourceMessageId === parentTs);
 }
@@ -49,6 +50,7 @@ export function resolveSlackInteractionContext(
     conversationId,
     surfaceId: sourceChatId,
     ...(source.messageTs ? { sourceMessageId: source.messageTs } : {}),
-    ...(triggerId ? { triggerId } : {})
+    ...(triggerId ? { triggerId } : {}),
+    ...(source.surface ? { sourceSurface: source.surface } : {})
   };
 }

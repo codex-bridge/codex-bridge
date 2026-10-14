@@ -159,7 +159,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     const ref = this.requireSlackChatRef(chatId);
     if (!ref.threadTs) return;
     try {
-      await this.editMessageSpec(chatId, ref.threadTs, { ...messageSpec, actions: [] });
+      await this.editMessageSpec(chatId, ref.threadTs, { ...messageSpec, surface: "session-status", actions: [] });
     } catch (error) {
       // Deleted parents and user-authored parents are not recreated or replaced.
       logger.info("slack.session.parent_update_skipped", { chatId,

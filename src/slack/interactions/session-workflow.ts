@@ -12,11 +12,12 @@ import {
 import { createMessage } from "../../bridge/messages/factory.js";
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { ActionSpec } from "../../bridge/messages/types.js";
-import type { BridgeMessageOptions } from "../../bridge/transport.js";
+import { sessionActionResultDelivery } from "../../bridge/interactions/session-delivery.js";
 import { logger } from "../../logging/logger.js";
 import { isLockedSlackThread, isSlackThreadChatId } from "../routing.js";
 import type { SlackMessageTransport } from "../transport.js";
-import { isSlackConversationAnchor } from "./context.js";
+import { isSlackThreadParent } from "./context.js";
+import { deliverSlackInteraction } from "./responder.js";
 
 type SessionWorkflowAction =
   | { type: "session.create-current" }
@@ -74,13 +75,6 @@ export async function handleSlackSessionWorkflow(input: {
 
   const { context, service, transport } = input;
   const chatId = context.conversationId;
-  const updateSpec = async (messageSpec: NonNullable<BridgeMessageOptions["messageSpec"]>) => {
-    if (!context.sourceMessageId) {
-      await transport.sendMessageSpec(context.surfaceId, messageSpec);
-      return;
-    }
-    await transport.editMessageSpec(context.surfaceId, context.sourceMessageId, messageSpec);
-  };
 
   if (action.type === "session.create-current") {
     if (await isLockedSlackThread(service, chatId)) {
@@ -93,7 +87,8 @@ export async function handleSlackSessionWorkflow(input: {
       }));
       return true;
     }
-    await updateSpec(await service.requestCreateSessionForCurrentDirectory(chatId));
+    await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context,
+      await service.requestCreateSessionForCurrentDirectory(chatId)));
     return true;
   }
 
@@ -105,21 +100,18 @@ export async function handleSlackSessionWorkflow(input: {
         : await service.activateSessionFromSelector(chatId, action.sessionId);
     } catch (error) {
       if (!(error instanceof SessionActivationError)) throw error;
-      if (context.conversationId !== context.surfaceId || isSlackConversationAnchor(context)) {
-        await transport.sendMessageSpec(context.conversationId, error.messageSpec);
-      } else {
-        await updateSpec(error.messageSpec);
-      }
+      await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context, error.messageSpec));
       return true;
     }
     const { session, recentMessages } = activation;
     // The state-change hook already refreshed this anchor with current binding data.
     // Do not overwrite it with a receipt or an older delayed activation result.
-    if (!isSlackConversationAnchor(context)) {
+    if (!isSlackThreadParent(context)) {
       const selectionActions = isSlackThreadChatId(context.surfaceId)
         ? await renderSelectedSessionActions(service, chatId, session)
         : [];
-      await updateSpec(await service.renderSelectedSessionSpec(session, selectionActions));
+      await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context,
+        await service.renderSelectedSessionSpec(session, selectionActions)));
     }
     await service.postSessionSwitchTranscript(chatId, session, recentMessages, {
       ...(action.legacySection ? { heading: "Switched to section" } : {})

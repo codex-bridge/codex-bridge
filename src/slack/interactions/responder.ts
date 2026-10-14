@@ -1,13 +1,12 @@
 import type { InteractionContext, InteractionDelivery } from "../../bridge/interactions/types.js";
 import type { SlackMessageTransport } from "../transport.js";
-import { isSlackConversationAnchor } from "./context.js";
 
 export async function deliverSlackInteraction(
   transport: SlackMessageTransport,
   context: InteractionContext,
   delivery: InteractionDelivery
 ): Promise<void> {
-  if (delivery.mode === "send" || isSlackConversationAnchor(context)) {
+  if (delivery.mode === "send" || context.sourceSurface === "session-status") {
     await transport.sendMessageSpec(context.conversationId, delivery.message);
     return;
   }

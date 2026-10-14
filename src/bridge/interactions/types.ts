@@ -6,6 +6,7 @@ export type InteractionContext = {
   surfaceId: string;
   sourceMessageId?: string;
   triggerId?: string;
+  sourceSurface?: MessageSpec["surface"];
 };
 
 export type InteractionDelivery =

@@ -3,6 +3,7 @@ import type { KnownBlock } from "@slack/types";
 import type { ActionSpec, MessageBodyPart, MessageSpec } from "../bridge/messages/types.js";
 import { splitMessageSpecByRenderedLength } from "../bridge/messages/chunks.js";
 import { buildSlackButton } from "./buttons.js";
+import { slackSurfaceBlockId } from "./surfaces.js";
 
 export const SLACK_MARKDOWN_BLOCK_TEXT_LIMIT = 12_000;
 
@@ -13,6 +14,7 @@ export function renderSlackMessageSpec(
 ): KnownBlock[] {
   const blocks: KnownBlock[] = [{
     type: "markdown",
+    ...(spec.surface ? { block_id: slackSurfaceBlockId(spec.surface) } : {}),
     text: truncateSlackMarkdown(renderMessageText(spec))
   }];
   blocks.push(...renderActions(chatId, spec.actions, callbackSecret, spec.title));

@@ -25,6 +25,7 @@ import {
 import { SlackMessageTransport } from "./transport.js";
 import { createSlackMessageHandler } from "./message-handler.js";
 import { resolveSlackInteractionContext, type SlackActionSource } from "./interactions/context.js";
+import { readSlackSurface } from "./surfaces.js";
 import { buildSlackQueueModal, readSlackQueueModalText } from "./interactions/queue.js";
 import {
   dispatchSlackInteraction
@@ -281,7 +282,8 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): S
       containerType: body.container?.type ?? null,
       messageTs: body.message?.ts ?? body.container?.message_ts ?? null,
       teamId: body.team?.id ?? teamIdFallback,
-      threadTs: body.message?.thread_ts ?? body.container?.thread_ts ?? null
+      threadTs: body.message?.thread_ts ?? body.container?.thread_ts ?? null,
+      surface: readSlackSurface(body.message?.blocks)
     };
     const decoded = decodeSlackCallbackValue(data, config.bridgeCallbackSecret);
     if (decoded) {

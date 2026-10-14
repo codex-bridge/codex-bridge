@@ -2,10 +2,16 @@ import type { KnownBlock } from "@slack/types";
 import type { WebClient } from "@slack/web-api";
 import type { BridgeMessageOptions, BridgeSentMessage } from "../bridge/transport.js";
 import { logger } from "../logging/logger.js";
+import { readSlackSurface } from "./surfaces.js";
+import type { MessageSpec } from "../bridge/messages/types.js";
 
 export type SlackDeliveryTarget = { channelId: string; threadTs: string | null };
 type SlackContent = { text: string; blocks?: KnownBlock[] };
 type SlackResponse = { channel?: string; ts?: string; message?: { thread_ts?: string } };
+type SlackMessageAvailability = {
+  state: "available" | "missing" | "unknown";
+  surface?: MessageSpec["surface"];
+};
 
 function slackErrorCode(error: unknown): string | null {
   if (typeof error !== "object" || error === null || !("data" in error)) return null;
@@ -21,9 +27,9 @@ export class SlackThreadDelivery {
   async send(chatId: string, target: SlackDeliveryTarget, content: SlackContent,
     options?: BridgeMessageOptions): Promise<BridgeSentMessage | null> {
     if (target.threadTs) {
-      const available = await this.parentAvailability(chatId, target);
-      if (available !== "available") {
-        if (available === "missing") await this.sendNotice(chatId, target, options);
+      const available = await this.messageAvailability(chatId, target, target.threadTs);
+      if (available.state !== "available") {
+        if (available.state === "missing") await this.sendNotice(chatId, target, options);
         return null;
       }
     }
@@ -48,7 +54,18 @@ export class SlackThreadDelivery {
     options?: BridgeMessageOptions): Promise<boolean> {
     // Parent-card edits intentionally target the existing root anchor, never a new one.
     const destination = messageId === target.threadTs ? { ...target, threadTs: null } : target;
-    if (target.threadTs && await this.parentAvailability(chatId, target) !== "available") return false;
+    const incomingSurface = readSlackSurface(content.blocks);
+    // A selector click can arrive after its root message became a status card.
+    // Reuse the parent preflight; root selectors check their own exact message.
+    const checkedMessageId = target.threadTs ?? (incomingSurface === "session-selector" ? messageId : null);
+    if (checkedMessageId) {
+      const available = await this.messageAvailability(chatId, target, checkedMessageId);
+      if (available.state !== "available") return false;
+      if (messageId === checkedMessageId && available.surface === "session-status" && incomingSurface !== "session-status") {
+        logger.info("slack.message.surface_edit_skipped", { chatId, messageId, incomingSurface: incomingSurface ?? null });
+        return false;
+      }
+    }
     // chat.update does not promise thread_ts in its response. Its immutable ts addresses
     // the message already verified on send; do not interpret absent metadata as root.
     await this.client.chat.update({ channel: destination.channelId, ts: messageId, ...content });
@@ -56,22 +73,22 @@ export class SlackThreadDelivery {
     return true;
   }
 
-  private async parentAvailability(chatId: string, target: SlackDeliveryTarget): Promise<"available" | "missing" | "unknown"> {
+  private async messageAvailability(chatId: string, target: SlackDeliveryTarget, messageId: string): Promise<SlackMessageAvailability> {
     try {
       // history works with the bot history scopes on public/private channels and DMs.
       const response = await this.client.conversations.history({ channel: target.channelId,
-        oldest: target.threadTs!, latest: target.threadTs!, inclusive: true, limit: 1 });
+        oldest: messageId, latest: messageId, inclusive: true, limit: 1 });
       if (response.ok !== true || !Array.isArray(response.messages)) {
         logger.warn("slack.thread.parent_unverified", { chatId, ...target });
-        return "unknown";
+        return { state: "unknown" };
       }
-      const found = response.messages.find((message) => message.ts === target.threadTs);
-      if (found && found.subtype !== "tombstone") return "available";
+      const found = response.messages.find((message) => message.ts === messageId);
+      if (found && found.subtype !== "tombstone") return { state: "available", surface: readSlackSurface(found.blocks) };
       logger.info("slack.thread.parent_unavailable", { chatId, ...target });
-      return "missing";
+      return { state: "missing" };
     } catch (error) {
       this.logFailure("slack.thread.parent_unverified", chatId, target, error);
-      return "unknown";
+      return { state: "unknown" };
     }
   }
 

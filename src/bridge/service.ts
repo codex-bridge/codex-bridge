@@ -55,6 +55,7 @@ import { SessionActionGuardService } from "./sessions/action-guards.js";
 import { SessionStopService } from "./sessions/stop.js";
 import { SessionRefreshStatusService } from "./sessions/refresh-status.js";
 import { SessionInteractionService } from "./sessions/interaction.js";
+import { renderSessionStatus } from "./sessions/state-presentation.js";
 import { SessionRecoveryService } from "./sessions/recovery.js";
 import { RolloutReader } from "./sessions/rollout-reader.js";
 import { SessionPresentationService } from "./sessions/presentation.js";
@@ -479,7 +480,7 @@ export class BridgeService {
       getSessionProvider: (threadId) => this.threadMetadataCache.getProvider(threadId),
       readEffectiveProvider: (directory) => this.sessionProviderStateService.readEffectiveProviderForFilter(directory),
       readEffectiveProviderLabel: (directory) => this.sessionProviderStateService.readEffectiveProviderLabel(directory),
-      renderCurrentSession: (chatId) => this.sessionInteractionService.renderCurrentSessionMenuSection(chatId)
+      getCurrentSessionSnapshot: (chatId) => this.sessionInteractionService.getCurrentSessionSnapshot(chatId)
     });
     this.sessionCreationService = new SessionCreationService({
       store,
@@ -816,10 +817,8 @@ export class BridgeService {
       try {
         const transport = this.messageSender.requireTransport(sourceId);
         if (!transport.updateConversationSession) return;
-        const current = await this.sessionInteractionService.renderCurrentSessionMenuSection(sourceId);
-        await transport.updateConversationSession(sourceId, current?.messageSpec ?? createMessage({
-          kind: "system", titleLabel: "Codex", body: [{ type: "text", text: "No session selected." }]
-        }));
+        const snapshot = await this.sessionInteractionService.getCurrentSessionSnapshot(sourceId);
+        await transport.updateConversationSession(sourceId, renderSessionStatus(snapshot));
       } catch (error) {
         logger.warn("bridge.session.card_update_failed", { sourceId, error: String(error) });
       }

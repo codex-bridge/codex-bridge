@@ -6,6 +6,7 @@ import { actionRow, messageAction } from "../messages/actions.js";
 import { createMessage } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatSessionMenuLabel } from "./menu-formatters.js";
+import { renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
 import type { CachedThreadProvider } from "../../codex/thread-metadata-cache.js";
 import {
   SessionMenuSnapshotCache,
@@ -16,7 +17,7 @@ import {
 
 export type { DirectoryMenuGroup, SectionMenuEntry, SessionDirectoryMenuSnapshot } from "./menu-snapshots.js";
 
-type SessionMenuStore = Pick<BridgeStore, "getActiveSession" | "listKnownSessions" | "listLatestMessageTimes">;
+type SessionMenuStore = Pick<BridgeStore, "listKnownSessions" | "listLatestMessageTimes">;
 
 export type SessionMenuServiceDependencies = {
   store: SessionMenuStore;
@@ -32,7 +33,7 @@ export type SessionMenuServiceDependencies = {
   getSessionProvider: (threadId: string) => CachedThreadProvider;
   readEffectiveProvider: (directory: string) => Promise<string | null>;
   readEffectiveProviderLabel: (directory: string) => Promise<string>;
-  renderCurrentSession: (chatId: string) => Promise<{ messageSpec: MessageSpec } | null>;
+  getCurrentSessionSnapshot: (chatId: string) => Promise<CurrentSessionSnapshot | null>;
 };
 
 export type SessionMenuRenderOptions = {
@@ -62,7 +63,7 @@ export class SessionMenuService {
       this.deps.getSessionSelectorChatId(telegramChatId),
       menuOptions
     );
-    const current = await this.deps.renderCurrentSession(telegramChatId);
+    const current = renderCurrentSessionMenuSection(await this.deps.getCurrentSessionSnapshot(telegramChatId));
     const totalPages = Math.max(1, Math.ceil(groups.length / this.deps.sessionsPageSize));
     const safePage = Math.min(Math.max(page, 0), totalPages - 1);
     const visibleGroups = groups.slice(safePage * this.deps.sessionsPageSize, (safePage + 1) * this.deps.sessionsPageSize);
@@ -211,9 +212,9 @@ export class SessionMenuService {
     const totalPages = Math.max(1, Math.ceil(entries.length / this.deps.sessionsPageSize));
     const safePage = Math.min(Math.max(page, 0), totalPages - 1);
     const visibleEntries = entries.slice(safePage * this.deps.sessionsPageSize, (safePage + 1) * this.deps.sessionsPageSize);
-    const currentSession = await this.deps.store.getActiveSession(telegramChatId);
-    const current = currentSession && this.deps.getSessionDirectory(currentSession) === group.directoryKey
-      ? await this.deps.renderCurrentSession(telegramChatId)
+    const snapshot = await this.deps.getCurrentSessionSnapshot(telegramChatId);
+    const current = snapshot?.session.directory === group.directoryKey
+      ? renderCurrentSessionMenuSection(snapshot)
       : null;
     logger.info("bridge.session_section_menu.render", {
       chatId: telegramChatId,
@@ -268,6 +269,7 @@ export class SessionMenuService {
   ): MessageSpec {
     return createMessage({
       kind: "menu",
+      surface: "session-selector",
       titleLabel: title,
       ...(titleSession ? { session: titleSession } : {}),
       body: body ?? current?.messageSpec.body ?? [],

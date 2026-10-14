@@ -4,9 +4,9 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { archiveAction, deleteAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionOwnershipService } from "./ownership.js";
+import type { CurrentSessionSnapshot } from "./state-presentation.js";
 
 type SlackChat = { threadTs: string | null } | null;
 
@@ -29,28 +29,24 @@ export type SessionInteractionDependencies = {
 export class SessionInteractionService {
   constructor(private readonly deps: SessionInteractionDependencies) {}
 
-  async renderCurrentSessionMenuSection(chatId: string): Promise<{ messageSpec: MessageSpec } | null> {
+  async getCurrentSessionSnapshot(chatId: string): Promise<CurrentSessionSnapshot | null> {
     const session = await this.deps.store.getActiveSession(chatId);
     if (!session) return null;
 
     const lease = this.deps.store.getSessionLease(session.id);
     const binding = this.deps.store.getSessionBinding(session.id, chatId);
     const owner = lease?.ownerBindingId ? this.deps.store.getSessionBindingById(lease.ownerBindingId) : null;
-    const createSpec = (actions: MessageSpec["actions"]): MessageSpec => createMessage({
-      kind: "menu",
+    const snapshot: CurrentSessionSnapshot = {
       session: { id: session.codexThreadId, directory: this.deps.getSessionDirectory(session) },
-      body: [
-        { type: "field", label: "Session ID", value: session.codexThreadId },
-        { type: "field", label: "Thread", value: this.deps.parseSlackChatId(chatId)?.threadTs ?? "n/a" },
-        { type: "field", label: "Binding", value: lease?.state === "external_unknown" ? "In use outside Bridge"
-          : binding && owner?.id === binding.id ? "Bound here"
-          : binding && lease?.pendingBindingId === binding.id ? "Waiting for handoff"
-          : owner ? "In use in another conversation" : "Not bound" }
-      ],
-      actions
-    });
+      thread: this.deps.parseSlackChatId(chatId)?.threadTs ?? "n/a",
+      binding: lease?.state === "external_unknown" ? "external"
+        : binding && owner?.id === binding.id ? "bound"
+        : binding && lease?.pendingBindingId === binding.id ? "pending"
+        : owner ? "other" : "unbound",
+      actions: []
+    };
 
-    if (lease?.state === "external_unknown") return { messageSpec: createSpec([helpAction()]) };
+    if (snapshot.binding === "external") return { ...snapshot, actions: [helpAction()] };
 
     const isOwner = Boolean(binding && owner && binding.id === owner.id);
     if (isOwner && lease) {
@@ -58,22 +54,24 @@ export class SessionInteractionService {
       const deleteCallback = await this.deps.getSessionDeleteCallback(chatId, session.id);
       const releaseCallback = await this.deps.getSessionReleaseBridgeCallback(chatId, session.id);
       return {
-        messageSpec: createSpec([
+        ...snapshot,
+        actions: [
           ...(releaseCallback ? [messageAction("release", "Release to Codex", releaseCallback, "Current session")] : []),
           ...(archiveCallback ? [archiveAction(archiveCallback, "Current session")] : []),
           ...(deleteCallback ? [deleteAction(deleteCallback, "Current session")] : [])
-        ])
+        ]
       };
     }
 
     if (lease && owner) {
       return {
-        messageSpec: createSpec([
+        ...snapshot,
+        actions: [
           messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(session.id, lease.version), "Current session")
-        ])
+        ]
       };
     }
-    return { messageSpec: createSpec([]) };
+    return snapshot;
   }
 
   async renameActiveSection(chatId: string, nameInput: string): Promise<MessageSpec> {

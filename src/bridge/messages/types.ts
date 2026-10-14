@@ -70,4 +70,5 @@ export type MessageSpec = {
   actions: ActionSpec[];
   delivery?: DeliverySpec;
   decision?: DecisionContext;
+  surface?: "session-selector" | "session-status" | "action-result";
 };
