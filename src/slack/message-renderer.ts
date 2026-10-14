@@ -2,7 +2,7 @@ import type { KnownBlock } from "@slack/types";
 
 import type { ActionSpec, MessageBodyPart, MessageSpec } from "../bridge/messages/types.js";
 import { splitMessageSpecByRenderedLength } from "../bridge/messages/chunks.js";
-import { encodeSlackCallbackValue } from "./callback.js";
+import { buildSlackButton } from "./buttons.js";
 
 export const SLACK_MARKDOWN_BLOCK_TEXT_LIMIT = 12_000;
 
@@ -53,11 +53,12 @@ function renderActions(
       const row = actions.slice(rowStart, Math.min(rowStart + 5, groupEnd));
       blocks.push({
         type: "actions",
-        elements: row.map((action, index) => ({
-          type: "button" as const,
-          text: { type: "plain_text" as const, text: action.label, emoji: false },
-          value: encodeSlackCallbackValue(chatId, action.callback, callbackSecret),
-          action_id: `bridge_callback_${action.id}_${rowStart + index}`,
+        elements: row.map((action, index) => buildSlackButton({
+          chatId,
+          label: action.label,
+          callbackSecret,
+          destination: { callback: action.callback },
+          actionId: `bridge_callback_${action.id}_${rowStart + index}`,
           ...(action.style === "primary" || action.style === "danger" ? { style: action.style } : {})
         }))
       });

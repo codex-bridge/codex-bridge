@@ -1,4 +1,4 @@
-import type { KnownBlock, PlainTextElement } from "@slack/types";
+import type { KnownBlock } from "@slack/types";
 import { WebClient } from "@slack/web-api";
 
 import type {
@@ -9,7 +9,7 @@ import type {
 import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
 import { logger } from "../logging/logger.js";
-import { encodeSlackCallbackValue } from "./callback.js";
+import { buildSlackButton } from "./buttons.js";
 import { renderSlackMessageSpec } from "./message-renderer.js";
 import { messageTransportPlatform } from "../shared/source-address.js";
 import { SlackThreadDelivery } from "./thread-delivery.js";
@@ -454,27 +454,15 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     const elements = row
       .filter((button) => button.text?.trim() && button.text.trim() !== " ")
       .slice(0, 5)
-      .map((button, index) => {
-        const text: PlainTextElement = {
-          type: "plain_text",
-          text: this.truncateButtonText(button.text ?? "Action"),
-          emoji: false
-        };
-        if (button.url) {
-          return {
-            type: "button" as const,
-            text,
-            url: button.url,
-            action_id: `bridge_url_${rowIndex}_${index}`
-          };
-        }
-        return {
-          type: "button" as const,
-          text,
-          value: encodeSlackCallbackValue(chatId, button.callback_data ?? button.text ?? "", this.callbackSecret),
-          action_id: `bridge_callback_${rowIndex}_${index}`
-        };
-      });
+      .map((button, index) => buildSlackButton({
+        chatId,
+        label: button.text ?? "Action",
+        callbackSecret: this.callbackSecret,
+        destination: button.url
+          ? { url: button.url }
+          : { callback: button.callback_data ?? button.text ?? "" },
+        actionId: `bridge_${button.url ? "url" : "callback"}_${rowIndex}_${index}`
+      }));
     if (elements.length === 0) {
       return null;
     }
@@ -492,11 +480,4 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     return `${normalized.slice(0, 2999).trimEnd()}…`;
   }
 
-  private truncateButtonText(text: string): string {
-    const normalized = text.trim() || "Action";
-    if (normalized.length <= 75) {
-      return normalized;
-    }
-    return `${normalized.slice(0, 74).trimEnd()}…`;
-  }
 }
