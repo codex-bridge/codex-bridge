@@ -54,14 +54,14 @@ export class CompactService {
   constructor(private readonly deps: CompactServiceDependencies) {}
 
   async compactActiveSession(telegramChatId: string): Promise<MessageSpec> {
-    if (!this.deps.isRuntimeConnected()) return this.resultWithoutSession("Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     const session = await this.deps.store.getActiveSession(telegramChatId);
-    if (!session) return this.resultWithoutSession("No active session to compact.");
+    if (!this.deps.isRuntimeConnected()) return this.errorResult(session, "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
+    if (!session) return this.errorResult(null, "No active session to compact.");
     return this.compactSession(session);
   }
 
   async compactSession(session: SessionRecord): Promise<MessageSpec> {
-    if (!this.deps.isRuntimeConnected()) return this.resultWithoutSession("Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
+    if (!this.deps.isRuntimeConnected()) return this.errorResult(session, "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     this.deps.rememberNotificationSession(session);
     await this.deps.setSessionStatus(session, "Compacting");
 
@@ -216,16 +216,12 @@ export class CompactService {
     });
   }
 
-  private errorResult(session: SessionRecord, text: string): MessageSpec {
+  private errorResult(session: SessionRecord | null, text: string): MessageSpec {
     return createMessage({
       kind: "error",
-      session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
+      session: session ? { id: session.id, directory: this.deps.getSessionDirectory(session) } : undefined,
       body: [{ type: "text", text }]
     });
-  }
-
-  private resultWithoutSession(text: string): MessageSpec {
-    return createMessage({ kind: "error", body: [{ type: "text", text }] });
   }
 }
 

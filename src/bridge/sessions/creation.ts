@@ -37,12 +37,12 @@ export class SessionCreationService {
   async requestCreateSessionForCurrentDirectory(telegramChatId: string): Promise<MessageSpec> {
     await this.deps.ensureChatAllowed(telegramChatId);
     if (!this.deps.isRuntimeConnected()) {
-      return this.createSessionCreationSpec("error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
+      return this.createSessionCreationSpec(telegramChatId, "error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     }
 
     const activeSession = await this.deps.store.getActiveSession(telegramChatId);
     if (!activeSession) {
-      return this.createSessionCreationSpec("error", [
+      return this.createSessionCreationSpec(telegramChatId, "error", [
         "No active session directory.",
         "Use sessions to choose a project first."
       ].join("\n"));
@@ -63,7 +63,7 @@ export class SessionCreationService {
   ): Promise<MessageSpec> {
     await this.deps.ensureChatAllowed(telegramChatId);
     if (!this.deps.isRuntimeConnected()) {
-      return this.createSessionCreationSpec("error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
+      return this.createSessionCreationSpec(telegramChatId, "error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     }
 
     const group = await this.deps.sessionMenuService.getDirectoryGroup(
@@ -71,7 +71,7 @@ export class SessionCreationService {
       directoryHash
     );
     if (!group) {
-      return this.createSessionCreationSpec("error", [
+      return this.createSessionCreationSpec(telegramChatId, "error", [
         "Session directory menu expired.",
         "Use sessions to open a fresh menu."
       ].join("\n"));
@@ -207,9 +207,11 @@ export class SessionCreationService {
     });
   }
 
-  private createSessionCreationSpec(kind: MessageSpec["kind"], text: string): MessageSpec {
+  private async createSessionCreationSpec(chatId: string, kind: MessageSpec["kind"], text: string): Promise<MessageSpec> {
+    const session = await this.deps.store.getActiveSession(chatId);
     return createMessage({
       kind,
+      session: session ? { id: session.codexThreadId, directory: this.deps.getSessionDirectory(session) } : undefined,
       body: [{ type: "text", text }],
       actions: actionRow(helpAction(), sessionAction())
     });

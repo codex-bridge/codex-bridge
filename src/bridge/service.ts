@@ -796,7 +796,6 @@ export class BridgeService {
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       sessionOwnershipService: this.sessionOwnershipService,
       isRuntimeConnected: () => this.isRuntimeConnected(),
-      createCommandResultSpec,
       createSessionCommandResultSpec,
       clearTypingState: (sessionId) => this.typingService.clear(sessionId),
       setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label)

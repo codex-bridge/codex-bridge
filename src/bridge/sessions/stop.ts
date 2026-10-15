@@ -11,8 +11,7 @@ export type SessionStopDependencies = {
   inFlightTurnIdByThread: Map<string, string>;
   sessionOwnershipService: SessionOwnershipService;
   isRuntimeConnected: () => boolean;
-  createCommandResultSpec: (kind: MessageSpec["kind"], text: string) => MessageSpec;
-  createSessionCommandResultSpec: (session: SessionRecord, kind: MessageSpec["kind"], text: string) => MessageSpec;
+  createSessionCommandResultSpec: (session: SessionRecord | null, kind: MessageSpec["kind"], text: string) => MessageSpec;
   clearTypingState: (sessionId: string) => void;
   setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
 };
@@ -21,20 +20,20 @@ export class SessionStopService {
   constructor(private readonly deps: SessionStopDependencies) {}
 
   async stop(chatId: string): Promise<MessageSpec> {
+    const session = await this.deps.store.getActiveSession(chatId);
     if (!this.deps.isRuntimeConnected()) {
-      return this.deps.createCommandResultSpec("error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
+      return this.deps.createSessionCommandResultSpec(session, "error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     }
 
-    const session = await this.deps.store.getActiveSession(chatId);
     if (!session) {
-      return this.deps.createCommandResultSpec("system", "No active session to stop.");
+      return this.deps.createSessionCommandResultSpec(null, "system", "No active session to stop.");
     }
     return this.stopSession(session, chatId);
   }
 
   async stopSession(session: SessionRecord, sourceId: string): Promise<MessageSpec> {
     if (!this.deps.isRuntimeConnected()) {
-      return this.deps.createCommandResultSpec("error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
+      return this.deps.createSessionCommandResultSpec(session, "error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     }
     const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(session, sourceId);
     if (ownershipPrompt) return ownershipPrompt;

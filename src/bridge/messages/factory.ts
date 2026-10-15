@@ -122,11 +122,12 @@ export class BridgeMessageFactory {
   }
 
   createSessionCommandResultSpec(
-    session: SessionRecord,
+    session: SessionRecord | null,
     kind: MessageSpec["kind"],
     body: string,
     actions: MessageSpec["actions"] = [helpAction()]
   ): MessageSpec {
+    if (!session) return this.createCommandResultSpec(kind, body, actions);
     return createMessage({
       kind,
       session: this.sessionContext(session),
