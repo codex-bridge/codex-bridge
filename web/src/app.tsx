@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Composer } from "./components/composer";
 import { ConversationTimeline } from "./components/conversation-timeline";
+import { QueuePanel } from "./components/queue-panel";
 import { SessionCatalog } from "./components/session-catalog";
 import { ServiceConnectionControl } from "./components/service-connection-control";
 import { WorkbenchShell } from "./components/workbench-shell";
@@ -14,11 +15,13 @@ import { hasOpenDecision } from "./lib/timeline";
 import { BrowserSessionLocation, TabWindowGrantStore } from "./lib/browser-state";
 import { sessionAccessAppearance } from "./lib/session-access-appearance";
 import { createCatalogActions } from "./lib/catalog-actions";
+import { createConversationActions } from "./lib/conversation-actions";
 import { sessionControls } from "./lib/session-controls";
 
 export function App({ controller }: { controller: WorkbenchController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const catalogActions = useMemo(() => createCatalogActions(controller), [controller]);
+  const conversationActions = useMemo(() => createConversationActions(controller), [controller]);
   const entry = selectedEntry(state);
   const items = state.selected && canViewSelectedTimeline(state)
     ? state.timelines[state.selected] ?? [] : [];
@@ -48,11 +51,13 @@ export function App({ controller }: { controller: WorkbenchController }) {
         feedback={conversationFeedback} onTool={(tool) => { void controller.runSessionTool(tool); }}
         onBind={(action) => { void controller.bind(action); }}
         onRelease={() => { if (entry) void controller.manageSession(entry, "release"); }} />
-      <ConversationTimeline controller={controller} selected={state.selected} entry={entry} items={items} queue={queue}
+      <ConversationTimeline actions={conversationActions.timeline} selected={state.selected} entry={entry} items={items}
         feedback={conversationFeedback} loading={state.loading} catalogFresh={state.catalogFresh}
         allowed={allowed} pending={pending} busy={busy} emptyTitle={accessAppearance.emptyTitle}
         emptyDescription={accessAppearance.emptyDescription} />
-      <Composer controller={controller} selected={state.selected} draft={draft} attachments={attachments}
+      {entry && <QueuePanel queue={queue} allowed={allowed} busy={busy}
+        onCancel={(id) => { void conversationActions.cancelQueued(id); }} />}
+      <Composer actions={conversationActions.composer} selected={state.selected} draft={draft} attachments={attachments}
         allowed={allowed} pending={pending} busy={busy} sending={isSelectedOperation(state, "send")}
         queueRunning={queue?.running === true} placeholder={accessAppearance.draftPlaceholder}
         restriction={accessAppearance.composerRestriction} />

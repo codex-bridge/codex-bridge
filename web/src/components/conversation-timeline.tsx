@@ -5,15 +5,15 @@ import { DecisionCard } from "./decision-card";
 import { MessageActions } from "./message-actions";
 import { MessageView } from "./message-view";
 import { historyBoundaryIndex, type TimelineItem } from "../lib/timeline";
-import type { QueueSnapshot, SessionEntry } from "../lib/protocol";
-import type { WorkbenchController, WorkbenchFeedback } from "../lib/workbench";
+import type { SessionEntry } from "../lib/protocol";
+import type { TimelineActions } from "../lib/conversation-actions";
+import type { WorkbenchFeedback } from "../lib/workbench";
 
 export type ConversationTimelineProps = {
-  controller: WorkbenchController;
+  actions: TimelineActions;
   selected: string | null;
   entry?: SessionEntry;
   items: TimelineItem[];
-  queue?: QueueSnapshot;
   feedback: WorkbenchFeedback | null;
   loading: boolean;
   catalogFresh: boolean;
@@ -24,7 +24,7 @@ export type ConversationTimelineProps = {
   emptyDescription: string | null;
 };
 
-export const ConversationTimeline = memo(function ConversationTimeline({ controller, selected, entry, items, queue,
+export const ConversationTimeline = memo(function ConversationTimeline({ actions, selected, entry, items,
   feedback, loading, catalogFresh, allowed, pending, busy, emptyTitle, emptyDescription }: ConversationTimelineProps) {
   const [unread, setUnread] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
@@ -56,10 +56,10 @@ export const ConversationTimeline = memo(function ConversationTimeline({ control
     }}>
       <div className="messages">{items.map((item, index) => <Fragment key={item.id}><MessageView item={item}>
         <MessageActions actions={item.message.actions} enabled={allowed && !pending && item.origin !== "cache"} busy={busy}
-          onAction={(action) => { void controller.actMessage(action); }} />
+          onAction={(action) => { void actions.actMessage(action); }} />
         {item.message.decision && <DecisionCard message={item.message} current={item.openDecision !== false}
           enabled={allowed && item.origin !== "cache"} busy={busy}
-          onAction={(id, action, content) => controller.actDecision(id, action, content)} />}
+          onAction={actions.actDecision} />}
       </MessageView>{index === historyEndsAt && <div className="history-boundary" role="separator">
         <span>Messages above are history</span>
       </div>}</Fragment>)}</div>
@@ -67,14 +67,5 @@ export const ConversationTimeline = memo(function ConversationTimeline({ control
     {unread && <div className="latest"><Button variant="outline" onClick={() => {
       scroll.current?.scrollTo({ top: scroll.current.scrollHeight }); atBottom.current = true; setUnread(false);
     }}>View new messages</Button></div>}
-    {entry && queue && (queue.running || queue.entries.length > 0) && <section className="queue-panel" aria-label="Queued messages">
-      <div className="queue-heading"><h3>Queued messages</h3><span className="muted">{queue.entries.length}</span></div>
-      {!queue.entries.length && <p className="muted">A turn is running. You can add the draft to the queue.</p>}
-      {!!queue.entries.length && <ol>{queue.entries.map((item, index) => <li key={item.id}>
-        <div><span className="queue-index">{index + 1}</span><span>{item.summary}</span><span className="muted">{item.state}</span></div>
-        <Button variant="ghost" disabled={!allowed || busy || item.state !== "queued"}
-          onClick={() => { void controller.cancelQueued(item.id); }}>Cancel</Button>
-      </li>)}</ol>}
-    </section>}
   </>;
 });
