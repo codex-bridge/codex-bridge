@@ -3,15 +3,16 @@ import { Button } from "./ui/button";
 import { InfoHint } from "./info-hint";
 import { ModalDialog } from "./modal-dialog";
 import type { SessionEntry } from "../lib/protocol";
-import type { WorkbenchController, WorkbenchFeedback, WorkbenchOperation } from "../lib/workbench";
+import type { WorkbenchFeedback, WorkbenchOperation } from "../lib/workbench";
+import type { CatalogActions } from "../lib/catalog-actions";
 
 export type SessionDialog =
   | { kind: "create"; directory: string }
   | { kind: "rename"; session: SessionEntry }
   | { kind: "archive"; session: SessionEntry };
 
-export function AddDirectoryDialog({ controller, busy, operation, feedback, onClose, onAdded }: {
-  controller: WorkbenchController;
+export function AddDirectoryDialog({ onAddDirectory, busy, operation, feedback, onClose, onAdded }: {
+  onAddDirectory: CatalogActions["addDirectory"];
   busy: boolean;
   operation: WorkbenchOperation | null;
   feedback: WorkbenchFeedback | null;
@@ -26,7 +27,7 @@ export function AddDirectoryDialog({ controller, busy, operation, feedback, onCl
     <form onSubmit={(event) => {
       event.preventDefault();
       setAttempted(true);
-      void controller.addDirectory(path).then((receipt) => {
+      void onAddDirectory(path).then((receipt) => {
         if (!receipt) return;
         onAdded(receipt.directory);
       });
@@ -41,8 +42,8 @@ export function AddDirectoryDialog({ controller, busy, operation, feedback, onCl
   </ModalDialog>;
 }
 
-export function SessionManagementDialog({ controller, busy, operation, dialog, onClose }: {
-  controller: WorkbenchController;
+export function SessionManagementDialog({ onConfirm, busy, operation, dialog, onClose }: {
+  onConfirm: (name: string) => Promise<boolean>;
   busy: boolean;
   operation: WorkbenchOperation | null;
   dialog: SessionDialog;
@@ -59,9 +60,7 @@ export function SessionManagementDialog({ controller, busy, operation, dialog, o
         onChange={(event) => setName(event.target.value)} /></label>}
     <div className="dialog-actions"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
       <Button disabled={busy || (dialog.kind === "rename" && !name.trim())} onClick={() => {
-        const result = dialog.kind === "create" ? controller.createSession(dialog.directory)
-          : controller.manageSession(dialog.session, dialog.kind, dialog.kind === "rename" ? name : undefined);
-        void result.then((completed) => { if (completed) onClose(); });
+        void onConfirm(name).then((completed) => { if (completed) onClose(); });
       }}>{operation?.kind === "session-create" || operation?.kind === "session-manage" ? "Working…"
           : dialog.kind === "archive" ? "Archive" : "Confirm"}</Button></div>
   </ModalDialog>;

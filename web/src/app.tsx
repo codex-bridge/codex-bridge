@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Button } from "./components/ui/button";
 import { Composer } from "./components/composer";
 import { ConversationTimeline } from "./components/conversation-timeline";
@@ -17,9 +17,11 @@ import { isOwned } from "./lib/protocol";
 import { hasOpenDecision } from "./lib/timeline";
 import { BrowserSessionLocation, TabWindowGrantStore } from "./lib/browser-state";
 import { sessionAccessAppearance } from "./lib/session-access-appearance";
+import { createCatalogActions } from "./lib/catalog-actions";
 
 export function App({ controller }: { controller: WorkbenchController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const catalogActions = useMemo(() => createCatalogActions(controller), [controller]);
   const entry = selectedEntry(state);
   const items = state.selected && canViewSelectedTimeline(state)
     ? state.timelines[state.selected] ?? [] : [];
@@ -38,7 +40,7 @@ export function App({ controller }: { controller: WorkbenchController }) {
 
   useEffect(() => { void controller.start(); }, [controller]);
 
-  return <WorkbenchShell navigation={<SessionCatalog controller={controller} catalog={state.catalog} catalogFresh={state.catalogFresh}
+  return <WorkbenchShell navigation={<SessionCatalog actions={catalogActions} catalog={state.catalog} catalogFresh={state.catalogFresh}
       catalogError={state.catalogError} connection={state.connection}
       serviceConnection={<ServiceConnectionControl connection={state.connection} occupied={state.occupied}
         onConnect={() => { void controller.connect(state.occupied); }} />}

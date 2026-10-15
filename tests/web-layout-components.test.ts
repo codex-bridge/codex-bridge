@@ -4,8 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { tsImport } from "tsx/esm/api";
-import { WorkbenchController } from "../web/src/lib/workbench.ts";
-import type { WorkbenchApi } from "../web/src/lib/api.ts";
+import type { CatalogActions } from "../web/src/lib/catalog-actions.ts";
 
 // Use the frontend JSX settings without changing the backend test loader.
 const options = { parentURL: import.meta.url,
@@ -64,22 +63,19 @@ test("connected service control is compact and does not offer another connect or
 });
 
 test("catalog places the supplied connection control without owning its actions", () => {
-  const api = new Proxy({} as WorkbenchApi, { get: () => assert.fail("rendering must not access the API") });
-  const controller = new WorkbenchController(api);
-  try {
-    for (const connection of ["idle", "connected"] as const) {
-      const html = renderToStaticMarkup(createElement(SessionCatalog, {
-        controller, catalog: null, catalogFresh: false, catalogError: null, connection,
-        serviceConnection: createElement("span", null, "Connection slot"),
-        selected: null, busy: false, operation: null, directoryFeedback: null
-      }));
-      assert.equal(html.split("Connection slot").length - 1, 1);
-      if (connection === "connected") {
-        assert.match(html, /class="sidebar-utilities"><span>Connection slot<\/span>/u);
-      } else {
-        assert.match(html, /<\/div><span>Connection slot<\/span>/u);
-      }
-      assert.doesNotMatch(html, /Connect to service|Take over service connection/u);
+  const actions = new Proxy({} as CatalogActions, { get: () => assert.fail("rendering must not invoke catalog actions") });
+  for (const connection of ["idle", "connected"] as const) {
+    const html = renderToStaticMarkup(createElement(SessionCatalog, {
+      actions, catalog: null, catalogFresh: false, catalogError: null, connection,
+      serviceConnection: createElement("span", null, "Connection slot"),
+      selected: null, busy: false, operation: null, directoryFeedback: null
+    }));
+    assert.equal(html.split("Connection slot").length - 1, 1);
+    if (connection === "connected") {
+      assert.match(html, /class="sidebar-utilities"><span>Connection slot<\/span>/u);
+    } else {
+      assert.match(html, /<\/div><span>Connection slot<\/span>/u);
     }
-  } finally { controller.dispose(); }
+    assert.doesNotMatch(html, /Connect to service|Take over service connection/u);
+  }
 });
