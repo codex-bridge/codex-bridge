@@ -25,6 +25,7 @@ export const Composer = memo(function Composer({ actions, selected, draft, attac
   return <form className="composer" onSubmit={(event) => { event.preventDefault(); void actions.send(); }}>
     <div className="composer-label"><label htmlFor="message-draft">Message</label>
       <InfoHint label="Sending and image help" text="Press Enter to send and Shift + Enter for a new line. Text beginning with / is sent normally. Select or paste up to 5 PNG, JPEG, WebP, or GIF images; 10 MiB each and 25 MiB total." /></div>
+    <div className="composer-surface">
     <textarea id="message-draft" className="input" value={draft} disabled={!selected} maxLength={6000}
       onChange={(event) => actions.setDraft(event.target.value)}
       onPaste={(event) => {
@@ -57,6 +58,7 @@ export const Composer = memo(function Composer({ actions, selected, draft, attac
           disabled={!allowed || busy || (!draft.trim() && !attachments.length)} onClick={() => { void actions.queueDraft(); }}>Queue</Button>}
         <Button type="submit" disabled={!allowed || pending || busy || (!draft.trim() && !attachments.length)}>{sending ? "Sending…" : "Send"}</Button>
       </div>
+    </div>
     </div>
   </form>;
 });

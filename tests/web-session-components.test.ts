@@ -30,6 +30,8 @@ test("session header preserves title, directory and no-selection help without op
   const html = renderToStaticMarkup(createElement(SessionHeader, { ...props, onTool: unexpected }));
   assert.match(html, /<h2>Project A<\/h2>/u);
   assert.match(html, /title="\/projects\/a">\/projects\/a/u);
+  assert.ok(html.indexOf('title="/projects/a"') < html.indexOf("<h2>Project A</h2>"),
+    "the directory crumb precedes the session title in reading order");
   assert.match(html, /aria-label="Session tools"/u);
   assert.match(html, /aria-label="Session details"[^>]*aria-haspopup="dialog" aria-expanded="false"/u);
   assert.doesNotMatch(html, /role="dialog"|Release to external Codex/u);

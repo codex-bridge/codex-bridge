@@ -138,6 +138,8 @@ test("composer retains controlled drafts, image-only selection and pending/sendi
   for (const patch of [{}, { allowed: false }, { pending: true }, { busy: true }, { draft: "  " }, { sending: true }]) {
     const props = { ...composerProps, ...patch };
     const html = renderToStaticMarkup(createElement(Composer, props));
+    assert.match(html, /<div class="composer-surface"><textarea/u);
+    assert.match(html, /<label for="message-draft">Message<\/label>/u);
     assert.ok(html.includes(`>${props.draft}</textarea>`));
     assert.match(html, /maxLength="6000"/u);
     assert.match(html, /accept="image\/png,image\/jpeg,image\/webp,image\/gif"/u);

@@ -16,11 +16,12 @@ export function SessionHeader({ selected, entry, controls, onTool, onBind, ...de
   const [detailsOpen, setDetailsOpen] = useState(false);
   return <>
     <header className="toolbar">
-      <div className="session-title"><div className="heading-with-hint">
+      <div className="session-title">
+        {(entry?.directory ?? selected) && <p className="muted truncate" title={entry?.directory ?? selected ?? undefined}>{entry?.directory ?? selected}</p>}
+        <div className="heading-with-hint">
         <h2>{entry?.name ?? (entry ? "Untitled session" : selected ? "Locate session" : "Select a session")}</h2>
         {!entry && !selected && <InfoHint text="Selecting only changes the current view. It does not bind the session or interrupt a running task."
-          label="Session selection help" />}</div>
-        {(entry?.directory ?? selected) && <p className="muted truncate" title={entry?.directory ?? selected ?? undefined}>{entry?.directory ?? selected}</p>}</div>
+          label="Session selection help" />}</div></div>
       <div className="toolbar-actions">
         {controls.showTools && <DismissiblePopover className="tool-menu" triggerClassName="tool-menu-trigger"
           panelClassName="tool-menu-panel" label="Session tools" title="Session tools" trigger={<ToolIcon />}><div>
