@@ -19,7 +19,9 @@
   --font-mono: "JetBrains Mono Variable", monospace;
   --space-xs: 0.5rem; --space-sm: 0.75rem; --space-md: 1rem; --space-lg: 1.5rem; --space-xl: 2.5rem;
   --text-xs: 0.75rem; --text-sm: 0.875rem; --text-base: 1rem; --text-lg: 1.25rem;
-  --rail-width: 19.5rem; --content-max: 56.25rem; --bar-height: 3.75rem;
+  --rail-width: 19.5rem; --content-max: 56.25rem; --control-min-size: 2.75rem;
+  /* Include the shared bottom rule in each top bar's border-box height. */
+  --bar-height: calc(var(--control-min-size) + 2 * var(--space-xs) + 1px);
   --radius-control: 0.5rem; --radius-panel: 0.625rem;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --dur-micro: 140ms;
 }
