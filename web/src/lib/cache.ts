@@ -6,7 +6,9 @@ export interface TimelineCache {
   save(threadId: string, sessionId: string, items: TimelineItem[]): void;
 }
 type StoredSession = { threadId: string; sessionId: string; savedAt: number; items: TimelineItem[] };
-const KEY = "codex-bridge:timeline:v1";
+// v1 conflated lifecycle status with assistant dialogue. Keep its bytes for
+// recovery, but never guess message semantics from titles or text when loading.
+const KEY = "codex-bridge:timeline:v2";
 const MAX_SESSIONS = 20, MAX_ITEMS = 100, MAX_BYTES = 512 * 1024, TTL = 7 * 24 * 60 * 60 * 1000;
 const kinds = new Set(["user", "codex", "progress", "failed", "called", "edited", "working", "mcp", "subagent", "compact-started", "compact-completed"]);
 
