@@ -292,7 +292,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     const chatId = String(ctx.chat.id);
     logger.info("telegram.command.bot_restart", { chatId });
     await service.ensureChatAllowed(chatId);
-    await replySpec(ctx, await service.restartServiceMessage());
+    await replySpec(ctx, await service.restartServiceMessage(chatId));
   });
 
   bot.on("message:text", async (ctx) => {

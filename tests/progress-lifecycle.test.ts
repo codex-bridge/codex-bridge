@@ -138,7 +138,7 @@ test("a failed step freezes its Run phase and the next Run starts a fresh card",
     assert.equal(frozen?.state, "step_failed");
     assert.equal(frozen?.phaseSeq, 1);
     assert.equal(frozen?.failureReason, "timeout");
-    assert.match(edits.at(-1) ?? "", /^Run · .*\nStep failed · timeout\nRun ×2 · Reported successes ×1 · Reported failures ×1\nTask continued$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*\nCompleted\nReason: timeout\nRun ×2 · Reported successes ×1 · Reported failures ×1\nTask continued$/);
     assert.doesNotMatch(edits.at(-1) ?? "", /secret endpoint|raw stderr/);
 
     await service.sendProgressMessage(session, event({ label: "Run", toolName: "yarn lint" }));

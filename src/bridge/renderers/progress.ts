@@ -62,7 +62,10 @@ export function createProgressMessageSpec(input: {
     body.push({ type: "text", text: input.event.input });
   }
   if (input.event.failed) {
-    body.push({ type: "text", text: `Step failed · ${formatFailureReason(input.event.failureReason)}` });
+    const lines = input.event.label === "Run"
+      ? completedRunLines(input.event.failureReason)
+      : [`Step failed · ${formatFailureReason(input.event.failureReason)}`];
+    body.push(...lines.map((text) => ({ type: "text" as const, text })));
   }
   return createProgressMessage({
     directory: input.directory,
@@ -87,7 +90,9 @@ export function createProgressPhaseSummarySpec(input: {
 function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   const aggregate = record.aggregate;
   const outcome = phaseOutcomeLine(record.state, record.failureReason);
-  const lines = outcome ? [outcome] : [];
+  const lines = record.phaseKind === "run" && (record.state === "step_failed" || record.state === "failed")
+    ? completedRunLines(record.failureReason)
+    : outcome ? [outcome] : [];
   if (record.phaseKind === "run") {
     const { updates, succeeded, failed } = aggregate.run;
     // A persisted card already has one successfully sent preview; updates counts later edits.
@@ -154,6 +159,12 @@ function phaseOutcomeLine(state: ProgressPhaseState, reason: ProgressFailureReas
 
 function formatFailureReason(reason: ProgressFailureReason | null | undefined): string {
   return (reason ?? "other_failure").replaceAll("_", " ");
+}
+
+function completedRunLines(reason: ProgressFailureReason | null | undefined): string[] {
+  return reason && reason !== "other_failure"
+    ? ["Completed", `Reason: ${formatFailureReason(reason)}`]
+    : ["Completed"];
 }
 
 function createFileChangeProgressMessage(input: {

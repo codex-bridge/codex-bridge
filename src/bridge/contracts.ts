@@ -104,9 +104,9 @@ export interface BridgeGoalPort {
 }
 
 export interface BridgeRuntimePort {
-  connectBotRuntimeMessage(chatId?: string): Promise<MessageSpec>;
-  disconnectBotRuntimeMessage(chatId?: string): Promise<MessageSpec>;
-  restartServiceMessage(): Promise<MessageSpec>;
+  connectBotRuntimeMessage(chatId: string): Promise<MessageSpec>;
+  disconnectBotRuntimeMessage(chatId: string): Promise<MessageSpec>;
+  restartServiceMessage(chatId: string): Promise<MessageSpec>;
 }
 
 export interface BridgeTurnControlPort {

@@ -184,7 +184,7 @@ export function createSlackMessageHandler(input: {
       return;
     }
     if (command === "bot_restart" || command === "/bot_restart") {
-      await sendSpec(chatId, await service.restartServiceMessage());
+      await sendSpec(chatId, await service.restartServiceMessage(chatId));
       return;
     }
     if (command === "section_rename" || command === "/section_rename") {

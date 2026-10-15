@@ -271,12 +271,12 @@ test("runtime transition status exposes only Help", async () => {
 
   try {
     (service as unknown as { runtimeState: "connecting" }).runtimeState = "connecting";
-    const connecting = await service.connectBotRuntimeMessage();
+    const connecting = await service.connectBotRuntimeMessage("chat-1");
     assert.match(connecting.body[0]?.type === "text" ? connecting.body[0].text : "", /connecting/);
     assert.deepEqual(connecting.actions.map((action) => action.id), ["help"]);
 
     (service as unknown as { runtimeState: "disconnecting" }).runtimeState = "disconnecting";
-    const disconnecting = await service.disconnectBotRuntimeMessage();
+    const disconnecting = await service.disconnectBotRuntimeMessage("chat-1");
     assert.match(disconnecting.body[0]?.type === "text" ? disconnecting.body[0].text : "", /disconnecting/);
     assert.deepEqual(disconnecting.actions.map((action) => action.id), ["help"]);
   } finally {
@@ -305,7 +305,7 @@ test("unexpected Codex connection loss exposes the connect state", async () => {
     notificationListener?.({ method: "bridge/connection/lost", params: {} });
 
     assert.equal((service as unknown as { runtimeState: string }).runtimeState, "failed");
-    const message = await service.disconnectBotRuntimeMessage();
+    const message = await service.disconnectBotRuntimeMessage("chat-1");
     assert.deepEqual(message.actions.map((action) => action.id), ["bot-connect", "help"]);
   } finally {
     store.close();

@@ -12,6 +12,30 @@ import type { SlackDownloadedAttachment, SlackAttachmentMetadata } from "../src/
 import type { SlackMessageTransport } from "../src/slack/transport.js";
 import { testConfig } from "./bridge-test-config.js";
 
+test("Slack root restart commands retain their conversation context", async () => {
+  const calls: string[] = [];
+  const reply: MessageSpec = { kind: "system", title: "Codex · /workspace/project", body: [], actions: [] };
+  const handler = createSlackMessageHandler({
+    config: testConfig(join(tmpdir(), "unused-restart-test.sqlite")),
+    getBotUserId: () => null,
+    service: {
+      ensureChatAllowed: async () => {},
+      restartServiceMessage: async (chatId: string) => { calls.push(chatId); return reply; }
+    } as unknown as BridgeSlackMessagePort,
+    transport: {
+      sendMessageSpec: async (chatId: string, message: MessageSpec) => {
+        calls.push(`send:${chatId}`);
+        assert.equal(message, reply);
+        return null;
+      }
+    } as unknown as SlackMessageTransport
+  });
+  await handler.handleText({
+    channelId: "D1", channelType: "im", teamId: "T1", messageId: "msg-restart", rawText: "/bot_restart"
+  });
+  assert.deepEqual(calls, ["slack:T1:D1", "send:slack:T1:D1"]);
+});
+
 test("Slack confirms an image only after Codex accepts it; a failed receipt does not roll back delivery", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-slack-image-ack-"));
   const path = join(directory, "image.png");

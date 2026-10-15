@@ -14,7 +14,7 @@ export async function handleTurnAction(
     case "turn.compact":
       return { mode: "send", target: "conversation", message: await service.compactActiveSessionMessage(chatId) };
     case "runtime.restart":
-      return { mode: "send", target: "conversation", message: await service.restartServiceMessage() };
+      return { mode: "send", target: "conversation", message: await service.restartServiceMessage(chatId) };
     case "queue.cancel":
       return { mode: "edit", target: "surface", message: await service.cancelQueuedSubmission(chatId, action.submissionId) };
   }

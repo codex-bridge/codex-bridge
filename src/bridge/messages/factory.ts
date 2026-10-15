@@ -85,7 +85,7 @@ export function createProgressMessage(input: {
 }): MessageSpec {
   return createMessage({
     kind: input.failed ? "failed" : "progress",
-    titleLabel: input.failed ? "Failed" : input.label,
+    titleLabel: input.label,
     session: { id: null, directory: input.directory },
     body: input.body
   });

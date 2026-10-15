@@ -468,6 +468,37 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
     { type: "text", text: "Interrupted" },
     { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0" }
   ]);
+
+  for (const state of ["step_failed", "failed"] as const) {
+    for (const failureReason of [null, "other_failure", "timeout", "permission_denied"] as const) {
+      const summary = createProgressPhaseSummarySpec({
+        directory: record.directory,
+        record: {
+          ...record, state, failureReason,
+          aggregate: { ...record.aggregate, run: { updates: 0, succeeded: 0, failed: 1 } }
+        }
+      });
+      assert.equal(summary.title, "Run · /workspace/project");
+      assert.deepEqual(summary.body, [
+        { type: "text", text: "Completed" },
+        ...(failureReason === "timeout" ? [{ type: "text", text: "Reason: timeout" }] : []),
+        ...(failureReason === "permission_denied" ? [{ type: "text", text: "Reason: permission denied" }] : []),
+        { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×1" },
+        ...(state === "step_failed" ? [{ type: "text", text: "Task continued" }] : [])
+      ]);
+      assert.deepEqual(formatProgressMessageLines({
+        directory: record.directory,
+        event: {
+          label: "Run", toolName: "yarn test", input: null, target: null,
+          changes: null, failed: true, text: "raw secret stderr", failureReason
+        }
+      }), [
+        "Run · /workspace/project", "yarn test", "Completed",
+        ...(failureReason === "timeout" ? ["Reason: timeout"] : []),
+        ...(failureReason === "permission_denied" ? ["Reason: permission denied"] : [])
+      ]);
+    }
+  }
 });
 
 test("extracts file change output deltas as edited progress", () => {

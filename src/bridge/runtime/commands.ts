@@ -9,7 +9,7 @@ import type { MessageSpec, SessionContext } from "../messages/types.js";
 export type RuntimeCommandDependencies = {
   runtime: RuntimeController;
   codexClient: CodexAppServerClient;
-  pm2AppName: string;
+  requestRestart: () => void;
   getActiveSessionContext: (chatId: string) => Promise<SessionContext | undefined>;
   attachCodexListeners: () => void;
   detachCodexListeners: () => void;
@@ -24,26 +24,10 @@ export type RuntimeCommandDependencies = {
 export class RuntimeCommandService {
   constructor(private readonly deps: RuntimeCommandDependencies) {}
 
-  async restart(): Promise<MessageSpec> {
-    logger.info("bridge.service.restart_requested", {
-      appName: this.deps.pm2AppName
-    });
-
-    const child = spawn("sh", [
-      "-c",
-      "sleep 2; pm2 startOrRestart ecosystem.config.cjs --only \"$PM2_RESTART_APP_NAME\" --update-env"
-    ], {
-      cwd: process.cwd(),
-      detached: true,
-      env: {
-        ...process.env,
-        PM2_RESTART_APP_NAME: this.deps.pm2AppName
-      },
-      stdio: "ignore"
-    });
-    child.unref();
-
-    return this.createStatusSpec("Restart requested.\nThe bot should be back in a few seconds.");
+  async restart(chatId: string): Promise<MessageSpec> {
+    const message = await this.createStatusSpec("Restart requested.\nThe bot should be back in a few seconds.", chatId);
+    this.deps.requestRestart();
+    return message;
   }
 
   async bootstrap(): Promise<void> {
@@ -73,7 +57,7 @@ export class RuntimeCommandService {
     logger.info("bridge.bootstrap.complete");
   }
 
-  async disconnect(chatId?: string): Promise<MessageSpec> {
+  async disconnect(chatId: string): Promise<MessageSpec> {
     if (this.deps.runtime.isTransitioning()) {
       return this.createStatusSpec(`Codex runtime is ${this.deps.runtime.state}.`, chatId);
     }
@@ -95,7 +79,7 @@ export class RuntimeCommandService {
     return this.createStatusSpec("Codex runtime disconnected.\nThe bot will stay online, but it will not talk to Codex until /bot_connect.", chatId);
   }
 
-  async connect(chatId?: string): Promise<MessageSpec> {
+  async connect(chatId: string): Promise<MessageSpec> {
     if (this.deps.runtime.isTransitioning()) {
       return this.createStatusSpec(`Codex runtime is ${this.deps.runtime.state}.`, chatId);
     }
@@ -124,11 +108,11 @@ export class RuntimeCommandService {
     logger.info("bridge.runtime.state_changed", { previous, next });
   }
 
-  private async createStatusSpec(body: string, chatId?: string): Promise<MessageSpec> {
+  private async createStatusSpec(body: string, chatId: string): Promise<MessageSpec> {
     return createMessage({
       kind: "system",
       titleLabel: "Codex",
-      ...(chatId ? { session: await this.deps.getActiveSessionContext(chatId) } : {}),
+      session: await this.deps.getActiveSessionContext(chatId),
       body: [{ type: "text", text: body }],
       actions: this.deps.runtime.isTransitioning()
         ? [helpAction()]
@@ -143,4 +127,18 @@ export class RuntimeCommandService {
           ]
     });
   }
+}
+
+export function requestServiceRestart(pm2AppName: string): void {
+  logger.info("bridge.service.restart_requested", { appName: pm2AppName });
+  const child = spawn("sh", [
+    "-c",
+    "sleep 2; pm2 startOrRestart ecosystem.config.cjs --only \"$PM2_RESTART_APP_NAME\" --update-env"
+  ], {
+    cwd: process.cwd(),
+    detached: true,
+    env: { ...process.env, PM2_RESTART_APP_NAME: pm2AppName },
+    stdio: "ignore"
+  });
+  child.unref();
 }

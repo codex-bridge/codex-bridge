@@ -44,7 +44,7 @@ import { NotificationApprovalService, type EarlyApproval } from "./notifications
 import { VersionUpdateNotifier } from "./notifications/version-update.js";
 import { NotificationListener } from "./notifications/listener.js";
 import { RuntimeController, type RuntimeState } from "./runtime/controller.js";
-import { RuntimeCommandService } from "./runtime/commands.js";
+import { requestServiceRestart, RuntimeCommandService } from "./runtime/commands.js";
 import { RuntimeStateCleanupService } from "./runtime/cleanup.js";
 import { BridgeRuntimeState } from "./runtime-state.js";
 import { StatusViewService } from "./status/view.js";
@@ -754,7 +754,7 @@ export class BridgeService {
     this.runtimeCommandService = new RuntimeCommandService({
       runtime: this.runtime,
       codexClient,
-      pm2AppName: this.pm2AppName,
+      requestRestart: () => requestServiceRestart(this.pm2AppName),
       getActiveSessionContext: (chatId) => this.getActiveSessionContext(chatId),
       attachCodexListeners: () => this.attachCodexListeners(),
       detachCodexListeners: () => this.detachCodexListeners(),
@@ -950,8 +950,8 @@ export class BridgeService {
     return formatCodexTelegramHtml(text, this.telegramMessageMaxLength);
   }
 
-  async restartServiceMessage(): Promise<MessageSpec> {
-    return this.runtimeCommandService.restart();
+  async restartServiceMessage(chatId: string): Promise<MessageSpec> {
+    return this.runtimeCommandService.restart(chatId);
   }
 
   isRuntimeConnected(): boolean {
@@ -964,11 +964,11 @@ export class BridgeService {
     logger.info("bridge.runtime.state_changed", { previous, next });
   }
 
-  async disconnectBotRuntimeMessage(telegramChatId?: string): Promise<MessageSpec> {
+  async disconnectBotRuntimeMessage(telegramChatId: string): Promise<MessageSpec> {
     return this.runtimeCommandService.disconnect(telegramChatId);
   }
 
-  async connectBotRuntimeMessage(telegramChatId?: string): Promise<MessageSpec> {
+  async connectBotRuntimeMessage(telegramChatId: string): Promise<MessageSpec> {
     return this.runtimeCommandService.connect(telegramChatId);
   }
 
