@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { InfoHint } from "./info-hint";
 import { SessionEntry } from "./session-entry";
@@ -9,15 +9,13 @@ import { buildCatalogGroups, type CatalogMode } from "../lib/catalog-view";
 import type { Catalog, SessionEntry as SessionEntryData } from "../lib/protocol";
 import type { WorkbenchController, WorkbenchFeedback, WorkbenchOperation, WorkbenchState } from "../lib/workbench";
 
-const connectionLabel = { idle: "Disconnected", connecting: "Connecting", connected: "Connected", offline: "Network offline", revoked: "Connection expired" };
-
 export type SessionCatalogProps = {
   controller: WorkbenchController;
   catalog: Catalog | null;
   catalogFresh: boolean;
   catalogError: string | null;
   connection: WorkbenchState["connection"];
-  occupied: boolean;
+  serviceConnection: ReactNode;
   selected: string | null;
   selectedEntry?: SessionEntryData;
   busy: boolean;
@@ -26,7 +24,7 @@ export type SessionCatalogProps = {
 };
 
 export const SessionCatalog = memo(function SessionCatalog({ controller, catalog, catalogFresh, catalogError,
-  connection, occupied, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
+  connection, serviceConnection, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
   const [filter, setFilter] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogMode, setCatalogMode] = useState<CatalogMode>("active");
@@ -38,7 +36,6 @@ export const SessionCatalog = memo(function SessionCatalog({ controller, catalog
   const currentDirectory = selectedEntry?.directory;
   const selectedThreadId = selectedEntry?.threadId;
   const selectedArchived = selectedEntry?.archived;
-  const connectionWarning = connection === "offline" || connection === "revoked";
 
   useEffect(() => {
     if (!selectedThreadId || !currentDirectory || selectedArchived === undefined) return;
@@ -72,21 +69,13 @@ export const SessionCatalog = memo(function SessionCatalog({ controller, catalog
       <div className="sidebar-heading">
         <div className="brand"><h1>Codex Bridge</h1></div>
         <div className="sidebar-utilities">
-          {connection === "connected" && <div className="connection-status connection-status-compact">
-            <p role="status" data-tone="neutral">{connectionLabel[connection]}</p>
-            <InfoHint text="Connecting to the service grants this browser window access only. It does not claim any session." label="Service connection help" />
-          </div>}
+          {connection === "connected" && serviceConnection}
           {catalog && <Button className="catalog-toggle" variant="ghost" aria-expanded={catalogOpen} aria-controls="session-catalog"
             onClick={() => setCatalogOpen((open) => !open)}>{catalogOpen ? "Hide directories"
               : `${catalogMode === "archived" ? "Archived" : "Directories"} · ${visibleCount}`}</Button>}
         </div>
       </div>
-      {connection !== "connected" && <div className="connection-expanded">
-        <div className="connection-status"><p role="status" data-tone={connectionWarning ? "warning" : "neutral"}>{connectionLabel[connection]}</p>
-          <InfoHint text="Connecting to the service grants this browser window access only. It does not claim any session." label="Service connection help" /></div>
-        <Button variant="outline" disabled={connection === "connecting"}
-          onClick={() => { void controller.connect(occupied); }}>{connection === "connecting" ? "Connecting…" : occupied ? "Take over service connection" : "Connect to service"}</Button>
-      </div>}
+      {connection !== "connected" && serviceConnection}
       {connection === "connected" && !catalog && <div className="catalog-state">
         <p className="muted">{catalogError ? "Failed to load directories." : "Loading directories…"}</p>
         {catalogError && <Button variant="ghost" onClick={() => { void controller.refresh(); }}><RefreshIcon />Retry</Button>}

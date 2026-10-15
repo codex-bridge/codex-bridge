@@ -5,6 +5,8 @@ import { ConversationTimeline } from "./components/conversation-timeline";
 import { DismissiblePopover } from "./components/dismissible-popover";
 import { InfoHint } from "./components/info-hint";
 import { SessionCatalog } from "./components/session-catalog";
+import { ServiceConnectionControl } from "./components/service-connection-control";
+import { WorkbenchShell } from "./components/workbench-shell";
 import { ToolIcon } from "./components/icons";
 import { HttpWorkbenchApi } from "./lib/api";
 import { LocalTimelineCache } from "./lib/cache";
@@ -36,12 +38,12 @@ export function App({ controller }: { controller: WorkbenchController }) {
 
   useEffect(() => { void controller.start(); }, [controller]);
 
-  return <main className="workbench">
-    <SessionCatalog controller={controller} catalog={state.catalog} catalogFresh={state.catalogFresh}
-      catalogError={state.catalogError} connection={state.connection} occupied={state.occupied}
+  return <WorkbenchShell navigation={<SessionCatalog controller={controller} catalog={state.catalog} catalogFresh={state.catalogFresh}
+      catalogError={state.catalogError} connection={state.connection}
+      serviceConnection={<ServiceConnectionControl connection={state.connection} occupied={state.occupied}
+        onConnect={() => { void controller.connect(state.occupied); }} />}
       selected={state.selected} selectedEntry={entry} busy={busy} operation={state.operation}
-      directoryFeedback={directoryFeedback} />
-    <section className="conversation" aria-label="Conversation">
+      directoryFeedback={directoryFeedback} />}>
       <header className="toolbar">
         <div className="session-title"><div className="heading-with-hint"><h2>{entry?.name ?? (entry ? "Untitled session" : state.selected ? "Locate session" : "Select a session")}</h2>
           {!entry && !state.selected && <InfoHint text="Selecting only changes the current view. It does not bind the session or interrupt a running task." label="Session selection help" />}</div>
@@ -72,8 +74,7 @@ export function App({ controller }: { controller: WorkbenchController }) {
         allowed={allowed} pending={pending} busy={busy} sending={isSelectedOperation(state, "send")}
         queueRunning={queue?.running === true} placeholder={accessAppearance.draftPlaceholder}
         restriction={accessAppearance.composerRestriction} />
-    </section>
-  </main>;
+  </WorkbenchShell>;
 }
 
 export function createWorkbench(): WorkbenchController {
