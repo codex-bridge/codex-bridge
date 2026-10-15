@@ -224,3 +224,12 @@ button { cursor: pointer; }
 .directory-dialog form { display: grid; gap: var(--space-xs); margin-top: var(--space-lg); }
 .directory-dialog label { font-size: var(--text-sm); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-xs); margin-top: var(--space-md); }
+.dialog-backdrop[data-variant="drawer"] { padding: 0; place-items: stretch end; }
+.directory-dialog[data-variant="drawer"] { width: min(26rem, 100vw); height: 100dvh; max-height: 100dvh; border-radius: 0; }
+.session-details-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.session-details-heading h2 { font-size: var(--text-base); font-weight: 600; }
+.session-details > p { margin-top: var(--space-md); }
+.session-details dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-sm); margin-top: var(--space-lg); font-size: var(--text-sm); }
+.session-details dt { color: var(--color-muted); }
+.session-details dd { margin: 0; overflow-wrap: anywhere; }
+.session-details-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-top: var(--space-lg); }

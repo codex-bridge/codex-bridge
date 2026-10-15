@@ -1,23 +1,20 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { Button } from "./components/ui/button";
 import { Composer } from "./components/composer";
 import { ConversationTimeline } from "./components/conversation-timeline";
-import { DismissiblePopover } from "./components/dismissible-popover";
-import { InfoHint } from "./components/info-hint";
 import { SessionCatalog } from "./components/session-catalog";
 import { ServiceConnectionControl } from "./components/service-connection-control";
 import { WorkbenchShell } from "./components/workbench-shell";
-import { ToolIcon } from "./components/icons";
+import { SessionHeader } from "./components/session-header";
 import { HttpWorkbenchApi } from "./lib/api";
 import { LocalTimelineCache } from "./lib/cache";
 import { LocalComposerDraftStore } from "./lib/composer-drafts";
 import { WorkbenchController, canInteract, canViewSelectedTimeline, isBusy, isSelectedOperation,
   selectedEntry } from "./lib/workbench";
-import { isOwned } from "./lib/protocol";
 import { hasOpenDecision } from "./lib/timeline";
 import { BrowserSessionLocation, TabWindowGrantStore } from "./lib/browser-state";
 import { sessionAccessAppearance } from "./lib/session-access-appearance";
 import { createCatalogActions } from "./lib/catalog-actions";
+import { sessionControls } from "./lib/session-controls";
 
 export function App({ controller }: { controller: WorkbenchController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -46,28 +43,11 @@ export function App({ controller }: { controller: WorkbenchController }) {
         onConnect={() => { void controller.connect(state.occupied); }} />}
       selected={state.selected} selectedEntry={entry} busy={busy} operation={state.operation}
       directoryFeedback={directoryFeedback} />}>
-      <header className="toolbar">
-        <div className="session-title"><div className="heading-with-hint"><h2>{entry?.name ?? (entry ? "Untitled session" : state.selected ? "Locate session" : "Select a session")}</h2>
-          {!entry && !state.selected && <InfoHint text="Selecting only changes the current view. It does not bind the session or interrupt a running task." label="Session selection help" />}</div>
-          {(entry?.directory ?? state.selected) && <p className="muted truncate" title={entry?.directory ?? state.selected ?? undefined}>{entry?.directory ?? state.selected}</p>}</div>
-        <div className="toolbar-actions">{entry && <>
-          {isOwned(entry) && <DismissiblePopover className="tool-menu" triggerClassName="tool-menu-trigger"
-            panelClassName="tool-menu-panel" label="Session tools" title="Session tools" trigger={<ToolIcon />}><div>
-            <Button variant="ghost" disabled={!allowed || busy} onClick={() => { void controller.runSessionTool("help"); }}>Help</Button>
-            <Button variant="ghost" disabled={!allowed || busy} onClick={() => { void controller.runSessionTool("status"); }}>Status</Button>
-            <Button variant="ghost" disabled={!allowed || busy || queue?.running === true}
-              onClick={() => { void controller.runSessionTool("compact"); }}>Compact</Button>
-          </div></DismissiblePopover>}
-          {isOwned(entry) && queue?.running && <Button variant="destructive" disabled={!allowed || busy}
-            onClick={() => { void controller.runSessionTool("interrupt"); }}>Interrupt</Button>}
-          {!isOwned(entry) && <Button disabled={state.connection !== "connected" || !state.catalogFresh || busy || entry.archived}
-            onClick={() => { void controller.bind("request"); }}>{isSelectedOperation(state, "binding") ? "Working…"
-              : entry.ownership?.pendingSourceId === "web:local" ? "Request again" : "Bind session"}</Button>}
-          {entry.ownership?.pendingSourceId === "web:local" && <Button variant="outline"
-            disabled={state.connection !== "connected" || !state.catalogFresh || busy}
-            onClick={() => { void controller.bind("cancel"); }}>Cancel wait</Button>}
-        </>}</div>
-      </header>
+      <SessionHeader key={`${state.selected}:${entry?.sessionId}`} selected={state.selected} entry={entry}
+        controls={sessionControls(state)} connection={state.connection} catalogFresh={state.catalogFresh}
+        feedback={conversationFeedback} onTool={(tool) => { void controller.runSessionTool(tool); }}
+        onBind={(action) => { void controller.bind(action); }}
+        onRelease={() => { if (entry) void controller.manageSession(entry, "release"); }} />
       <ConversationTimeline controller={controller} selected={state.selected} entry={entry} items={items} queue={queue}
         feedback={conversationFeedback} loading={state.loading} catalogFresh={state.catalogFresh}
         allowed={allowed} pending={pending} busy={busy} emptyTitle={accessAppearance.emptyTitle}

@@ -9,8 +9,9 @@ const focusable = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
-export function ModalDialog({ labelledBy, closeDisabled = false, onClose, children }: {
+export function ModalDialog({ labelledBy, closeDisabled = false, variant = "dialog", onClose, children }: {
   labelledBy: string;
+  variant?: "dialog" | "drawer";
   closeDisabled?: boolean;
   onClose: () => void;
   children: ReactNode;
@@ -26,9 +27,9 @@ export function ModalDialog({ labelledBy, closeDisabled = false, onClose, childr
     return () => { restore?.focus(); };
   }, []);
 
-  return <div className="dialog-backdrop" onMouseDown={(event) => {
+  return <div className="dialog-backdrop" data-variant={variant} onMouseDown={(event) => {
     if (event.target === event.currentTarget && !closeDisabled) onClose();
-  }}><section ref={dialog} className="directory-dialog" role="dialog" aria-modal="true"
+  }}><section ref={dialog} className="directory-dialog" data-variant={variant} role="dialog" aria-modal="true"
     aria-labelledby={labelledBy} tabIndex={-1} onKeyDown={(event) => {
       if (event.key === "Escape") {
         event.stopPropagation();

@@ -1,11 +1,7 @@
 import type { WorkbenchState } from "../lib/workbench";
+import { connectionLabels } from "../lib/connection-labels";
 import { Button } from "./ui/button";
 import { InfoHint } from "./info-hint";
-
-const connectionLabels = {
-  idle: "Disconnected", connecting: "Connecting", connected: "Connected",
-  offline: "Network offline", revoked: "Connection expired"
-};
 
 export type ServiceConnectionControlProps = {
   connection: WorkbenchState["connection"];
