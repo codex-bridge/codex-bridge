@@ -90,16 +90,17 @@ export function createProgressPhaseSummarySpec(input: {
 function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   const aggregate = record.aggregate;
   const outcome = phaseOutcomeLine(record.state, record.failureReason);
-  const lines = record.phaseKind === "run" && (record.state === "step_failed" || record.state === "failed")
-    ? completedRunLines(record.failureReason)
-    : outcome ? [outcome] : [];
+  const lines = outcome ? [outcome] : [];
   if (record.phaseKind === "run") {
     const { updates, succeeded, failed } = aggregate.run;
     // A persisted card already has one successfully sent preview; updates counts later edits.
     const displayedUpdates = updates + 1;
-    lines.push(`Run ×${displayedUpdates} · Reported successes ×${succeeded} · Reported failures ×${failed}`);
-    if (record.state === "step_failed") lines.push("Task continued");
-    return lines;
+    const statistics = `Run ×${displayedUpdates} · Reported successes ×${succeeded} · Reported failures ×${failed}`;
+    const runLines = record.state === "step_failed" || record.state === "failed"
+      ? completedRunLines(record.failureReason, statistics)
+      : [...lines, statistics];
+    if (record.state === "step_failed") runLines.push("Task continued");
+    return runLines;
   }
   if (record.phaseKind === "edited") {
     if (aggregate.fileEdits) {
@@ -161,10 +162,12 @@ function formatFailureReason(reason: ProgressFailureReason | null | undefined): 
   return (reason ?? "other_failure").replaceAll("_", " ");
 }
 
-function completedRunLines(reason: ProgressFailureReason | null | undefined): string[] {
-  return reason && reason !== "other_failure"
-    ? ["Completed", `Reason: ${formatFailureReason(reason)}`]
-    : ["Completed"];
+function completedRunLines(reason: ProgressFailureReason | null | undefined, statistics?: string): string[] {
+  return [
+    "Completed",
+    ...(statistics ? [statistics] : []),
+    ...(reason && reason !== "other_failure" ? [`Reason: ${formatFailureReason(reason)}`] : [])
+  ];
 }
 
 function createFileChangeProgressMessage(input: {

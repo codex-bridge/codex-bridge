@@ -481,9 +481,9 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
       assert.equal(summary.title, "Run · /workspace/project");
       assert.deepEqual(summary.body, [
         { type: "text", text: "Completed" },
+        { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×1" },
         ...(failureReason === "timeout" ? [{ type: "text", text: "Reason: timeout" }] : []),
         ...(failureReason === "permission_denied" ? [{ type: "text", text: "Reason: permission denied" }] : []),
-        { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×1" },
         ...(state === "step_failed" ? [{ type: "text", text: "Task continued" }] : [])
       ]);
       assert.deepEqual(formatProgressMessageLines({
