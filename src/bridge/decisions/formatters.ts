@@ -121,6 +121,7 @@ function decisionTerminalStatus(decision: DecisionRecord): Array<{ type: "field"
 export function createBatchDecisionMessageSpec(count: number, actions: ActionSpec[]): MessageSpec {
   return createMessage({
     kind: "decision-batch",
+    scope: "global",
     body: [{ type: "text", text: `${count} pending approvals` }],
     actions
   });

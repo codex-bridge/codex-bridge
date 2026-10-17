@@ -1,6 +1,6 @@
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import { helpAction, sessionAction } from "../../bridge/messages/actions.js";
-import { createMessage } from "../../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../../bridge/messages/factory.js";
 import type { BridgeChatPort, BridgeTelegramTurnWorkflowPort } from "../../bridge/contracts.js";
 import { createTelegramHelpMessage } from "./help.js";
 import type { TelegramInteractionResponder } from "./responder.js";
@@ -14,7 +14,7 @@ async function sendPrompt(
   await responder.send(createMessage({
     kind: "system",
     titleLabel: "Codex",
-    session: await service.getActiveSessionContext(chatId),
+    ...messageContextForSession(await service.getActiveSessionContext(chatId)),
     body: [{ type: "text", text }],
     actions: [helpAction()]
   }));
@@ -63,7 +63,7 @@ export async function handleTelegramTurnWorkflow(input: {
       await responder.send(createMessage({
         kind: "system",
         titleLabel: "Codex",
-        session: await service.getActiveSessionContext(chatId),
+        ...messageContextForSession(await service.getActiveSessionContext(chatId)),
         body: [{ type: "text", text: "Choose a session first." }],
         actions: [sessionAction(), helpAction()]
       }));

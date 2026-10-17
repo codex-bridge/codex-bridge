@@ -42,7 +42,7 @@ function fixture() {
   return { transport, edits, posts, state };
 }
 
-const menu = createMessage({ kind: "menu", surface: "session-selector", titleLabel: "Sessions",
+const menu = createMessage({ scope: "global", kind: "menu", surface: "session-selector", titleLabel: "Sessions",
   actions: [{ id: "previous", label: "Previous", callback: "session-page:0" }] });
 
 for (const [name, messageTs, threadTs, marked] of [
@@ -72,7 +72,7 @@ for (const [name, messageTs, threadTs, marked] of [
 
 test("surface metadata, not title/body or parent position, identifies a status card", async () => {
   const f = fixture();
-  const status = createMessage({ kind: "system", titleLabel: "Sessions", surface: "session-status",
+  const status = createMessage({ scope: "global", kind: "system", titleLabel: "Sessions", surface: "session-status",
     body: [{ type: "text", text: "Choose a directory." }] });
   const context = resolveSlackInteractionContext(root, "session-page:0", {
     channelId: "C", teamId: "T", containerType: "message", messageTs: "1", threadTs: "1",
@@ -84,7 +84,7 @@ test("surface metadata, not title/body or parent position, identifies a status c
   assert.equal(f.posts[0]!.thread_ts, "1");
   assert.equal(readSlackSurface(f.posts[0]!.blocks), "session-selector");
   const unmarked = renderSlackMessageSpec(thread,
-    createMessage({ kind: "system", body: [{ type: "text", text: "Session ID 1\nBinding Bound here" }] }), null);
+    createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "Session ID 1\nBinding Bound here" }] }), null);
   assert.equal(readSlackSurface(unmarked), undefined);
 });
 
@@ -119,7 +119,7 @@ const mutationActions: SessionInteractionAction[] = [
 ];
 
 test("handlers declare selector navigation separately from action results, retaining Telegram's edit policy", async () => {
-  const result = createMessage({ kind: "system", body: [{ type: "text", text: "Result" }] });
+  const result = createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "Result" }] });
   const service = {
     renderSessionMenu: async () => menu, renderSessionSectionMenu: async () => menu, renderArchivedSessionMenu: async () => menu,
     requestSessionHandoff: async () => result, archiveSession: async () => result, requestDeleteSession: async () => result,
@@ -206,7 +206,7 @@ test("binding then paginating a child selector preserves parent status and selec
 
 test("failed selection replies separately without replacing a selector", async () => {
   const f = fixture();
-  const error = createMessage({ kind: "error", body: [{ type: "text", text: "In use outside Bridge" }] });
+  const error = createMessage({ scope: "global", kind: "error", body: [{ type: "text", text: "In use outside Bridge" }] });
   const service = { activateSessionFromSelector: async () => { throw new SessionActivationError(error); } } as
     unknown as BridgeSlackSessionWorkflowPort;
   await handleSlackSessionWorkflow({ action: "session:selected", service, transport: f.transport,
@@ -225,7 +225,7 @@ test("successful child selection keeps its selector and sends its receipt separa
     activateSessionFromSelector: async () => ({ session: { id: "selected" }, recentMessages: [] }),
     getSessionArchiveCallback: async () => null, getSessionDeleteCallback: async () => null,
     getSessionReleaseBridgeCallback: async () => null,
-    renderSelectedSessionSpec: async () => createMessage({ kind: "system", body: [{ type: "text", text: "Session selected" }] }),
+    renderSelectedSessionSpec: async () => createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "Session selected" }] }),
     postSessionSwitchTranscript: async (chatId: string) => { transcripts.push(chatId); }
   } as unknown as BridgeSlackSessionWorkflowPort;
   await handleSlackSessionWorkflow({ action: "session:selected", service, transport: f.transport,

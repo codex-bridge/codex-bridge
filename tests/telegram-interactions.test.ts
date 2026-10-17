@@ -6,6 +6,7 @@ import { createTelegramInteractionContext } from "../src/telegram/interactions/c
 import { deliverTelegramInteraction } from "../src/telegram/interactions/responder.js";
 
 const message = createMessage({
+  scope: "global",
   kind: "system",
   titleLabel: "Codex",
   body: [{ type: "text", text: "Result" }]

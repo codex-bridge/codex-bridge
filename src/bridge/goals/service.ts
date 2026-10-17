@@ -4,7 +4,7 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { currentGoalAction, goalsAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 
 export type GoalReadResult = {
@@ -34,7 +34,7 @@ export class GoalService {
   async renderActiveGoal(telegramChatId: string): Promise<MessageSpec> {
     const session = await this.deps.store.getActiveSession(telegramChatId);
     if (!session) {
-      return this.createGoalSpec("error", "No active session.", [sessionAction(), helpAction()]);
+      return this.createGoalSpec("error", "No active session.", [sessionAction(), helpAction()], null);
     }
     return this.renderGoalForSession(telegramChatId, session);
   }
@@ -42,7 +42,7 @@ export class GoalService {
   async renderSelectedGoal(telegramChatId: string, sessionId: string): Promise<MessageSpec> {
     const session = await this.resolveGoalSession(telegramChatId, sessionId);
     if (!session) {
-      return this.createGoalSpec("error", "Goal session is unavailable.", [goalsAction(), helpAction()]);
+      return this.createGoalSpec("error", "Goal session is unavailable.", [goalsAction(), helpAction()], null);
     }
     return this.renderGoalForSession(telegramChatId, session);
   }
@@ -201,17 +201,15 @@ export class GoalService {
     kind: MessageSpec["kind"],
     body: string,
     actions: MessageSpec["actions"],
-    session?: SessionRecord | null,
+    session: SessionRecord | null,
     titleLabel?: string
   ): MessageSpec {
     return createMessage({
       kind,
-      ...(session ? {
-        session: {
+      ...messageContextForSession(session ? {
           id: session.codexThreadId,
           directory: this.deps.getSessionDirectory(session)
-        }
-      } : {}),
+      } : null),
       ...(titleLabel ? { titleLabel } : {}),
       body: body ? [{ type: "text", text: body }] : [],
       actions

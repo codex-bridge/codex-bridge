@@ -1,6 +1,6 @@
 import type { BridgeChatPort, BridgeDecisionPort } from "../../contracts.js";
 import { helpAction } from "../../messages/actions.js";
-import { createMessage } from "../../messages/factory.js";
+import { createMessage, messageContextForSession } from "../../messages/factory.js";
 import type { ApprovalInteractionAction } from "../action.js";
 import type { InteractionContext, InteractionDelivery } from "../types.js";
 
@@ -29,7 +29,7 @@ export async function handleApprovalAction(
     message: createMessage({
       kind: "system",
       titleLabel: "Codex",
-      session: await service.getActiveSessionContext(chatId),
+      ...messageContextForSession(await service.getActiveSessionContext(chatId)),
       body: [{ type: "text", text }],
       actions: [helpAction()]
     })

@@ -107,6 +107,7 @@ export class SessionRefreshStatusService {
     try {
       await this.deps.editMessageSpec(chatId, previous.messageId, createMessage({
         kind: "refresh",
+        scope: "global",
         titleLabel: "Refresh Status Closed",
         body: [{ type: "text", text: "External Codex activity is no longer blocking this session." }],
         actions: []

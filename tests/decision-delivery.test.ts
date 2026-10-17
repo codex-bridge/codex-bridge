@@ -75,6 +75,7 @@ function createDeliveryHarness(delivered = true) {
       actions
     }),
     createBatchDecisionMessageSpec: (count, actions) => createMessage({
+      scope: "global",
       kind: "decision",
       body: [{ type: "text", text: String(count) }],
       actions

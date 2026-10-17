@@ -18,6 +18,7 @@ import {
 
 test("truncates temporary message bodies by one character limit without line rules", () => {
   const spec = createMessage({
+    scope: "global",
     kind: "progress",
     body: [{ type: "text", text: "€".repeat(TEMPORARY_MESSAGE_BODY_MAX_LENGTH + 50) }]
   });

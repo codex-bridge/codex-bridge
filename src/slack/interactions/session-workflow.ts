@@ -9,7 +9,7 @@ import {
   messageAction,
   sessionAction
 } from "../../bridge/messages/actions.js";
-import { createMessage } from "../../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../../bridge/messages/factory.js";
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { ActionSpec } from "../../bridge/messages/types.js";
 import { sessionActionResultDelivery } from "../../bridge/interactions/session-delivery.js";
@@ -81,7 +81,7 @@ export async function handleSlackSessionWorkflow(input: {
       await transport.sendMessageSpec(chatId, createMessage({
         kind: "system",
         titleLabel: "Codex",
-        session: await service.getActiveSessionContext(chatId),
+        ...messageContextForSession(await service.getActiveSessionContext(chatId)),
         body: [{ type: "text", text: "This thread is already bound to a session." }],
         actions: [helpAction(), sessionAction()]
       }));

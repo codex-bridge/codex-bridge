@@ -48,8 +48,8 @@ async function sendFixture(t: TestContext, attachmentRoot?: string) {
     sessionOwnershipService: {} as never, rememberNotificationSession: () => {}, getSessionDirectory: () => "/work",
     isStaleActiveTurnError: () => false, isMissingRuntimeThreadError: () => false, isActiveWriterConflictError: () => false,
     findProviderMismatch: async () => null, sessionRefreshCallback: () => "unused",
-    createIncomingPromptSpec: (kind, text) => createMessage({ kind, body: [{ type: "text", text }] }),
-    createSessionActionSpec: (_session, kind, text) => createMessage({ kind, body: [{ type: "text", text }] }),
+    createIncomingPromptSpec: (kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
+    createSessionActionSpec: (_session, kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
     sendLongSpec: async () => {}, setSessionStatus: async () => {} });
   const api = new LocalWebBridgeApi(new SessionCatalogService({ store, getSessionDirectory: () => "/work",
     readEffectiveProvider: async () => null, codexClient: { listThreadsForCwd: async () => [], listArchivedThreadsForCwd: async () => [] } }),
@@ -487,7 +487,7 @@ test("Web session mutations refuse result delivery after window revocation or ow
       interaction: { renameSession: async () => {
         if (change === "window") revoked = true;
         else store.requestSessionHandoff(session.id, "123", true);
-        return createMessage({ kind: "system", body: [{ type: "text", text: "renamed" }] });
+        return createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "renamed" }] });
       } }
     } as never);
 
@@ -512,7 +512,7 @@ test("Web release returns a guarded receipt after intentionally dropping session
     mutation: { releaseBridgeSessionLock: async (_sourceId: string, sessionId: string, version?: number) => {
       const result = store.releaseBridgeSessionLock(sessionId, "web:local", version);
       if (revokeDuringRelease) windowCurrent = false;
-      return createMessage({ kind: result.released ? "system" : "error", body: [{ type: "text", text: result.reason }] });
+      return createMessage({ scope: "global", kind: result.released ? "system" : "error", body: [{ type: "text", text: result.reason }] });
     } }
   } as never);
 

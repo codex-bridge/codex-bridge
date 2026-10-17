@@ -184,6 +184,7 @@ export class RateLimitNotifier {
       const messageTitle = title ?? `${label} · rate limit`;
       const messageSpec = createMessage({
         kind: "system",
+        scope: "global",
         titleLabel: messageTitle,
         body: lines.map((line) => ({ type: "text" as const, text: line }))
       });

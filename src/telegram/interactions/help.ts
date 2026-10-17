@@ -1,5 +1,5 @@
 import { helpMenuActions } from "../../bridge/messages/actions.js";
-import { createMessage } from "../../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../../bridge/messages/factory.js";
 import type { ActionSpec, MessageSpec, SessionContext } from "../../bridge/messages/types.js";
 
 const telegramHelpLines = [
@@ -28,7 +28,7 @@ export function createTelegramHelpMessage(
   return createMessage({
     kind: "menu",
     titleLabel: "Help",
-    ...(session ? { session } : {}),
+    ...messageContextForSession(session),
     body: telegramHelpLines.map((text) => ({ type: "text" as const, text })),
     actions
   });

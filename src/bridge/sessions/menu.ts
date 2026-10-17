@@ -3,7 +3,7 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { BridgeStore } from "../../store/index.js";
 import { logger } from "../../logging/logger.js";
 import { actionRow, messageAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatSessionMenuLabel } from "./menu-formatters.js";
 import { renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
@@ -271,7 +271,7 @@ export class SessionMenuService {
       kind: "menu",
       surface: "session-selector",
       titleLabel: title,
-      ...(titleSession ? { session: titleSession } : {}),
+      ...messageContextForSession(titleSession),
       body: body ?? current?.messageSpec.body ?? [],
       actions
     });

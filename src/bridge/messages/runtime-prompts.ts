@@ -5,7 +5,7 @@ import {
   extractMcpToolName
 } from "../decisions/formatters.js";
 import { helpAction, messageAction } from "./actions.js";
-import { createMessage } from "./factory.js";
+import { createMessage, messageContextForSession } from "./factory.js";
 import type { MessageSpec } from "./types.js";
 
 export type RuntimePromptFactoryDependencies = {
@@ -19,12 +19,10 @@ export class RuntimePromptFactory {
   createIncoming(kind: MessageSpec["kind"], text: string, session?: SessionRecord): MessageSpec {
     return createMessage({
       kind,
-      ...(session ? {
-        session: {
+      ...messageContextForSession(session ? {
           id: session.codexThreadId,
           directory: this.deps.getSessionDirectory(session)
-        }
-      } : {}),
+      } : null),
       body: [{ type: "text", text }],
       actions: this.createRecoveryActions()
     });

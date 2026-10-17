@@ -1,7 +1,7 @@
 import type { BridgeMessageOptions } from "../bridge/transport.js";
 import type { BridgeSlackMessagePort } from "../bridge/contracts.js";
 import type { IncomingAttachment } from "../bridge/input/payload.js";
-import { createMessage } from "../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../bridge/messages/factory.js";
 import { helpAction, sessionAction } from "../bridge/messages/actions.js";
 import type { MessageSpec, SessionContext } from "../bridge/messages/types.js";
 import type { AppConfig } from "../config/index.js";
@@ -92,7 +92,7 @@ export function createSlackMessageHandler(input: {
   ): MessageSpec => createMessage({
     kind: "system",
     titleLabel: "Codex",
-    ...(session ? { session } : {}),
+    ...messageContextForSession(session),
     body: [{ type: "text", text }],
     actions
   });
@@ -111,7 +111,7 @@ export function createSlackMessageHandler(input: {
     await sendSpec(chatId, createMessage({
       kind: "menu",
       titleLabel: "Help",
-      session: await service.getActiveSessionContext(chatId),
+      ...messageContextForSession(await service.getActiveSessionContext(chatId)),
       actions: await service.getHelpMenuActions(chatId)
     }));
   };

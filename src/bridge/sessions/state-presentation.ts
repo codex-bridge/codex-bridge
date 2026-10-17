@@ -1,4 +1,4 @@
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec, SessionContext } from "../messages/types.js";
 
 export type CurrentSessionSnapshot = {
@@ -31,6 +31,6 @@ export function renderCurrentSessionMenuSection(snapshot: CurrentSessionSnapshot
 
 export function renderSessionStatus(snapshot: CurrentSessionSnapshot | null): MessageSpec {
   return createMessage({ kind: "system", titleLabel: "Codex", surface: "session-status",
-    ...(snapshot ? { session: snapshot.session } : {}),
+    ...messageContextForSession(snapshot?.session),
     body: snapshot ? sessionFields(snapshot) : [{ type: "text", text: "No session selected." }] });
 }

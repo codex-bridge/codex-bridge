@@ -90,6 +90,7 @@ export class DecisionDeliveryService {
         decision.telegramMessageId,
         createMessage({
           kind: "decision",
+          scope: "global",
           titleLabel: "Decision Moved",
           body: [{ type: "text", text: "This approval moved to the active conversation." }],
           actions: []

@@ -34,9 +34,14 @@ const MESSAGE_LABELS: Record<MessageKind, string> = {
   user: "User"
 };
 
-export type CreateMessageInput = {
+// A missing context is not the same as an intentionally global message.
+export type MessageContextInput =
+  | { session: SessionContext; directory?: never; scope?: never }
+  | { directory: string; session?: never; scope?: never }
+  | { scope: "global"; session?: never; directory?: never };
+
+type MessageContentInput = {
   kind: MessageKind;
-  session?: SessionContext;
   body?: MessageBodyPart[];
   actions?: ActionSpec[];
   delivery?: DeliverySpec;
@@ -44,10 +49,22 @@ export type CreateMessageInput = {
   surface?: MessageSpec["surface"];
 };
 
+export type CreateMessageInput = MessageContentInput & MessageContextInput;
+type MessageInput = Omit<MessageContentInput, "kind"> & MessageContextInput;
+
+export function messageContextForSession(session: SessionContext | null | undefined): MessageContextInput {
+  return session ? { session } : { scope: "global" };
+}
+
 export function createMessage(input: CreateMessageInput): MessageSpec {
+  const contextCount = Number(input.session != null) + Number(input.directory !== undefined) + Number(input.scope === "global");
+  if (contextCount !== 1) {
+    throw new Error("Message context must specify exactly one of session, directory, or global scope.");
+  }
   const label = input.titleLabel ?? MESSAGE_LABELS[input.kind];
-  const title = input.session
-    ? `${label} · ${formatSessionMarker(input.session.directory)}`
+  const directory = input.session?.directory ?? input.directory;
+  const title = directory !== undefined
+    ? `${label} · ${formatSessionMarker(directory)}`
     : label;
 
   return {
@@ -61,19 +78,19 @@ export function createMessage(input: CreateMessageInput): MessageSpec {
   };
 }
 
-export function createCodexMessage(input: Omit<CreateMessageInput, "kind"> = {}): MessageSpec {
+export function createCodexMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "codex" });
 }
 
-export function createCalledMessage(input: Omit<CreateMessageInput, "kind">): MessageSpec {
+export function createCalledMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "called" });
 }
 
-export function createEditedMessage(input: Omit<CreateMessageInput, "kind">): MessageSpec {
+export function createEditedMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "edited" });
 }
 
-export function createWorkingMessage(input: Omit<CreateMessageInput, "kind">): MessageSpec {
+export function createWorkingMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "working" });
 }
 
@@ -102,7 +119,7 @@ export class BridgeMessageFactory {
   ): MessageSpec {
     return createMessage({
       kind,
-      ...(session ? { session: this.sessionContext(session) } : {}),
+      ...messageContextForSession(session ? this.sessionContext(session) : null),
       body: [{ type: "text", text: body }],
       actions
     });
@@ -115,6 +132,7 @@ export class BridgeMessageFactory {
   ): MessageSpec {
     return createMessage({
       kind,
+      scope: "global",
       titleLabel: "Codex",
       body: [{ type: "text", text: body }],
       actions

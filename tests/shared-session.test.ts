@@ -40,7 +40,7 @@ test("shared dispatch blocks handoff while start waits for its real turn id, the
   assert.equal(store.getActiveTurnRoute("dispatch"), null);
   assert.equal(binding.hasPendingDispatch("dispatch"), true);
   const mutation = new SessionMutationService({ store, inFlightTurnIdByThread: active, bindingService: binding,
-    createSessionActionSpec: (_session, kind, body) => createMessage({ kind, body: [{ type: "text", text: body }] }),
+    createSessionActionSpec: (_session, kind, body) => createMessage({ scope: "global", kind, body: [{ type: "text", text: body }] }),
     sessionRefreshCallback: () => "unused" } as never);
   const blockedRelease = await mutation.releaseBridgeSessionLock("web:local", session.id, store.getSessionLease(session.id)!.version);
   assert.equal(blockedRelease.kind, "error");
@@ -91,7 +91,7 @@ test("explicit Bridge release unsubscribes before dropping ownership and restore
           return outcome === "disconnected" ? "notSubscribed" : outcome;
         }
       },
-      createSessionActionSpec: (_session, kind, body) => createMessage({ kind, body: [{ type: "text", text: body }] }),
+      createSessionActionSpec: (_session, kind, body) => createMessage({ scope: "global", kind, body: [{ type: "text", text: body }] }),
       sessionRefreshCallback: () => "unused"
     } as never);
 

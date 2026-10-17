@@ -1,7 +1,7 @@
 import type { AppServerStatusUpdate, CodexAppServerClient } from "../../codex/client.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import { helpAction } from "../messages/actions.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
@@ -219,7 +219,7 @@ export class CompactService {
   private errorResult(session: SessionRecord | null, text: string): MessageSpec {
     return createMessage({
       kind: "error",
-      session: session ? { id: session.id, directory: this.deps.getSessionDirectory(session) } : undefined,
+      ...messageContextForSession(session ? { id: session.id, directory: this.deps.getSessionDirectory(session) } : null),
       body: [{ type: "text", text }]
     });
   }

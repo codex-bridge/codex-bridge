@@ -75,6 +75,7 @@ export class IncomingPreflightService {
             routed: false,
             prompt: createMessage({
               kind: "mcp",
+              scope: "global",
               titleLabel: "MCP Input Required",
               body: [{ type: "text", text }],
               actions: [helpAction()]
