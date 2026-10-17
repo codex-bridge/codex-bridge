@@ -68,8 +68,8 @@ const api: WebBridgeApi = {
       const id = `reply-${sequence++}`;
       publish(input.threadId, id, { kind: "codex", title: "Codex", body: [{ type: "markdown", text }], actions: [] });
       const run = `run-${sequence++}`;
-      publish(input.threadId, run, { kind: "progress", title: "Run", body: [{ type: "text", text: "Runs ×1 · Reported successes ×0 · Reported failures ×0" }], actions: [] });
-      setTimeout(() => publish(input.threadId, run, { kind: "progress", title: "Run", body: [{ type: "text", text: "Runs ×2 · Reported successes ×1 · Reported failures ×0" }], actions: [] }, "edit"), 100);
+      publish(input.threadId, run, { kind: "progress", title: "Run", body: [{ type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }], actions: [] });
+      setTimeout(() => publish(input.threadId, run, { kind: "progress", title: "Run", body: [{ type: "text", text: "Run ×2 · Reported successes ×1 · Reported failures ×0 · Unreported ×1" }], actions: [] }, "edit"), 100);
     }
     return { accepted: true, requestId: input.requestId };
   },

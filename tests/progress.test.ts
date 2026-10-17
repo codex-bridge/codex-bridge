@@ -448,7 +448,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
     createProgressPhaseSummarySpec({ directory: record.directory, record: { ...record, phaseKind } });
 
   assert.deepEqual(render("run").body, [
-    { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0" }
+    { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }
   ]);
   assert.deepEqual(createProgressPhaseSummarySpec({
     directory: record.directory,
@@ -457,7 +457,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
       aggregate: { ...record.aggregate, run: { updates: 9, succeeded: 3, failed: 0 } }
     }
   }).body, [
-    { type: "text", text: "Run ×10 · Reported successes ×3 · Reported failures ×0" }
+    { type: "text", text: "Run ×10 · Reported successes ×3 · Reported failures ×0 · Unreported ×7" }
   ]);
   for (const kind of ["called", "edited", "explored", "system"] as const) {
     assert.deepEqual(render(kind).body, [{ type: "text", text: "1 event" }]);
@@ -468,13 +468,13 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
     record: { ...record, state: "interrupted" }
   }).body, [
     { type: "text", text: "Interrupted" },
-    { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0" }
+    { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }
   ]);
 
   assert.deepEqual(createProgressPhaseSummarySpec({
     directory: record.directory,
     record: { ...record, state: "completed" }
-  }).body, [{ type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0" }]);
+  }).body, [{ type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }]);
   assert.deepEqual(createProgressPhaseSummarySpec({
     directory: record.directory,
     record: { ...record, phaseKind: "called", state: "completed" }
@@ -491,7 +491,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
       });
       assert.equal(summary.title, "Run · /workspace/project");
       assert.deepEqual(summary.body, [
-        { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×1" },
+        { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×1 · Unreported ×0" },
         ...(failureReason === "timeout" ? [{ type: "text", text: "Reason: timeout" }] : []),
         ...(failureReason === "permission_denied" ? [{ type: "text", text: "Reason: permission denied" }] : []),
         ...(state === "step_failed" ? [{ type: "text", text: "Task continued" }] : [])
@@ -508,6 +508,45 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
         ...(failureReason === "permission_denied" ? ["Reason: permission denied"] : [])
       ]);
     }
+  }
+});
+
+test("Run summaries display a nonnegative reporting gap without altering raw counts or phase states", async (t) => {
+  const cases = [
+    { name: "first displayed content has no report", updates: 0, succeeded: 0, failed: 0, expected: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" },
+    { name: "partial reporting leaves a positive gap", updates: 1, succeeded: 0, failed: 1, expected: "Run ×2 · Reported successes ×0 · Reported failures ×1 · Unreported ×1" },
+    { name: "fully reported content has zero gap", updates: 1, succeeded: 1, failed: 1, expected: "Run ×2 · Reported successes ×1 · Reported failures ×1 · Unreported ×0" },
+    { name: "no reports does not imply success", updates: 9, succeeded: 0, failed: 0, expected: "Run ×10 · Reported successes ×0 · Reported failures ×0 · Unreported ×10" },
+    { name: "excess successes stay unchanged", updates: 0, succeeded: 3, failed: 0, expected: "Run ×1 · Reported successes ×3 · Reported failures ×0 · Unreported ×0" },
+    { name: "excess mixed reports stay unchanged", updates: 0, succeeded: 1, failed: 1, expected: "Run ×1 · Reported successes ×1 · Reported failures ×1 · Unreported ×0" }
+  ];
+  for (const item of cases) {
+    await t.test(item.name, () => {
+      for (const state of ["active", "phase_complete", "completed", "step_failed", "failed", "interrupted"] as const) {
+        const record: ProgressPhaseMessageRecord = {
+          id: "phase", sessionId: "session", codexThreadId: "thread", turnId: "turn", phaseSeq: 1,
+          phaseKind: "run", sourceId: "chat", platformMessageId: "message", directory: "/workspace/project",
+          text: "", updateCount: 1,
+          aggregate: { eventCount: 5, operations: [], files: {}, explored: {},
+            run: { updates: item.updates, succeeded: item.succeeded, failed: item.failed } },
+          state, failureReason: state === "step_failed" || state === "failed" ? "timeout" : null,
+          deliveryState: "synced", correctionMessageId: null, startedAt: 1, finishedAt: 2, updatedAt: 2
+        };
+        const before = structuredClone(record);
+        const expected = [
+          ...(state === "active" ? ["Active"] : state === "interrupted" ? ["Interrupted"] : []),
+          item.expected,
+          ...(state === "step_failed" || state === "failed" ? ["Reason: timeout"] : []),
+          ...(state === "step_failed" ? ["Task continued"] : [])
+        ];
+        for (let render = 0; render < 2; render++) {
+          const summary = createProgressPhaseSummarySpec({ directory: record.directory, record });
+          assert.equal(summary.title, "Run · /workspace/project");
+          assert.deepEqual(summary.body, expected.map((text) => ({ type: "text", text })));
+          assert.deepEqual(record, before);
+        }
+      }
+    });
   }
 });
 

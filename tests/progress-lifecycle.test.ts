@@ -232,7 +232,7 @@ test("a failed step freezes its Run phase and the next Run starts a fresh card",
     assert.equal(frozen?.state, "step_failed");
     assert.equal(frozen?.phaseSeq, 1);
     assert.equal(frozen?.failureReason, "timeout");
-    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×2 · Reported successes ×1 · Reported failures ×1\nReason: timeout\nTask continued$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×2 · Reported successes ×1 · Reported failures ×1 · Unreported ×0\nReason: timeout\nTask continued$/);
     assert.doesNotMatch(edits.at(-1) ?? "", /secret endpoint|raw stderr/);
 
     await service.sendProgressMessage(session, event({ label: "Run", toolName: "yarn lint" }));
@@ -344,7 +344,7 @@ test("Run count includes initial send and successful replacements across restart
     assert.equal(frozen?.aggregate.run.updates, 3);
     assert.equal(frozen?.aggregate.run.succeeded, 0);
     assert.equal(frozen?.aggregate.run.failed, 0);
-    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×4 · Reported successes ×0 · Reported failures ×0$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×4 · Reported successes ×0 · Reported failures ×0 · Unreported ×4$/);
   } finally {
     store.close();
   }
