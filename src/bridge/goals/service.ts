@@ -6,6 +6,7 @@ import type { BridgeStore } from "../../store/index.js";
 import { currentGoalAction, goalsAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
 import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
+import { renderCurrentSessionDirectory } from "../sessions/state-presentation.js";
 
 export type GoalReadResult = {
   goal: AppServerThreadGoal | null;
@@ -194,12 +195,17 @@ export class GoalService {
       actions.push(currentGoalAction());
     }
     actions.push(helpAction());
-    return this.createGoalSpec("menu", lines.join("\n"), actions, null, "Goals");
+    return this.createGoalSpec("menu", [
+      ...renderCurrentSessionDirectory(activeSession ? {
+        id: activeSession.codexThreadId, directory: this.deps.getSessionDirectory(activeSession)
+      } : null),
+      { type: "text", text: lines.join("\n") }
+    ], actions, null, "Goals");
   }
 
   private createGoalSpec(
     kind: MessageSpec["kind"],
-    body: string,
+    body: string | MessageSpec["body"],
     actions: MessageSpec["actions"],
     session: SessionRecord | null,
     titleLabel?: string
@@ -211,7 +217,7 @@ export class GoalService {
           directory: this.deps.getSessionDirectory(session)
       } : null),
       ...(titleLabel ? { titleLabel } : {}),
-      body: body ? [{ type: "text", text: body }] : [],
+      body: typeof body === "string" ? (body ? [{ type: "text", text: body }] : []) : body,
       actions
     });
   }

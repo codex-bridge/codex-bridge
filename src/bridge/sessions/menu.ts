@@ -6,7 +6,7 @@ import { actionRow, messageAction } from "../messages/actions.js";
 import { createMessage, type MessageContextInput } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatSessionMenuLabel } from "./menu-formatters.js";
-import { renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
+import { renderCurrentSessionDirectory, renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
 import type { CachedThreadProvider } from "../../codex/thread-metadata-cache.js";
 import {
   SessionMenuSnapshotCache,
@@ -88,7 +88,6 @@ export class SessionMenuService {
           )
         ],
         [
-          ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
           ...(current?.messageSpec.body ?? []),
           { type: "text", text: "No sessions are currently available." },
           ...(hiddenCount > 0
@@ -127,7 +126,6 @@ export class SessionMenuService {
         )
       ],
       [
-        ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
         ...(current?.messageSpec.body ?? [])
       ],
       { scope: "global" }
@@ -141,6 +139,7 @@ export class SessionMenuService {
   ): Promise<MessageSpec> {
     const selectorChatId = this.deps.getSessionSelectorChatId(telegramChatId);
     await this.deps.refreshSessionsForChat(selectorChatId);
+    const snapshot = await this.deps.getCurrentSessionSnapshot(telegramChatId);
     const sessions = (await this.deps.store.listKnownSessions(selectorChatId, { includeArchived: true }))
       .filter((session) => session.codexArchivedAt !== null);
     const activityTimes = new Map(
@@ -178,21 +177,19 @@ export class SessionMenuService {
         messageAction("back", "Back", "session-page:0")
       )
     ];
-    return this.createMenuSpec(
-        null,
-        "Archived sessions",
-        actions,
-        sortedSessions.length === 0
-          ? [{ type: "text", text: "No archived sessions are available." }]
-          : [
-              { type: "text", text: "Choose a session to restore." },
-              ...visibleSessions.map((session, index) => ({
-                type: "text" as const,
-                text: `${safePage * this.deps.sessionsPageSize + index + 1}. ${formatSessionTitle(session.displayName, this.deps.getSessionDirectory(session))}\n${formatSessionMarker(this.deps.getSessionDirectory(session))}`
-              }))
-            ],
-        { scope: "global" }
-      );
+    const body: MessageSpec["body"] = sortedSessions.length === 0
+      ? [{ type: "text", text: "No archived sessions are available." }]
+      : [
+          { type: "text", text: "Choose a session to restore." },
+          ...visibleSessions.map((session, index) => ({
+            type: "text" as const,
+            text: `${safePage * this.deps.sessionsPageSize + index + 1}. ${formatSessionTitle(session.displayName, this.deps.getSessionDirectory(session))}\n${formatSessionMarker(this.deps.getSessionDirectory(session))}`
+          }))
+        ];
+    return this.createMenuSpec(null, "Archived sessions", actions, [
+      ...renderCurrentSessionDirectory(snapshot?.session ?? null),
+      ...body
+    ], { scope: "global" });
   }
 
   async renderSessionSectionMenu(
@@ -260,7 +257,6 @@ export class SessionMenuService {
         )
       ],
       [
-        ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
         ...(current?.messageSpec.body ?? []),
       ],
       { directory: group.directoryKey }

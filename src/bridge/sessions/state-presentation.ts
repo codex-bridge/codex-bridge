@@ -1,5 +1,6 @@
 import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec, SessionContext } from "../messages/types.js";
+import { formatSessionMarker } from "../../shared/session-tag.js";
 
 export type CurrentSessionSnapshot = {
   session: SessionContext;
@@ -24,9 +25,13 @@ function sessionFields(snapshot: CurrentSessionSnapshot): MessageSpec["body"] {
   ];
 }
 
+export function renderCurrentSessionDirectory(session: SessionContext | null): MessageSpec["body"] {
+  return session ? [{ type: "heading", text: `Current session · ${formatSessionMarker(session.directory)}` }] : [];
+}
+
 export function renderCurrentSessionMenuSection(snapshot: CurrentSessionSnapshot | null): { messageSpec: MessageSpec } | null {
   return snapshot ? { messageSpec: createMessage({ kind: "menu", session: snapshot.session,
-    body: [{ type: "field", label: "Directory", value: snapshot.session.directory }, ...sessionFields(snapshot)],
+    body: [...renderCurrentSessionDirectory(snapshot.session), ...sessionFields(snapshot)],
     actions: snapshot.actions }) } : null;
 }
 
