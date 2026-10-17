@@ -78,6 +78,7 @@ test("goal menu manages the active session and lists unfinished goals", async ()
     assert.equal(confirmation.actions[0]?.style, "danger");
     const goals = await service.renderGoalsMenu("chat");
     assert.match(renderLegacyMessage(goals), /1 unfinished goal/);
+    assert.match(renderLegacyMessage(goals), /1\. Finish goal support\n\/project/);
     assert.equal(goals.title, "Goals");
     assert.ok(goals.actions.some((action) => action.callback === `goal:view:${session.id}`));
     assert.equal(goals.actions.find((action) => action.id === "current")?.callback, "goal:current");
@@ -86,6 +87,53 @@ test("goal menu manages the active session and lists unfinished goals", async ()
     assert.ok(Buffer.byteLength(goalButton?.callback ?? "") <= 64);
     assert.match(renderLegacyMessage(await service.renderSelectedGoal("chat", session.id)), /Finish goal support/);
     assert.equal(renderLegacyMessage(await service.updateActiveGoalStatus("chat", "paused")).includes("paused"), true);
+  } finally {
+    store.close();
+  }
+});
+
+test("Goals lists show each session directory even when session names match and none is selected", async () => {
+  const store = new BridgeStore(":memory:");
+  const client = {
+    readThreadGoal: async (threadId: string) => ({
+      ...goal, threadId,
+      objective: threadId === "thread-older" ? "Fix first project" : "Fix second project",
+      status: threadId === "thread-complete" ? "complete" : "active",
+      updatedAt: threadId === "thread-older" ? 100 : 200
+    })
+  } as unknown as CodexAppServerClient;
+  const service = new BridgeService({ codexPermissionMode: "auto-review" } as AppConfig, store, client);
+  try {
+    const older = await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "thread-older", displayName: "Same session name",
+      pathKey: "/original/alpha", currentCwd: "/workspace/alpha/api"
+    });
+    const newer = await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "thread-newer", displayName: "Same session name",
+      pathKey: "/original/beta", currentCwd: "/workspace/beta/web"
+    });
+    await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "thread-complete", displayName: "Same session name",
+      pathKey: "/workspace/done", currentCwd: "/workspace/done"
+    });
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    assert.equal(await store.getActiveSession("chat"), null);
+
+    const menu = await service.renderGoalsMenu("chat");
+    assert.equal(menu.title, "Goals");
+    assert.equal(menu.session, undefined);
+    assert.deepEqual(menu.body, [{ type: "text", text: [
+      "2 unfinished goals.",
+      "", "1. Fix second project", ".../beta/web",
+      "", "2. Fix first project", ".../alpha/api"
+    ].join("\n") }]);
+    assert.deepEqual(menu.actions.filter((action) => action.id.startsWith("goal-")).map((action) => ({
+      label: action.label, callback: action.callback
+    })), [
+      { label: "1 · active · Same session name", callback: `goal:view:${newer.id}` },
+      { label: "2 · active · Same session name", callback: `goal:view:${older.id}` }
+    ]);
+    assert.ok(!menu.actions.some((action) => action.id === "current"));
   } finally {
     store.close();
   }

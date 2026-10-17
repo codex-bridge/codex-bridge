@@ -1,5 +1,6 @@
 import type { CodexAppServerClient } from "../../codex/client.js";
 import type { AppServerThreadGoal, AppServerThreadGoalStatus } from "../../codex/client.js";
+import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { currentGoalAction, goalsAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
@@ -164,8 +165,12 @@ export class GoalService {
     const lines = visible.length === 0
       ? ["No unfinished goals were found in known sessions."]
       : [`${rows.length} unfinished ${rows.length === 1 ? "goal" : "goals"}.`];
-    for (const [index, { result }] of visible.entries()) {
-      lines.push("", `${safePage * this.deps.sessionsPageSize + index + 1}. ${result.goal.objective}`);
+    for (const [index, { session, result }] of visible.entries()) {
+      lines.push(
+        "",
+        `${safePage * this.deps.sessionsPageSize + index + 1}. ${result.goal.objective}`,
+        formatSessionMarker(this.deps.getSessionDirectory(session))
+      );
     }
     const actions: MessageSpec["actions"] = [];
     for (const [index, { session, result }] of visible.entries()) {
