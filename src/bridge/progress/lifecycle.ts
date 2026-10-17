@@ -64,7 +64,7 @@ export function appendPhaseEvent(
   }
 
   if (normalized.kind === "called" && normalized.operation) {
-    appendAdjacentOperation(aggregate, normalized.operation);
+    appendAdjacentOperation(aggregate, normalized.operation, normalized.event.failed);
   }
 
   if (normalized.kind === "explored") {
@@ -102,11 +102,11 @@ export function opensNewPhase(
   return !active || active.phaseKind !== normalized.kind;
 }
 
-function appendAdjacentOperation(aggregate: ProgressPhaseAggregate, name: string): void {
+function appendAdjacentOperation(aggregate: ProgressPhaseAggregate, name: string, failed: boolean): void {
   const last = aggregate.operations.at(-1);
-  if (last?.name === name) {
+  if (!failed && last?.name === name && !last.failed) {
     last.count += 1;
     return;
   }
-  aggregate.operations.push({ name, count: 1 });
+  aggregate.operations.push({ name, count: 1, ...(failed ? { failed: true } : {}) });
 }

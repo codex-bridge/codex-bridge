@@ -54,6 +54,8 @@ export type ProgressPhaseDeliveryState = "synced" | "pending_finalization" | "co
 export interface ProgressPhaseOperationGroup {
   name: string;
   count: number;
+  // Only explicit failed tool events carry this flag; legacy groups are unknown.
+  failed?: boolean;
 }
 
 export interface ProgressPhaseAggregate {

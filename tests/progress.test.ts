@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { ProgressPhaseMessageRecord, ProgressPhaseOperationGroup, ProgressPhaseState } from "../src/shared/types.js";
 import { createProgressPhaseSummarySpec, formatProgressMessageLines } from "../src/bridge/renderers/progress.js";
 import { createMessage } from "../src/bridge/messages/factory.js";
 import {
@@ -498,6 +499,108 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
         ...(failureReason === "permission_denied" ? ["Reason: permission denied"] : [])
       ]);
     }
+  }
+});
+
+test("Called summaries keep explicit tool failures in sequence and put the error last", async (t) => {
+  const runCode = "playwright.browser_run_code_unsafe";
+  const screenshot = "playwright.browser_take_screenshot";
+  const cases: Array<{
+    name: string;
+    operations: ProgressPhaseOperationGroup[];
+    state: ProgressPhaseState;
+    failureReason: ProgressPhaseMessageRecord["failureReason"];
+    expected: string[];
+  }> = [
+    {
+      name: "same-tool failure remains separate from earlier events",
+      operations: [{ name: runCode, count: 1 }, { name: runCode, count: 1, failed: true }],
+      state: "step_failed", failureReason: "timeout",
+      expected: [`${runCode} ×1 → ${runCode} ×1 (failed)`, "Error: timeout"]
+    },
+    {
+      name: "mixed tools preserve order and only the last event is marked",
+      operations: [
+        { name: runCode, count: 1 },
+        { name: screenshot, count: 1 },
+        { name: screenshot, count: 1, failed: true }
+      ],
+      state: "step_failed", failureReason: "other_failure",
+      expected: [`${runCode} ×1 → ${screenshot} ×1 → ${screenshot} ×1 (failed)`, "Error: other failure"]
+    },
+    {
+      name: "single failed tool has no leading arrow",
+      operations: [{ name: screenshot, count: 1, failed: true }],
+      state: "step_failed", failureReason: "permission_denied",
+      expected: [`${screenshot} ×1 (failed)`, "Error: permission denied"]
+    },
+    {
+      name: "successful adjacent calls keep their aggregate",
+      operations: [{ name: screenshot, count: 2 }],
+      state: "phase_complete", failureReason: null,
+      expected: [`${screenshot} ×2`]
+    },
+    {
+      name: "turn failure does not imply the last tool failed",
+      operations: [{ name: screenshot, count: 2 }],
+      state: "failed", failureReason: null,
+      expected: [`${screenshot} ×2`, "Error: other failure"]
+    },
+    {
+      name: "legacy or unnamed failed events do not mark an earlier tool",
+      operations: [{ name: screenshot, count: 2 }],
+      state: "step_failed", failureReason: "timeout",
+      expected: [`${screenshot} ×2`, "Error: timeout"]
+    },
+    {
+      name: "missing tool details retain an event count",
+      operations: [], state: "step_failed", failureReason: "timeout",
+      expected: ["3 events", "Error: timeout"]
+    },
+    {
+      name: "interruption remains distinct from tool failure",
+      operations: [{ name: screenshot, count: 2 }],
+      state: "interrupted", failureReason: null,
+      expected: ["Interrupted", `${screenshot} ×2`]
+    }
+  ];
+  for (const item of cases) {
+    await t.test(item.name, () => {
+      const record: ProgressPhaseMessageRecord = {
+        id: "phase-1", sessionId: "session-1", codexThreadId: "thread-1", turnId: "turn-1",
+        phaseSeq: 1, phaseKind: "called", sourceId: "chat", platformMessageId: "1",
+        directory: "/workspace/project", text: "", updateCount: 1,
+        aggregate: {
+          eventCount: 3, operations: item.operations, files: {},
+          run: { updates: 0, succeeded: 0, failed: 0 }, explored: {}
+        },
+        state: item.state, failureReason: item.failureReason,
+        deliveryState: "synced", correctionMessageId: null,
+        startedAt: 1, finishedAt: 2, updatedAt: 2
+      };
+      const before = structuredClone(record);
+      const summary = createProgressPhaseSummarySpec({ directory: record.directory, record });
+      assert.equal(summary.title, "Called · /workspace/project");
+      assert.deepEqual(summary.body, item.expected.map((text) => ({ type: "text", text })));
+      assert.deepEqual(record, before);
+    });
+  }
+});
+
+test("failed Called previews mark the tool and append only the classified error", () => {
+  for (const label of ["Called", "Called · playwright.browser_take_screenshot"]) {
+    assert.deepEqual(formatProgressMessageLines({
+      directory: "/workspace/project",
+      event: {
+        label, toolName: "mcp__playwright__browser_take_screenshot", input: "filename=preview.png",
+        target: null, changes: null, failed: true, text: "raw secret error", failureReason: "timeout"
+      }
+    }), [
+      `${label} · /workspace/project`,
+      "playwright.browser_take_screenshot ×1 (failed)",
+      "filename=preview.png",
+      "Error: timeout"
+    ]);
   }
 });
 

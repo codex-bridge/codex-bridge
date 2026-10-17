@@ -8,6 +8,7 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 import type {
   ProgressFailureReason,
   ProgressPhaseMessageRecord,
+  ProgressPhaseOperationGroup,
   ProgressPhaseState
 } from "../../shared/types.js";
 import { phaseTitle } from "../progress/lifecycle.js";
@@ -57,13 +58,19 @@ export function createProgressMessageSpec(input: {
   }
 
   const subject = formatProgressSubject(input.event);
-  const body = [{ type: "text" as const, text: subject }];
+  const failedCall = input.event.failed &&
+    (input.event.label === "Called" || input.event.label.startsWith("Called "));
+  const body = [{
+    type: "text" as const,
+    text: failedCall ? formatCalledOperation({ name: subject, count: 1, failed: true }) : subject
+  }];
   if (input.event.input && input.event.input !== subject) {
     body.push({ type: "text", text: input.event.input });
   }
   if (input.event.failed) {
     const lines = input.event.label === "Run"
       ? completedRunLines(input.event.failureReason)
+      : failedCall ? [`Error: ${formatFailureReason(input.event.failureReason)}`]
       : [`Step failed · ${formatFailureReason(input.event.failureReason)}`];
     body.push(...lines.map((text) => ({ type: "text" as const, text })));
   }
@@ -90,6 +97,17 @@ export function createProgressPhaseSummarySpec(input: {
 function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   const aggregate = record.aggregate;
   const outcome = phaseOutcomeLine(record.state, record.failureReason);
+  if (record.phaseKind === "called") {
+    const lines = [aggregate.operations.length > 0
+      ? aggregate.operations.map(formatCalledOperation).join(" → ")
+      : eventCountLine(aggregate.eventCount)];
+    if (record.state === "step_failed" || record.state === "failed") {
+      lines.push(`Error: ${formatFailureReason(record.failureReason)}`);
+    } else if (outcome) {
+      lines.unshift(outcome);
+    }
+    return lines;
+  }
   const lines = outcome ? [outcome] : [];
   if (record.phaseKind === "run") {
     const { updates, succeeded, failed } = aggregate.run;
@@ -137,10 +155,11 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     }
     return lines.length ? lines : [eventCountLine(aggregate.eventCount)];
   }
-  if (record.phaseKind === "called" && aggregate.operations.length > 0) {
-    lines.push(aggregate.operations.map(({ name, count }) => `${name} ×${count}`).join(" → "));
-  }
   return lines.length ? lines : [eventCountLine(aggregate.eventCount)];
+}
+
+function formatCalledOperation({ name, count, failed }: ProgressPhaseOperationGroup): string {
+  return `${name} ×${count}${failed ? " (failed)" : ""}`;
 }
 
 function eventCountLine(count: number): string {
