@@ -1,9 +1,9 @@
 import type { SessionRecord } from "../../shared/types.js";
-import { formatSessionMarker } from "../../shared/session-tag.js";
+import { formatSessionMarker, formatSessionTitle } from "../../shared/session-tag.js";
 import type { BridgeStore } from "../../store/index.js";
 import { logger } from "../../logging/logger.js";
 import { actionRow, messageAction } from "../messages/actions.js";
-import { createMessage, messageContextForSession } from "../messages/factory.js";
+import { createMessage, type MessageContextInput } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatSessionMenuLabel } from "./menu-formatters.js";
 import { renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
@@ -97,7 +97,7 @@ export class SessionMenuService {
           { type: "text", text: "No recoverable Codex threads were found for this chat." },
           { type: "text", text: "Try again after the app server has existing threads available." }
         ],
-        current?.messageSpec.session
+        { scope: "global" }
       );
       return messageSpec;
     }
@@ -130,7 +130,7 @@ export class SessionMenuService {
         ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
         ...(current?.messageSpec.body ?? [])
       ],
-      current?.messageSpec.session
+      { scope: "global" }
     );
     return messageSpec;
   }
@@ -184,7 +184,14 @@ export class SessionMenuService {
         actions,
         sortedSessions.length === 0
           ? [{ type: "text", text: "No archived sessions are available." }]
-          : [{ type: "text", text: "Choose a session to restore." }]
+          : [
+              { type: "text", text: "Choose a session to restore." },
+              ...visibleSessions.map((session, index) => ({
+                type: "text" as const,
+                text: `${safePage * this.deps.sessionsPageSize + index + 1}. ${formatSessionTitle(session.displayName, this.deps.getSessionDirectory(session))}\n${formatSessionMarker(this.deps.getSessionDirectory(session))}`
+              }))
+            ],
+        { scope: "global" }
       );
   }
 
@@ -206,7 +213,7 @@ export class SessionMenuService {
       ), [
           { type: "text", text: "Session directory menu expired." },
           { type: "text", text: "Refresh to load the current session directories." }
-        ]);
+        ], { scope: "global" });
     }
     const entries = [...group.entries].sort((left, right) => right.activityAt - left.activityAt);
     const totalPages = Math.max(1, Math.ceil(entries.length / this.deps.sessionsPageSize));
@@ -229,7 +236,7 @@ export class SessionMenuService {
     const labels = await Promise.all(visibleEntries.map((entry) => this.deps.formatSectionMenuLabel(entry, providerLabel)));
     const messageSpec = this.createMenuSpec(
       current,
-      `Sections · ${formatSessionMarker(group.directoryKey)}`,
+      "Sections",
       [
         ...(current?.messageSpec.actions ?? []),
         ...visibleEntries.map((entry, index) => messageAction(
@@ -255,7 +262,8 @@ export class SessionMenuService {
       [
         ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
         ...(current?.messageSpec.body ?? []),
-      ]
+      ],
+      { directory: group.directoryKey }
     );
     return messageSpec;
   }
@@ -264,14 +272,14 @@ export class SessionMenuService {
     current: { messageSpec: MessageSpec } | null,
     title: string,
     actions: MessageSpec["actions"],
-    body?: MessageSpec["body"],
-    titleSession?: MessageSpec["session"]
+    body: MessageSpec["body"] | undefined,
+    context: MessageContextInput
   ): MessageSpec {
     return createMessage({
       kind: "menu",
       surface: "session-selector",
       titleLabel: title,
-      ...messageContextForSession(titleSession),
+      ...context,
       body: body ?? current?.messageSpec.body ?? [],
       actions
     });

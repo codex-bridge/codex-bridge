@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { BridgeMessageFactory } from "../src/bridge/messages/factory.js";
 import { BridgeService } from "../src/bridge/service.js";
+import { IncomingPreflightService } from "../src/bridge/input/preflight.js";
 import { CompactService } from "../src/bridge/sessions/compact-service.js";
 import { SessionStopService } from "../src/bridge/sessions/stop.js";
 import type { SessionOwnershipService } from "../src/bridge/sessions/ownership.js";
@@ -38,7 +39,10 @@ for (const chatId of ["123", "slack:T1:C1", "slack:T1:C1:123.456"]) {
       await store.setActiveSession("other-chat", other.id);
       store.claimSession(session.id, chatId);
 
+      const incoming = await service.handleIncomingUserText({ telegramChatId: chatId, telegramMessageId: "input", text: "hello" });
+      assert.ok(incoming.prompt);
       const replies = [
+        incoming.prompt,
         await service.stopActiveSessionMessage(chatId),
         await service.compactActiveSessionMessage(chatId),
         await service.requestCreateSessionForCurrentDirectory(chatId),
@@ -68,7 +72,10 @@ test("disconnected commands without a selection do not borrow another conversati
       telegramChatId: "other-chat", codexThreadId: "thread-other", pathKey: "/workspace/other"
     });
     await store.setActiveSession("other-chat", other.id);
+    const incoming = await service.handleIncomingUserText({ telegramChatId: "empty-chat", telegramMessageId: "input", text: "hello" });
+    assert.ok(incoming.prompt);
     const replies = [
+      incoming.prompt,
       await service.stopActiveSessionMessage("empty-chat"),
       await service.compactActiveSessionMessage("empty-chat"),
       await service.requestCreateSessionForCurrentDirectory("empty-chat"),
@@ -135,4 +142,35 @@ test("session command factory preserves no-session labels and actions", () => {
       factory.createCommandResultSpec(kind, "No selection")
     );
   }
+});
+
+test("an expired MCP form refers to its original session rather than the newly selected session", async () => {
+  const store = new BridgeStore(":memory:");
+  try {
+    const original = await store.upsertDiscoveredSession({ telegramChatId: "chat", codexThreadId: "original", pathKey: "/work/original" });
+    const selected = await store.upsertDiscoveredSession({ telegramChatId: "chat", codexThreadId: "selected", pathKey: "/work/selected" });
+    await store.setActiveSession("chat", selected.id);
+    const decision = await store.createOrReplacePendingDecision({
+      sessionId: original.id, telegramChatId: "chat", approvalId: "approval", kind: "mcpServer/elicitation/request",
+      title: "Input", summary: "fields: value", requiresUserInput: true
+    });
+    await store.resolveDecision(decision.id, "awaitingInput");
+    const preflight = new IncomingPreflightService({
+      store, codexClient: client,
+      sessionOwnershipService: { getSessionOwnershipPrompt: async () => null } as unknown as SessionOwnershipService,
+      ensureChatAllowed: async () => {}, isRuntimeConnected: () => true,
+      getActiveSession: (chat) => store.getActiveSession(chat), recoverSlackDmActiveSession: unexpected,
+      getSessionDirectory: (value) => value.currentCwd ?? value.pathKey,
+      createIncomingPromptSpec: unexpected, createMcpInputPromptSpec: unexpected, sendLongSpec: unexpected,
+      syncBatchDecisionMessageForSessionId: unexpected, renderSessionMenu: unexpected
+    });
+    const result = await preflight.run({ telegramChatId: "chat", telegramMessageId: "input", text: "{}" });
+    assert.equal(result.kind, "response");
+    if (result.kind !== "response") assert.fail("The expired form must not start a turn");
+    assert.equal(result.response.routed, false);
+    assert.equal(result.response.prompt?.title, "MCP Input Required · /work/original");
+    assert.equal(result.response.prompt?.session?.id, original.id);
+    assert.equal((await store.getDecision(decision.id))?.state, "stale");
+    assert.equal((await store.getActiveSession("chat"))?.id, selected.id);
+  } finally { store.close(); }
 });

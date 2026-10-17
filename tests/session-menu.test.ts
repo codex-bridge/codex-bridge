@@ -75,7 +75,9 @@ test("renders sessions as directory then section menus", async () => {
 
     const directoryMenu = await service.renderSessionMenu("chat-1", 0);
     assert.equal(discoveryCount, 0);
-    assert.equal(directoryMenu.title, "Sessions · /workspace/project");
+    assert.equal(directoryMenu.title, "Sessions");
+    assert.equal(directoryMenu.session, undefined);
+    assert.ok(directoryMenu.body.some((part) => part.type === "field" && part.label === "Directory" && part.value === "/workspace/project"));
     assert.ok(directoryMenu.actions.some((action) => action.callback.startsWith("session-dir:")));
     assert.ok(directoryMenu.actions.some((action) => action.callback === "quick:help"));
     assert.equal(directoryMenu.actions.filter((action) => action.callback === "quick:help").length, 1);

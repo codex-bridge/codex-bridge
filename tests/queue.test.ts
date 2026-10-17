@@ -295,6 +295,14 @@ test("queued cancellation reports an explicit outcome instead of inferring succe
     const accepted = await service.cancelWithOutcome("web:local", row.id);
     assert.equal(accepted.cancelled, true);
     assert.equal((await store.getQueuedSubmission(row.id))?.state, "cancelled");
+    const repeated = await service.cancelWithOutcome("web:local", row.id);
+    assert.equal(repeated.cancelled, false);
+    assert.equal(repeated.message.title, "Queue · /work");
+    assert.equal(repeated.message.session?.id, session.id);
+    const foreign = await service.cancelWithOutcome("other-chat", row.id);
+    assert.equal(foreign.cancelled, false);
+    assert.equal(foreign.message.session, undefined);
+    assert.doesNotMatch(foreign.message.title, / · /);
   } finally { store.close(); }
 });
 

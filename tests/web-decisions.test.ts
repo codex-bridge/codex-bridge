@@ -27,6 +27,7 @@ async function fixture(t: TestContext) {
   const binding = new SessionBindingService({ store, inFlightTurnIdByThread: new Map(), getSessionDirectory: () => "/work", notify: async () => {} });
   binding.subscribe((event) => transport.observeBinding(event));
   const delivery = new DecisionDeliveryService({ store, sessionOperationQueue: new SessionDecisionOperationQueue(),
+    getSessionDirectory: (target) => target.currentCwd ?? target.pathKey,
     requireMessageTransport: () => transport, isBatchableDecision, createDecisionMessageSpec, createBatchDecisionMessageSpec,
     getExecpolicyAmendment, sendMessageSpec: (source, spec) => transport.sendMessageSpec(source, spec),
     editMessageSpec: (source, id, spec) => transport.editMessageSpec(source, id, spec) });

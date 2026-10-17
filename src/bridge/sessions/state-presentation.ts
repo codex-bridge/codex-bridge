@@ -26,7 +26,8 @@ function sessionFields(snapshot: CurrentSessionSnapshot): MessageSpec["body"] {
 
 export function renderCurrentSessionMenuSection(snapshot: CurrentSessionSnapshot | null): { messageSpec: MessageSpec } | null {
   return snapshot ? { messageSpec: createMessage({ kind: "menu", session: snapshot.session,
-    body: sessionFields(snapshot), actions: snapshot.actions }) } : null;
+    body: [{ type: "field", label: "Directory", value: snapshot.session.directory }, ...sessionFields(snapshot)],
+    actions: snapshot.actions }) } : null;
 }
 
 export function renderSessionStatus(snapshot: CurrentSessionSnapshot | null): MessageSpec {

@@ -16,7 +16,7 @@ export type RuntimePromptFactoryDependencies = {
 export class RuntimePromptFactory {
   constructor(private readonly deps: RuntimePromptFactoryDependencies) {}
 
-  createIncoming(kind: MessageSpec["kind"], text: string, session?: SessionRecord): MessageSpec {
+  createIncoming(kind: MessageSpec["kind"], text: string, session: SessionRecord | null): MessageSpec {
     return createMessage({
       kind,
       ...messageContextForSession(session ? {

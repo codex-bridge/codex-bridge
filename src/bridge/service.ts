@@ -612,7 +612,7 @@ export class BridgeService {
     this.incomingPayloadService = new IncomingPayloadService({
       openaiApiKey: this.config.openaiApiKey,
       transcriptionModel: this.config.slackAudioTranscriptionModel,
-      createPromptSpec: (kind, text) => this.runtimePromptFactory.createIncoming(kind, text),
+      createPromptSpec: (kind, text) => this.runtimePromptFactory.createIncoming(kind, text, null),
       handleIncomingUserText: (input) => this.handleIncomingUserText(input)
     });
     this.incomingPreflightService = new IncomingPreflightService({
@@ -660,7 +660,8 @@ export class BridgeService {
       sessionOperationQueue: this.sessionDecisionOperationQueue,
       isBatchableDecision: (decision) => isBatchableDecision(decision),
       createDecisionMessageSpec: (session, decision, actions) => createDecisionMessageSpec(session, decision, actions),
-      createBatchDecisionMessageSpec: (count, actions) => createBatchDecisionMessageSpec(count, actions),
+      createBatchDecisionMessageSpec,
+      getSessionDirectory: (session) => this.getSessionDirectory(session),
       getExecpolicyAmendment: (decision) => getExecpolicyAmendment(decision),
       sendMessageSpec: (chatId, messageSpec, options) => this.messageOperations.sendMessageSpec(chatId, messageSpec, options),
       editMessageSpec: (chatId, messageId, messageSpec, options) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec, options)

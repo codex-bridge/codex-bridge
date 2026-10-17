@@ -154,7 +154,8 @@ test("session state has separate pure menu/status renderers", () => {
       actions: [{ id: "handoff", label: "Use this session next", callback: "handoff" }] };
     const current = renderCurrentSessionMenuSection(snapshot)!.messageSpec;
     const status = renderSessionStatus(snapshot);
-    assert.deepEqual(status.body, current.body);
+    assert.deepEqual(current.body, [{ type: "field", label: "Directory", value: "/project" }, ...status.body]);
+    assert.equal(status.title, "Codex · /project");
     assert.ok(status.body.some((part) => part.type === "field" && part.label === "Binding" && part.value === label));
     assert.deepEqual(status.actions, []);
     assert.equal(current.actions.length, 1);

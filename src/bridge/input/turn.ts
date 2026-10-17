@@ -46,7 +46,7 @@ export type IncomingTurnDependencies = {
   isActiveWriterConflictError: (error: unknown) => boolean;
   findProviderMismatch: (session: SessionRecord, snapshot?: CodexConfigSnapshot) => Promise<SessionProviderMismatch | null>;
   sessionRefreshCallback: (sessionId: string, leaseVersion?: number) => string;
-  createIncomingPromptSpec: (kind: MessageSpec["kind"], text: string, session?: SessionRecord) => MessageSpec;
+  createIncomingPromptSpec: (kind: MessageSpec["kind"], text: string, session: SessionRecord | null) => MessageSpec;
   createSessionActionSpec: (
     session: SessionRecord,
     kind: MessageSpec["kind"],

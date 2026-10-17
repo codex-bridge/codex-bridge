@@ -3,10 +3,10 @@ import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { createMessage } from "../messages/factory.js";
 import { refreshAction } from "../messages/actions.js";
-import type { MessageSpec } from "../messages/types.js";
+import type { MessageSpec, SessionContext } from "../messages/types.js";
 import type { BridgeMessageOptions, BridgeMessageTransport } from "../transport.js";
 
-type RefreshStatusEntry = { chatId: string; messageId: string };
+export type RefreshStatusEntry = { chatId: string; messageId: string; session: SessionContext };
 
 export type SessionRefreshStatusDependencies = {
   store: Pick<BridgeStore, "getSessionLease">;
@@ -42,9 +42,10 @@ export class SessionRefreshStatusService {
       return;
     }
 
+    const context = { id: session.id, directory: this.deps.getSessionDirectory(session) };
     const messageSpec = createMessage({
       kind: "refresh",
-      session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
+      session: context,
       body: [
         { type: "text", text: "This session is occupied outside the Bridge." },
         { type: "text", text: "Wait for the external Codex operation to finish, then refresh." }
@@ -58,6 +59,7 @@ export class SessionRefreshStatusService {
           purpose: "session_refresh_status"
         });
         if (edited) {
+          this.deps.refreshStatusMessageBySession.set(session.id, { ...previous, session: context });
           logger.info("bridge.session.refresh_status_sent", {
             chatId,
             sessionId: session.id,
@@ -81,7 +83,7 @@ export class SessionRefreshStatusService {
       purpose: "session_refresh_status"
     });
     if (sent) {
-      this.deps.refreshStatusMessageBySession.set(session.id, { chatId, messageId: sent.messageId });
+      this.deps.refreshStatusMessageBySession.set(session.id, { chatId, messageId: sent.messageId, session: context });
       logger.info("bridge.session.refresh_status_sent", {
         chatId,
         sessionId: session.id,
@@ -107,7 +109,7 @@ export class SessionRefreshStatusService {
     try {
       await this.deps.editMessageSpec(chatId, previous.messageId, createMessage({
         kind: "refresh",
-        scope: "global",
+        session: previous.session,
         titleLabel: "Refresh Status Closed",
         body: [{ type: "text", text: "External Codex activity is no longer blocking this session." }],
         actions: []

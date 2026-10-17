@@ -55,10 +55,10 @@ export class QueuedSubmissionService {
     if (!row || row.telegramChatId !== chatId) {
       return { cancelled: false, message: resultSpec("Queued message is unavailable.") };
     }
-    if (row.state !== "queued" || !row.codexQueueId) {
-      return { cancelled: false, message: resultSpec(`Queued message is already ${row.state}.`) };
-    }
     const session = await this.deps.store.getSessionById(row.sessionId);
+    if (row.state !== "queued" || !row.codexQueueId) {
+      return { cancelled: false, message: resultSpec(`Queued message is already ${row.state}.`, session ?? undefined) };
+    }
     if (session) {
       const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(session, chatId);
       if (ownershipPrompt) return { cancelled: false, message: ownershipPrompt };
