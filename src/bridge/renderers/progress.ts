@@ -69,7 +69,7 @@ export function createProgressMessageSpec(input: {
   }
   if (input.event.failed) {
     const lines = input.event.label === "Run"
-      ? completedRunLines(input.event.failureReason)
+      ? runFailureLines(input.event.failureReason)
       : failedCall ? [`Error: ${formatFailureReason(input.event.failureReason)}`]
       : [`Step failed · ${formatFailureReason(input.event.failureReason)}`];
     body.push(...lines.map((text) => ({ type: "text" as const, text })));
@@ -115,8 +115,8 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     const displayedUpdates = updates + 1;
     const statistics = `Run ×${displayedUpdates} · Reported successes ×${succeeded} · Reported failures ×${failed}`;
     const runLines = record.state === "step_failed" || record.state === "failed"
-      ? completedRunLines(record.failureReason, statistics)
-      : [...lines, statistics];
+      ? [statistics, ...runFailureLines(record.failureReason)]
+      : [...(record.state === "completed" ? [] : lines), statistics];
     if (record.state === "step_failed") runLines.push("Task continued");
     return runLines;
   }
@@ -181,10 +181,8 @@ function formatFailureReason(reason: ProgressFailureReason | null | undefined): 
   return (reason ?? "other_failure").replaceAll("_", " ");
 }
 
-function completedRunLines(reason: ProgressFailureReason | null | undefined, statistics?: string): string[] {
+function runFailureLines(reason: ProgressFailureReason | null | undefined): string[] {
   return [
-    "Completed",
-    ...(statistics ? [statistics] : []),
     ...(reason && reason !== "other_failure" ? [`Reason: ${formatFailureReason(reason)}`] : [])
   ];
 }
