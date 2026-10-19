@@ -127,7 +127,13 @@ export async function handleSlackSessionWorkflow(input: {
     messageTs: context.sourceMessageId ?? null,
     expectedLeaseVersion: action.expectedLeaseVersion ?? null
   });
-  const refreshed = await service.refreshSessionView(chatId, action.sessionId, action.expectedLeaseVersion);
+  let refreshed;
+  try { refreshed = await service.refreshSessionView(chatId, action.sessionId, action.expectedLeaseVersion); }
+  catch (error) {
+    if (!(error instanceof SessionActivationError)) throw error;
+    await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context, error.messageSpec));
+    return true;
+  }
   if (context.sourceMessageId) {
     await transport.clearMessageActions(
       context.surfaceId,

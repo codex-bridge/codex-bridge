@@ -164,10 +164,10 @@ async function historyFixture(t: TestContext, overrides: Partial<SessionReaderDe
   store.claimSession(session.id, "web:local");
   const reader = new SessionReader({
     store, codexClient: {} as SessionReaderDependencies["codexClient"],
-    isRuntimeConnected: () => false, canReadThreadStatus: () => false,
+    isRuntimeConnected: () => false, recoverExternalSession: async () => null,
     getSessionDirectory: () => "/work", readDisplayPathFromRollout: async () => null,
     pickDirectory: () => null, readRecentMessagesFromRollout: async () => [],
-    isActiveWriterConflictError: () => false, ...overrides
+    ...overrides
   });
   const api = new LocalWebBridgeApi(new SessionCatalogService({
     store, getSessionDirectory: () => "/work", readEffectiveProvider: async () => null,

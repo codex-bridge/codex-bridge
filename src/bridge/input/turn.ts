@@ -244,7 +244,7 @@ export class IncomingTurnService {
             threadId: routedSession.codexThreadId,
             error: error instanceof Error ? error.message : String(error)
           });
-          const ownershipPrompt = options ? null : await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(routedSession, input.telegramChatId);
+          const ownershipPrompt = options ? null : await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(routedSession, input.telegramChatId, { retryExternal: false });
           const fallbackText = "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, then refresh.";
           const fallbackSpec = this.deps.createSessionActionSpec(routedSession, "error", fallbackText, [
             refreshAction(this.deps.sessionRefreshCallback(routedSession.id, lease.version))

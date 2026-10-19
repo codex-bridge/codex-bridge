@@ -55,7 +55,13 @@ export async function handleTelegramSessionWorkflow(input: {
     expectedLeaseVersion: expectedLeaseVersion ?? null
   });
   await input.acknowledge("Refreshing...");
-  const refreshed = await service.refreshSessionView(chatId, sessionId, expectedLeaseVersion);
+  let refreshed;
+  try { refreshed = await service.refreshSessionView(chatId, sessionId, expectedLeaseVersion); }
+  catch (error) {
+    if (!(error instanceof SessionActivationError)) throw error;
+    await responder.edit(error.messageSpec);
+    return true;
+  }
   await responder.clearActions();
   logger.info("telegram.session.refresh_original_actions_cleared", {
     chatId,

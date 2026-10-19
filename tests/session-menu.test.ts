@@ -399,6 +399,7 @@ test("Slack session selection reports external active-writer conflicts on repeat
     testConfig(databasePath),
     store,
     {
+      readThreadStatus: async () => ({ activity: "idle", activityType: "notLoaded" }),
       resumeThread: async () => {
         resumeCount += 1;
         throw new Error("thread thread-active-writer already has an active writer");
@@ -444,7 +445,7 @@ test("Slack session selection reports external active-writer conflicts on repeat
 
     assert.equal(await handleSlackSessionWorkflow(input), true);
     assert.equal(await handleSlackSessionWorkflow(input), true);
-    assert.equal(resumeCount, 1);
+    assert.equal(resumeCount, 2);
     assert.equal(edits.length, 2);
     assert.equal(store.getSessionLease(session.id)?.state, "external_unknown");
     assert.equal((await store.getActiveSession(chatId))?.id, session.id);
@@ -1895,6 +1896,73 @@ test("session refresh reads history without claiming or switching the session", 
   }
 });
 
+for (const action of ["send", "select"] as const) {
+  test(`external session ${action} retries recovery without an explicit refresh`, async () => {
+    const store = new BridgeStore(":memory:");
+    let resumes = 0;
+    let sends = 0;
+    const service = new BridgeService(testConfig(":memory:"), store, {
+      readThreadStatus: async () => ({ activity: "idle", activityType: "notLoaded" }),
+      resumeThread: async () => { resumes++; return { messages: [] }; },
+      sendTurn: async () => { sends++; return { turnId: "recovered-turn" }; },
+      listRecentThreadMessages: async () => [{ role: "assistant", text: "restored" }]
+    } as unknown as CodexAppServerClient);
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    try {
+      const session = await store.upsertDiscoveredSession({ telegramChatId: "chat-1",
+        codexThreadId: "recover", pathKey: "/work/rollout.jsonl", currentCwd: "/work" });
+      await store.setActiveSession("chat-1", session.id);
+      store.markSessionExternalUnknown(session.id);
+      if (action === "send") {
+        const result = await service.handleIncomingUserText({ telegramChatId: "chat-1",
+          telegramMessageId: "recover-message", text: "hello" });
+        assert.equal(result.routed, true);
+        assert.equal(sends, 1);
+      } else {
+        const result = await service.activateSession("chat-1", session.id);
+        assert.equal(result.recentMessages[0]?.text, "restored");
+        assert.equal(sends, 0);
+      }
+      assert.ok(resumes >= 1);
+      assert.equal(store.getSessionLease(session.id)?.state, "active");
+      assert.equal(store.getSessionLease(session.id)?.ownerBindingId, store.getSessionBinding(session.id, "chat-1")?.id);
+    } finally { store.close(); }
+  });
+}
+
+for (const action of ["send", "select"] as const) {
+  test(`a changed selection during ${action} recovery cannot claim the old session`, async () => {
+    const store = new BridgeStore(":memory:");
+    let sends = 0;
+    const old = await store.upsertDiscoveredSession({ telegramChatId: "chat-1", codexThreadId: "old", pathKey: "/old" });
+    const next = await store.upsertDiscoveredSession({ telegramChatId: "chat-1", codexThreadId: "next", pathKey: "/next" });
+    await store.setActiveSession("chat-1", old.id);
+    store.markSessionExternalUnknown(old.id);
+    const service = new BridgeService(testConfig(":memory:"), store, {
+      readThreadStatus: async () => {
+        await store.selectSession("chat-1", next.id);
+        return { activity: "idle", activityType: "notLoaded" };
+      },
+      resumeThread: async () => ({ messages: [] }),
+      sendTurn: async () => { sends++; return { turnId: "unexpected" }; }
+    } as unknown as CodexAppServerClient);
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    try {
+      if (action === "select") {
+        await assert.rejects(service.activateSession("chat-1", old.id), SessionActivationError);
+      } else {
+        const result = await service.handleIncomingUserText({ telegramChatId: "chat-1",
+          telegramMessageId: "changed-message", text: "hello" });
+        assert.equal(result.routed, false);
+        assert.match(renderLegacyMessage(result.prompt!), /selection changed/);
+      }
+      assert.equal(sends, 0);
+      assert.equal(store.getSessionLease(old.id)?.ownerBindingId, null);
+      assert.equal((await store.getActiveSession("chat-1"))?.id, next.id);
+    } finally { store.close(); }
+  });
+}
+
 test("external session refresh retries ownership after Codex becomes idle", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-refresh-external-test-"));
   const databasePath = join(directory, "bridge.sqlite");
@@ -1903,6 +1971,7 @@ test("external session refresh retries ownership after Codex becomes idle", asyn
     testConfig(databasePath),
     store,
     {
+      resumeThread: async () => ({ messages: [] }),
       readThreadStatus: async () => ({
         activity: "idle",
         activityType: "completed"

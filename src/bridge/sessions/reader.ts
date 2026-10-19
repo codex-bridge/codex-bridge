@@ -9,12 +9,11 @@ export type SessionReaderDependencies = {
   store: BridgeStore;
   codexClient: CodexAppServerClient;
   isRuntimeConnected: () => boolean;
-  canReadThreadStatus: () => boolean;
+  recoverExternalSession: (session: SessionRecord) => Promise<number | null>;
   getSessionDirectory: (session: SessionRecord) => string;
   readDisplayPathFromRollout: (rolloutPath: string) => Promise<string | null>;
   pickDirectory: (...values: Array<string | null | undefined>) => string | null;
   readRecentMessagesFromRollout: (rolloutPath: string) => Promise<RecentMessage[]>;
-  isActiveWriterConflictError: (error: unknown) => boolean;
 };
 
 export class SessionReader {
@@ -130,58 +129,6 @@ export class SessionReader {
   }
 
   async reconcileExternalSessionLease(session: SessionRecord): Promise<boolean> {
-    const lease = this.deps.store.getSessionLease(session.id);
-    if (lease?.state !== "external_unknown" || !this.deps.isRuntimeConnected() || !this.deps.canReadThreadStatus()) {
-      return false;
-    }
-    try {
-      const status = await this.deps.codexClient.readThreadStatus(
-        session.codexThreadId,
-        this.deps.getSessionDirectory(session),
-        { readOnly: true, timeoutMs: 5_000 }
-      );
-      logger.info("bridge.session.external_probe", {
-        sessionId: session.id,
-        threadId: session.codexThreadId,
-        activity: status.activity,
-        activityType: status.activityType ?? null
-      });
-      if (status.activity === "running") {
-        return false;
-      }
-      if (status.activity === "idle" && status.activityType?.toLowerCase().replace(/[-_]/g, "") === "notloaded") {
-        try {
-          await this.deps.codexClient.resumeThread(session.codexThreadId, this.deps.getSessionDirectory(session));
-          logger.info("bridge.session.external_resume_probe_succeeded", {
-            sessionId: session.id,
-            threadId: session.codexThreadId
-          });
-        } catch (error) {
-          logger.info("bridge.session.external_resume_probe_blocked", {
-            sessionId: session.id,
-            threadId: session.codexThreadId,
-            activeWriter: this.deps.isActiveWriterConflictError(error),
-            error: error instanceof Error ? error.message : String(error)
-          });
-          return false;
-        }
-      }
-      if (status.activity === "idle") {
-        const cleared = this.deps.store.clearSessionExternalUnknown(session.id);
-        logger.info("bridge.session.external_lease_reconciled", {
-          sessionId: session.id,
-          threadId: session.codexThreadId,
-          cleared
-        });
-        return cleared;
-      }
-    } catch (error) {
-      logger.warn("bridge.session.external_refresh_failed", {
-        sessionId: session.id,
-        threadId: session.codexThreadId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-    return false;
+    return (await this.deps.recoverExternalSession(session)) !== null;
   }
 }

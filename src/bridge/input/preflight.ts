@@ -6,7 +6,7 @@ import { createMessage, messageContextForSession } from "../messages/factory.js"
 import { helpAction } from "../messages/actions.js";
 import type { CodexTurnInputPart } from "../../codex/client.js";
 import type { MessageSpec } from "../messages/types.js";
-import { SessionOwnershipService } from "../sessions/ownership.js";
+import { SessionActivationError, SessionOwnershipService } from "../sessions/ownership.js";
 import { validateDecisionInput } from "../decisions/formatters.js";
 
 export type IncomingTextInput = {
@@ -58,9 +58,20 @@ export class IncomingPreflightService {
       (await this.deps.getActiveSession(input.telegramChatId)) ??
       (await this.deps.recoverSlackDmActiveSession(input.telegramChatId));
     if (activeSession) {
-      const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(activeSession, input.telegramChatId);
-      if (ownershipPrompt) {
-        return { kind: "response", response: { routed: false, prompt: ownershipPrompt } };
+      const selectedId = activeSession.id;
+      try {
+        const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(activeSession, input.telegramChatId, {
+          assertCurrent: async () => {
+            if ((await this.deps.getActiveSession(input.telegramChatId))?.id !== selectedId) {
+              throw new SessionActivationError(this.deps.createIncomingPromptSpec("system",
+                "The session selection changed. Send your message again in the selected session.", activeSession));
+            }
+          }
+        });
+        if (ownershipPrompt) return { kind: "response", response: { routed: false, prompt: ownershipPrompt } };
+      } catch (error) {
+        if (!(error instanceof SessionActivationError)) throw error;
+        return { kind: "response", response: { routed: false, prompt: error.messageSpec } };
       }
     }
 

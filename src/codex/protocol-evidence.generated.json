@@ -1,6 +1,6 @@
 {
   "version": "0.162.1",
-  "generatedAt": "2026-10-12",
+  "generatedAt": "2026-10-19",
   "includesExperimental": true,
   "schemaMethods": {
     "request": [
@@ -497,6 +497,7 @@
       "src/bridge/sessions/activation.ts",
       "src/bridge/sessions/compact-service.ts",
       "src/bridge/sessions/creation.ts",
+      "src/bridge/sessions/external-recovery.ts",
       "src/bridge/sessions/interaction.ts",
       "src/bridge/sessions/mutation.ts",
       "src/bridge/sessions/ownership.ts",

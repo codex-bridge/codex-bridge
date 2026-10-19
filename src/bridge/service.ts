@@ -25,6 +25,7 @@ import { NotificationDeliveryTargets } from "./notifications/delivery-target.js"
 import { SessionBindingService, bindingEventText } from "./sessions/binding.js";
 import { WEB_SOURCE_ID } from "../shared/source-address.js";
 import { SessionReader } from "./sessions/reader.js";
+import { ExternalSessionRecoveryService } from "./sessions/external-recovery.js";
 import { SessionViewService } from "./sessions/view.js";
 import { SessionActivationService } from "./sessions/activation.js";
 import { SessionCreationService } from "./sessions/creation.js";
@@ -239,9 +240,20 @@ export class BridgeService {
     const createCommandResultSpec = this.messageFactory.createCommandResultSpec.bind(this.messageFactory);
     const createSessionCommandResultSpec = this.messageFactory.createSessionCommandResultSpec.bind(this.messageFactory);
     this.notificationSessionRouter = new NotificationSessionRouter(store);
+    const externalRecovery = new ExternalSessionRecoveryService({
+      store, codexClient,
+      isRuntimeConnected: () => this.isRuntimeConnected(),
+      canReadThreadStatus: () => this.canReadThreadStatus(),
+      isBusy: (session) => state.inFlightTurnIdByThread.has(session.codexThreadId) ||
+        this.sessionBindingService.hasPendingDispatch(session.codexThreadId),
+      getSessionDirectory: (session) => this.getSessionDirectory(session),
+      isActiveWriterConflictError
+    });
+    const recoverExternalSession = (session: SessionRecord) => externalRecovery.recover(session);
     this.sessionOwnershipService = new SessionOwnershipService({
       store,
       codexClient,
+      recoverExternalSession,
       isRuntimeConnected: () => this.isRuntimeConnected(),
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       staleBridgeLeaseMs: DEFAULT_STALE_BRIDGE_LEASE_MS,
@@ -272,6 +284,7 @@ export class BridgeService {
     });
     this.sessionBindingService = new SessionBindingService({
       store,
+      recoverExternalSession,
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       onStateChanged: (sourceId) => this.updateConversationSession(sourceId),
@@ -337,12 +350,11 @@ export class BridgeService {
       store,
       codexClient,
       isRuntimeConnected: () => this.isRuntimeConnected(),
-      canReadThreadStatus: () => this.canReadThreadStatus(),
+      recoverExternalSession,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       readDisplayPathFromRollout: (rolloutPath) => this.rolloutReader.readDisplayPath(rolloutPath),
       pickDirectory,
-      readRecentMessagesFromRollout: (rolloutPath) => this.rolloutReader.readRecentMessages(rolloutPath),
-      isActiveWriterConflictError
+      readRecentMessagesFromRollout: (rolloutPath) => this.rolloutReader.readRecentMessages(rolloutPath)
     });
     this.sessionViewService = new SessionViewService({
       store,

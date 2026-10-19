@@ -24,6 +24,7 @@ export type SessionOwnershipDependencies = {
   staleBridgeLeaseMs: number;
   getSessionDirectory: (session: SessionRecord) => string;
   canReadThreadStatus: () => boolean;
+  recoverExternalSession?: (session: SessionRecord) => Promise<number | null>;
   createSessionActionSpec: (
     session: SessionRecord | null,
     kind: MessageKind,
@@ -39,9 +40,18 @@ export class SessionOwnershipService {
 
   async getSessionOwnershipPrompt(
     session: SessionRecord,
-    telegramChatId: string
+    telegramChatId: string,
+    options?: { retryExternal?: boolean; assertCurrent?: () => Promise<void> }
   ): Promise<MessageSpec | null> {
     await this.reconcileIdleBridgeLease(session);
+    if (options?.retryExternal !== false) {
+      try { await this.deps.recoverExternalSession?.(session); }
+      catch (error) {
+        if (error instanceof SessionActivationError) return error.messageSpec;
+        throw error;
+      }
+    }
+    await options?.assertCurrent?.();
     const ownership = this.deps.store.claimSession(session.id, telegramChatId);
     if (ownership.owned) return null;
 

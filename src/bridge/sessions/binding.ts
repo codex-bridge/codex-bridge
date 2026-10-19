@@ -34,6 +34,7 @@ export class SessionBindingService {
     getSessionDirectory: (session: SessionRecord) => string;
     notify: (event: SessionBindingEvent) => Promise<void>;
     onStateChanged?: (sourceId: string) => Promise<void>;
+    recoverExternalSession?: (session: SessionRecord) => Promise<number | null>;
   }) {}
 
   subscribe(listener: (event: SessionBindingEvent) => void): () => void {
@@ -71,6 +72,13 @@ export class SessionBindingService {
     const session = await this.deps.store.getSessionById(sessionId);
     assertCurrent();
     if (!session || session.codexArchivedAt !== null) return { session, outcome: null };
+    const before = this.deps.store.getSessionLease(session.id);
+    if (before?.state === "external_unknown" &&
+        (expectedVersion === undefined || expectedVersion === before.version)) {
+      const recoveredVersion = await this.deps.recoverExternalSession?.(session);
+      assertCurrent();
+      expectedVersion = recoveredVersion ?? before.version;
+    }
     // Everything from this check through the transaction is synchronous.
     const outcome = this.deps.store.requestSessionHandoff(session.id, sourceId,
       !this.isBusy(session.codexThreadId), expectedVersion, options?.select ?? true);

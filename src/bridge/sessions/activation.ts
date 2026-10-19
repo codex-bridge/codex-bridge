@@ -61,7 +61,8 @@ export class SessionActivationService {
     previousActiveSession: SessionRecord | null): Promise<SessionActivationResult> {
     const sessionId = targetSession.id;
     await this.assertSelected(telegramChatId, sessionId);
-    const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(targetSession, telegramChatId);
+    const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(targetSession, telegramChatId,
+      { assertCurrent: () => this.assertSelected(telegramChatId, sessionId) });
     await this.assertSelected(telegramChatId, sessionId);
     if (ownershipPrompt) throw new SessionActivationError(ownershipPrompt);
     const ownership = this.deps.store.claimSession(sessionId, telegramChatId);
@@ -113,7 +114,7 @@ export class SessionActivationService {
         leaseVersion: lease.version,
         error: error instanceof Error ? error.message : String(error)
       });
-      const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(session, telegramChatId);
+      const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(session, telegramChatId, { retryExternal: false });
       const fallbackSpec = this.deps.createSessionActionSpec(
         session,
         "error",
