@@ -5,13 +5,9 @@ import {
   extractCompletedAgentMessage,
   extractTurnLifecycleEvent
 } from "../src/codex/notification-events.js";
-import {
-  APP_SERVER_PROTOCOL_PROBE,
-  getAppServerMethodCapability
-} from "../src/codex/protocol-registry.js";
+import { getAppServerMethodCapability } from "../src/codex/protocol-registry.js";
 
 test("Codex 0.162.1 protocol additions remain discoverable without being treated as used", () => {
-  assert.equal(APP_SERVER_PROTOCOL_PROBE.codexCliVersion, "0.162.1");
   const attachment = getAppServerMethodCapability("thread/attachmentOwner/list");
   assert.equal(attachment?.status, "available");
   assert.equal(attachment?.evidence.generatedType, true);

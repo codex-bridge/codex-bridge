@@ -60,8 +60,8 @@ export interface AppServerMethodCapability extends AppServerMethodDefinition {
 }
 
 export const APP_SERVER_PROTOCOL_PROBE = {
-  codexCliVersion: "0.162.1",
-  probedAt: "2026-10-12",
+  codexCliVersion: "0.163.0",
+  probedAt: "2026-10-20",
   source: "Codex-generated TypeScript bindings, runtime method discovery, and targeted local probes"
 } as const;
 
@@ -133,8 +133,10 @@ export const APP_SERVER_METHOD_DEFINITIONS = [
   },
   { method: "thread/loaded/list", kind: "request", group: "thread" },
   { method: "thread/read", kind: "request", group: "thread" },
+  { method: "thread/readState/update", kind: "request", group: "thread", notes: "Experimental durable read-state mutation; requires the observed revision and a fresh user action after conflicts." },
   { method: "thread/turns/list", kind: "request", group: "thread" },
   { method: "thread/items/list", kind: "request", group: "thread" },
+  { method: "thread/items/read", kind: "request", group: "thread", notes: "Experimental selective read of known item IDs within one turn; not a recent-history query." },
   { method: "thread/inject_items", kind: "request", group: "thread" },
   {
     method: "thread/queue/add",
@@ -348,6 +350,7 @@ export const APP_SERVER_METHOD_DEFINITIONS = [
   { method: "thread/started", kind: "notification", group: "events" },
   { method: "thread/name/updated", kind: "notification", group: "events" },
   { method: "thread/status/changed", kind: "notification", group: "events" },
+  { method: "thread/readState/changed", kind: "notification", group: "events", notes: "Durable Codex read state, not a per-adapter read receipt." },
   { method: "thread/archived", kind: "notification", group: "events" },
   { method: "thread/deleted", kind: "notification", group: "events" },
   { method: "thread/unarchived", kind: "notification", group: "events" },

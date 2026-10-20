@@ -1,6 +1,6 @@
 {
-  "version": "0.162.1",
-  "generatedAt": "2026-10-19",
+  "version": "0.163.0",
+  "generatedAt": "2026-10-20",
   "includesExperimental": true,
   "schemaMethods": {
     "request": [
@@ -131,6 +131,7 @@
       "thread/increment_elicitation",
       "thread/inject_items",
       "thread/items/list",
+      "thread/items/read",
       "thread/list",
       "thread/loaded/list",
       "thread/memoryMode/set",
@@ -144,6 +145,7 @@
       "thread/queue/start",
       "thread/queue/update",
       "thread/read",
+      "thread/readState/update",
       "thread/realtime/appendAudio",
       "thread/realtime/appendSpeech",
       "thread/realtime/appendText",
@@ -253,6 +255,7 @@
       "thread/prediction/updated",
       "thread/project/updated",
       "thread/queue/changed",
+      "thread/readState/changed",
       "thread/realtime/closed",
       "thread/realtime/error",
       "thread/realtime/item/completed",
@@ -408,6 +411,7 @@
     "thread/increment_elicitation",
     "thread/inject_items",
     "thread/items/list",
+    "thread/items/read",
     "thread/list",
     "thread/loaded/list",
     "thread/memoryMode/set",
@@ -421,6 +425,7 @@
     "thread/queue/start",
     "thread/queue/update",
     "thread/read",
+    "thread/readState/update",
     "thread/realtime/appendAudio",
     "thread/realtime/appendSpeech",
     "thread/realtime/appendText",
@@ -707,18 +712,18 @@
   },
   "liveVerification": {
     "server/diagnostics": {
-      "version": "0.162.1",
-      "verifiedAt": "2026-10-12",
+      "version": "0.163.0",
+      "verifiedAt": "2026-10-20",
       "scenario": "read-only capabilities"
     },
     "configRequirements/read": {
-      "version": "0.162.1",
-      "verifiedAt": "2026-10-12",
+      "version": "0.163.0",
+      "verifiedAt": "2026-10-20",
       "scenario": "read-only capabilities"
     },
     "modelProvider/capabilities/read": {
-      "version": "0.162.1",
-      "verifiedAt": "2026-10-12",
+      "version": "0.163.0",
+      "verifiedAt": "2026-10-20",
       "scenario": "read-only capabilities"
     }
   }
