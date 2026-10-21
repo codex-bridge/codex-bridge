@@ -6,12 +6,32 @@ import { createTelegramInteractionContext } from "../src/telegram/interactions/c
 import { deliverTelegramInteraction } from "../src/telegram/interactions/responder.js";
 import { handleTelegramSessionWorkflow } from "../src/telegram/interactions/session-workflow.js";
 import type { BridgeTelegramSessionWorkflowPort } from "../src/bridge/contracts.js";
+import { createTelegramHelpMessage } from "../src/telegram/interactions/help.js";
+import { helpMenuActions } from "../src/bridge/messages/actions.js";
+import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
 
 const message = createMessage({
   scope: "global",
   kind: "system",
   titleLabel: "Codex",
   body: [{ type: "text", text: "Result" }]
+});
+
+test("Telegram Help is a button menu without command descriptions, matching Slack", () => {
+  for (const hasActiveTurn of [false, true]) {
+    const actions = helpMenuActions({ hasActiveSession: true, hasActiveTurn, runtimeConnected: true });
+    const help = createTelegramHelpMessage({ id: "session-1", directory: "/workspace/project" }, actions);
+    assert.equal(help.title, "Help · /workspace/project");
+    assert.deepEqual(help.body, []);
+    assert.deepEqual(help.actions, actions);
+    const rendered = renderTelegramMessageSpec(help);
+    assert.equal(rendered.html, "<b>Help · /workspace/project</b>");
+    assert.equal(rendered.keyboard?.inline_keyboard.flat().length, actions.length);
+  }
+  const global = createTelegramHelpMessage();
+  assert.equal(global.title, "Help");
+  assert.deepEqual(global.body, []);
+  assert.ok(global.actions.length > 0);
 });
 
 test("Telegram callbacks use one conversation and surface context", () => {
