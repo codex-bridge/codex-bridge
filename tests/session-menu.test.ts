@@ -78,6 +78,7 @@ test("renders sessions as directory then section menus", async () => {
     assert.equal(discoveryCount, 0);
     assert.equal(directoryMenu.title, "Sessions");
     assert.equal(directoryMenu.session, undefined);
+    assert.ok(directoryMenu.body.every((part) => part.type !== "field" || part.label !== "Thread"));
     assert.deepEqual(directoryMenu.body[0], { type: "heading", text: "Current session · /workspace/project" });
     assert.ok(directoryMenu.actions.some((action) => action.callback.startsWith("session-dir:")));
     assert.ok(directoryMenu.actions.some((action) => action.callback === "quick:help"));
@@ -683,7 +684,11 @@ test("renders selected session confirmation for selector replacement", async () 
     const text = await service.renderSelectedSessionMessage(session);
     assert.match(text, /^\*\*Codex · .*\/workspace\/project\*\*/);
     assert.match(text, /Session ID thread-selected/);
-    assert.match(text, /Thread n\/a/);
+    assert.doesNotMatch(text, /\nThread /);
+    const root = await service.renderSelectedSessionMessage({ ...session, telegramChatId: "slack:T:C" });
+    assert.doesNotMatch(root, /\nThread /);
+    const slack = await service.renderSelectedSessionMessage({ ...session, telegramChatId: "slack:T:C:123.456" });
+    assert.match(slack, /\nThread 123\.456/);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });

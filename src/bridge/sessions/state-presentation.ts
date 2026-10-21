@@ -4,7 +4,7 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 
 export type CurrentSessionSnapshot = {
   session: SessionContext;
-  thread: string;
+  thread: string | null;
   binding: "external" | "bound" | "pending" | "other" | "unbound";
   actions: MessageSpec["actions"];
 };
@@ -18,9 +18,10 @@ const BINDING_LABELS: Record<CurrentSessionSnapshot["binding"], string> = {
 };
 
 function sessionFields(snapshot: CurrentSessionSnapshot): MessageSpec["body"] {
+  const thread = snapshot.thread?.trim();
   return [
     { type: "field", label: "Session ID", value: snapshot.session.id ?? "n/a" },
-    { type: "field", label: "Thread", value: snapshot.thread },
+    ...(thread ? [{ type: "field" as const, label: "Thread", value: thread }] : []),
     { type: "field", label: "Binding", value: BINDING_LABELS[snapshot.binding] }
   ];
 }

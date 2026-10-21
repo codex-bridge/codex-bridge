@@ -1059,7 +1059,7 @@ export class BridgeService {
     const slackChat = parseSlackChatId(session.telegramChatId);
     return this.messageFactory.createSelectedSessionSpec(
       session,
-      slackChat?.threadTs ?? "n/a",
+      slackChat?.threadTs ?? null,
       actions
     );
   }

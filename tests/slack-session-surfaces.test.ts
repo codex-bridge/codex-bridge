@@ -157,6 +157,7 @@ test("session state has separate pure menu/status renderers", () => {
     assert.deepEqual(current.body, [{ type: "heading", text: "Current session · /project" }, ...status.body]);
     assert.equal(status.title, "Codex · /project");
     assert.ok(status.body.some((part) => part.type === "field" && part.label === "Binding" && part.value === label));
+    assert.ok(status.body.some((part) => part.type === "field" && part.label === "Thread" && part.value === "1"));
     assert.deepEqual(status.actions, []);
     assert.equal(current.actions.length, 1);
     assert.equal(status.surface, "session-status");
@@ -164,6 +165,22 @@ test("session state has separate pure menu/status renderers", () => {
   }
   assert.equal(renderCurrentSessionMenuSection(null), null);
   assert.deepEqual(renderSessionStatus(null).body, [{ type: "text", text: "No session selected." }]);
+});
+
+test("session menu and status omit Thread when the conversation has no thread", () => {
+  for (const thread of [null, "", "   "]) {
+    const snapshot: CurrentSessionSnapshot = {
+      session: { id: "selected", directory: "/project" }, thread, binding: "bound", actions: []
+    };
+    const expected = [
+      { type: "field", label: "Session ID", value: "selected" },
+      { type: "field", label: "Binding", value: "Bound here" }
+    ];
+    assert.deepEqual(renderSessionStatus(snapshot).body, expected);
+    assert.deepEqual(renderCurrentSessionMenuSection(snapshot)?.messageSpec.body, [
+      { type: "heading", text: "Current session · /project" }, ...expected
+    ]);
+  }
 });
 
 test("binding then paginating a child selector preserves parent status and selection", async (t) => {

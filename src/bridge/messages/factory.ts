@@ -163,16 +163,17 @@ export class BridgeMessageFactory {
 
   createSelectedSessionSpec(
     session: SessionRecord,
-    threadLabel: string,
+    threadLabel: string | null,
     actions: MessageSpec["actions"] = []
   ): MessageSpec {
+    const thread = threadLabel?.trim();
     return createMessage({
       kind: "system",
       titleLabel: "Codex",
       session: this.sessionContext(session),
       body: [{
         type: "text",
-        text: `Session ID ${session.codexThreadId}\nThread ${threadLabel}`
+        text: `Session ID ${session.codexThreadId}${thread ? `\nThread ${thread}` : ""}`
       }],
       actions
     });
