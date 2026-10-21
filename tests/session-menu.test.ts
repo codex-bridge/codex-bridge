@@ -13,6 +13,7 @@ import { handleSlackSessionWorkflow } from "../src/slack/interactions/session-wo
 import type { SlackMessageTransport } from "../src/slack/transport.js";
 import { BridgeStore } from "../src/store/index.js";
 import { testConfig } from "./bridge-test-config.js";
+import { parseSessionActionCallback } from "../src/bridge/sessions/action-callbacks.js";
 
 function menuText(menu: MessageSpec): string {
   return renderLegacyMessage(menu);
@@ -91,10 +92,11 @@ test("renders sessions as directory then section menus", async () => {
       "**Codex · /workspace/project**\n\nSession ID thread-2"
     );
     assert.equal(await service.envelopeChatMessage("chat-1", "**Help**"), "**Help**");
-    assert.match(
-      menuActions(directoryMenu).map((action) => action.callback).join("\n"),
-      new RegExp(`^session-release-bridge:${second.id}:\\d+$`, "m")
-    );
+    assert.ok(menuActions(directoryMenu).some((action) => {
+      const callback = parseSessionActionCallback(action.callback);
+      return callback?.kind === "releaseBridge" && callback.sessionId === second.id &&
+        callback.expectedLeaseVersion === store.getSessionLease(second.id)?.version;
+    }));
     const directoryButton = menuActions(directoryMenu)
       .find((action) => action.callback.startsWith("session-dir:"));
     assert.match(directoryButton?.label ?? "", /2 sections/);
@@ -111,10 +113,11 @@ test("renders sessions as directory then section menus", async () => {
     assert.match(menuText(sectionMenu), /Current session/);
     assert.equal(menuText(sectionMenu).match(/Sections · \/workspace\/project/g)?.length, 1);
     assert.ok(menuActions(sectionMenu).some((action) => action.group === "Sessions"));
-    assert.match(
-      menuActions(sectionMenu).map((action) => action.callback).join("\n"),
-      new RegExp(`^session-release-bridge:${second.id}:\\d+$`, "m")
-    );
+    assert.ok(menuActions(sectionMenu).some((action) => {
+      const callback = parseSessionActionCallback(action.callback);
+      return callback?.kind === "releaseBridge" && callback.sessionId === second.id &&
+        callback.expectedLeaseVersion === store.getSessionLease(second.id)?.version;
+    }));
     const sectionButtonLabels = menuActions(sectionMenu)
       .map((action) => action.label)
       .join("\n");
@@ -713,7 +716,9 @@ test("archives a session only for its idle Bridge owner", async () => {
     const ownership = store.claimSession(session.id, "chat-1");
     assert.equal(ownership.owned, true);
     const callback = await service.getSessionArchiveCallback("chat-1", session.id);
-    assert.match(callback ?? "", new RegExp(`^session-archive:${session.id}:\\d+$`));
+    assert.deepEqual(parseSessionActionCallback(callback ?? ""), {
+      kind: "archive", sessionId: session.id, expectedLeaseVersion: store.getSessionLease(session.id)?.version
+    });
 
     assert.equal(store.setSessionOwnerTurn(session.id, "chat-1", "turn-busy"), true);
     assert.equal(await service.getSessionArchiveCallback("chat-1", session.id), null);
@@ -1096,7 +1101,9 @@ test("deletes Codex first and Bridge history only after explicit confirmation", 
 
     const prompt = await service.requestDeleteSession("chat-1", session.id, lease.version);
     assert.match(renderLegacyMessage(prompt), /permanently/);
-    assert.match(prompt.actions.map((action) => action.callback).join("\n"), /session-delete-confirm:/);
+    assert.deepEqual(parseSessionActionCallback(prompt.actions[0]?.callback ?? ""), {
+      kind: "deleteConfirm", sessionId: session.id, expectedLeaseVersion: lease.version
+    });
     assert.equal(prompt.kind, "decision");
     assert.deepEqual(prompt.actions.map((action) => action.id), ["confirm-delete", "cancel"]);
     assert.equal(prompt.actions[0]?.style, "danger");
@@ -2086,7 +2093,9 @@ test("refresh status is appended with the final external lock action", async () 
 
     assert.match(sent[0]?.text ?? "", /^Codex · /);
     assert.match(sent[0]?.text ?? "", /occupied outside the Bridge/);
-    assert.equal(sent[0]?.callback, `session-refresh:${session.id}:${store.getSessionLease(session.id)?.version}`);
+    assert.deepEqual(parseSessionActionCallback(sent[0]?.callback ?? ""), {
+      kind: "refresh", sessionId: session.id, expectedLeaseVersion: store.getSessionLease(session.id)?.version
+    });
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });

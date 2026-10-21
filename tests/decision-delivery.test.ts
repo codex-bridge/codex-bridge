@@ -171,6 +171,12 @@ test("batch approval creation and closure use the actual session directory befor
     });
     await service.syncBatchDecisionMessage(target);
     assert.equal(sent[0]?.title, "Decisions · /work/current");
+    assert.deepEqual(sent[0]?.actions.map((action) => action.callback), [
+      `ba:${target.id}:${store.getSessionLease(target.id)?.version ?? 0}`,
+      `bd:${target.id}:${store.getSessionLease(target.id)?.version ?? 0}`,
+      `bc:${target.id}:${store.getSessionLease(target.id)?.version ?? 0}`
+    ]);
+    assert.ok(sent[0]?.actions.every((action) => Buffer.byteLength(action.callback) <= 64));
     assert.deepEqual(sent[0]?.session, { id: target.id, directory: "/work/current" });
     await store.resolveDecision(decisions[0]!.id, "approved");
     await service.syncBatchDecisionMessage(target);

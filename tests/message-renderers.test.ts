@@ -10,6 +10,8 @@ import { renderSlackMessageSpec, renderSlackMessageSpecChunks } from "../src/sla
 import { TelegramMessageTransport } from "../src/telegram/transport.js";
 import { renderTelegramMessageSpecChunks } from "../src/telegram/message-renderer.js";
 import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
+import { isTelegramRichMessageRejection } from "../src/telegram/errors.js";
+import { createSessionActionCallback } from "../src/bridge/sessions/action-callbacks.js";
 
 const message = createEditedMessage({
   session: {
@@ -281,4 +283,92 @@ test("Telegram splits long message specs while keeping actions on the final chun
   assert.ok(chunks.every((chunk) => chunk.markdown.length <= 500 && chunk.html.length <= 500));
   assert.ok(chunks.slice(0, -1).every((chunk) => chunk.spec.actions.length === 0));
   assert.deepEqual(chunks.at(-1)?.spec.actions.map((action) => action.id), ["help", "refresh"]);
+});
+
+test("Telegram validates callback UTF-8 bytes rather than visible characters", () => {
+  for (const callback of ["a".repeat(64), "\u754c".repeat(21) + "a"]) {
+    assert.doesNotThrow(() => renderTelegramMessageSpec({ ...message, actions: [refreshAction(callback)] }));
+  }
+  for (const callback of ["", "a".repeat(65), "\u754c".repeat(22)]) {
+    assert.throws(() => renderTelegramMessageSpec({ ...message, actions: [refreshAction(callback)] }), /callback must be 1-64 UTF-8 bytes/);
+  }
+});
+
+test("Telegram rejects oversized callbacks before any send or edit request", async () => {
+  let requests = 0;
+  const bot = { api: {
+    sendRichMessage: async () => { requests++; },
+    sendMessage: async () => { requests++; },
+    editMessageText: async () => { requests++; }
+  } } as unknown as Bot;
+  const transport = new TelegramMessageTransport(bot, (text) => text);
+  const invalid = { ...message, actions: [refreshAction("x".repeat(65))] };
+  await assert.rejects(transport.sendMessageSpec("123", invalid), /callback must/);
+  await assert.rejects(transport.editMessageSpec("123", "1", invalid), /callback must/);
+  assert.equal(requests, 0);
+});
+
+test("Telegram sends full-length session actions on menu and ownership prompts", async () => {
+  const sessionId = "session_01234567-89ab-4cde-8fab-0123456789ab";
+  const keyboards: Array<{ inline_keyboard: Array<Array<{ callback_data: string }>> }> = [];
+  const bot = { api: {
+    sendRichMessage: async (_chat: string, _content: unknown, options: { reply_markup: unknown }) => {
+      keyboards.push(JSON.parse(JSON.stringify(options.reply_markup)));
+      return { message_id: keyboards.length };
+    }
+  } } as unknown as Bot;
+  const transport = new TelegramMessageTransport(bot, (text) => text);
+  for (const kind of ["menu", "error"] as const) {
+    await transport.sendMessageSpec("123", createMessage({
+      kind, titleLabel: "Sessions", scope: "global",
+      body: [{ type: "text", text: "Session is owned elsewhere." }],
+      actions: [
+        { id: "handoff", label: "Use this session next", callback: createSessionActionCallback("handoff", sessionId, 1123) },
+        refreshAction(createSessionActionCallback("refresh", sessionId, 1123)),
+        helpAction()
+      ]
+    }));
+  }
+  assert.equal(keyboards.length, 2);
+  assert.ok(keyboards.flatMap((keyboard) => keyboard.inline_keyboard.flat()).every(
+    (button) => Buffer.byteLength(button.callback_data) <= 64
+  ));
+  assert.equal(keyboards[0]?.inline_keyboard[0]?.[0]?.callback_data, `sh:${sessionId}:1123`);
+});
+
+test("Telegram recognizes formatting errors but not unrelated 400 rejections", () => {
+  for (const description of [
+    "Bad Request: can't parse rich message", "Bad Request: can't parse entities: Unsupported start tag",
+    "Bad Request: unsupported end tag", "Bad Request: can't find end of the entity"
+  ]) {
+    assert.equal(isTelegramRichMessageRejection(new GrammyError("rejected", {
+      ok: false, error_code: 400, description
+    }, "sendRichMessage", {})), true);
+  }
+  for (const description of ["Bad Request: BUTTON_DATA_INVALID", "Bad Request: chat not found", "Bad Request: message is not modified"]) {
+    assert.equal(isTelegramRichMessageRejection(new GrammyError("rejected", {
+      ok: false, error_code: 400, description
+    }, "sendRichMessage", {})), false);
+  }
+});
+
+test("Telegram does not retry button errors on rich or HTML send and edit paths", async () => {
+  for (const operation of ["send", "edit"] as const) {
+    for (const failAt of [1, 2]) {
+      let calls = 0;
+      const buttonError = new GrammyError("button rejected", {
+        ok: false, error_code: 400, description: "Bad Request: BUTTON_DATA_INVALID"
+      }, "sendMessage", {});
+      const formatError = new GrammyError("format rejected", {
+        ok: false, error_code: 400, description: "Bad Request: can't parse entities"
+      }, "sendRichMessage", {});
+      const request = async () => { calls++; throw calls === failAt ? buttonError : formatError; };
+      const bot = { api: { sendRichMessage: request, sendMessage: request, editMessageText: request } } as unknown as Bot;
+      const transport = new TelegramMessageTransport(bot, (text) => text);
+      await assert.rejects(operation === "send"
+        ? transport.sendMessageSpec("123", message)
+        : transport.editMessageSpec("123", "1", message), buttonError);
+      assert.equal(calls, failAt);
+    }
+  }
 });

@@ -7,6 +7,7 @@ import { createMessage } from "../messages/factory.js";
 import type { MessageSpec, SessionContext } from "../messages/types.js";
 import type { SessionDecisionOperationQueue } from "./session-operation-queue.js";
 import { canDeliverSession } from "../notifications/delivery-target.js";
+import { createBatchDecisionCallback } from "./action-callbacks.js";
 
 type DecisionStore = Pick<
   BridgeStore,
@@ -136,9 +137,9 @@ export class DecisionDeliveryService {
         return;
       }
       const actions = actionRow(
-        messageAction("approve-all", "Approve All", `decision-batch:${latestSession.id}:${lease?.version ?? 0}:a`),
-        messageAction("decline-all", "Decline All", `decision-batch:${latestSession.id}:${lease?.version ?? 0}:d`),
-        messageAction("cancel-all", "Cancel All", `decision-batch:${latestSession.id}:${lease?.version ?? 0}:c`)
+        messageAction("approve-all", "Approve All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "accept")),
+        messageAction("decline-all", "Decline All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "decline")),
+        messageAction("cancel-all", "Cancel All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "cancel"))
       );
       await this.clearBatchDecisionMessage(latestSession);
       const messageSpec = this.deps.createBatchDecisionMessageSpec(

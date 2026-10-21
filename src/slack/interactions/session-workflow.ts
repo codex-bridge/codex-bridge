@@ -2,6 +2,7 @@ import type { KnownBlock } from "@slack/types";
 
 import type { BridgeSlackSessionWorkflowPort } from "../../bridge/contracts.js";
 import { SessionActivationError } from "../../bridge/sessions/ownership.js";
+import { parseSessionActionCallback } from "../../bridge/sessions/action-callbacks.js";
 import {
   archiveAction,
   deleteAction,
@@ -32,13 +33,12 @@ export function parseSessionWorkflowAction(value: string): SessionWorkflowAction
   if (value.startsWith("session:")) {
     return { type: "session.select", sessionId: value.slice("session:".length), legacySection: false };
   }
-  if (value.startsWith("session-refresh:")) {
-    const [, sessionId = "", versionText] = value.split(":");
-    const version = versionText === undefined ? undefined : Number(versionText);
+  const callback = parseSessionActionCallback(value);
+  if (callback?.kind === "refresh") {
     return {
       type: "session.refresh",
-      sessionId,
-      expectedLeaseVersion: Number.isFinite(version) ? version : undefined
+      sessionId: callback.sessionId,
+      expectedLeaseVersion: callback.expectedLeaseVersion
     };
   }
   return null;

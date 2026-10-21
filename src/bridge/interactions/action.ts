@@ -1,3 +1,6 @@
+import { parseSessionActionCallback } from "../sessions/action-callbacks.js";
+import { parseBatchDecisionCallback } from "../decisions/action-callbacks.js";
+
 export type PrimaryInteractionAction =
   | { type: "help" }
   | { type: "sessions.open" }
@@ -84,30 +87,18 @@ export function parsePrimaryInteractionAction(value: string): PrimaryInteraction
 }
 
 export function parseSessionInteractionAction(value: string): SessionInteractionAction | null {
-  if (value.startsWith("session-handoff:")) {
-    const [, sessionId = "", version] = value.split(":");
-    return { type: "session.handoff", sessionId, expectedLeaseVersion: parseVersion(version) };
-  }
-  if (value.startsWith("session-archive:")) {
-    const [, sessionId = "", version] = value.split(":");
-    return { type: "session.archive", sessionId, expectedLeaseVersion: parseVersion(version) };
-  }
-  if (value.startsWith("session-delete-confirm:")) {
-    const [, sessionId = "", version] = value.split(":");
-    return { type: "session.delete.confirm", sessionId, expectedLeaseVersion: parseVersion(version) };
-  }
-  if (value.startsWith("session-delete:")) {
-    const [, sessionId = "", version] = value.split(":");
-    return { type: "session.delete.request", sessionId, expectedLeaseVersion: parseVersion(version) };
-  }
-  if (value.startsWith("session-release-bridge:") || value.startsWith("session-release-codex:")) {
-    const [name, sessionId = "", version] = value.split(":");
-    return {
-      type: "session.release",
-      owner: name === "session-release-bridge" ? "bridge" : "codex",
-      sessionId,
-      expectedLeaseVersion: parseVersion(version)
-    };
+  const callback = parseSessionActionCallback(value);
+  if (callback) {
+    const { kind, sessionId, expectedLeaseVersion } = callback;
+    switch (kind) {
+      case "handoff": return { type: "session.handoff", sessionId, expectedLeaseVersion };
+      case "archive": return { type: "session.archive", sessionId, expectedLeaseVersion };
+      case "deleteConfirm": return { type: "session.delete.confirm", sessionId, expectedLeaseVersion };
+      case "delete": return { type: "session.delete.request", sessionId, expectedLeaseVersion };
+      case "releaseBridge": return { type: "session.release", owner: "bridge", sessionId, expectedLeaseVersion };
+      case "releaseCodex": return { type: "session.release", owner: "codex", sessionId, expectedLeaseVersion };
+      case "refresh": return null; // Platform workflows deliver refreshed history.
+    }
   }
   if (value.startsWith("session-dir:")) {
     const [, directoryHash = "", page] = value.split(":");
@@ -191,6 +182,8 @@ function parseDecision(value: string | undefined): "accept" | "acceptForSession"
 }
 
 export function parseApprovalInteractionAction(value: string): ApprovalInteractionAction | null {
+  const batch = parseBatchDecisionCallback(value);
+  if (batch) return { type: "approval.batch.resolve", ...batch };
   if (value.startsWith("decision-batch:")) {
     const [, sessionId, versionOrDecision, decisionValue] = value.split(":");
     const decision = parseDecision(decisionValue ?? versionOrDecision);

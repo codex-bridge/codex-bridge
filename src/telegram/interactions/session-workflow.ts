@@ -1,14 +1,9 @@
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { BridgeTelegramSessionWorkflowPort } from "../../bridge/contracts.js";
 import { SessionActivationError } from "../../bridge/sessions/ownership.js";
+import { parseSessionActionCallback } from "../../bridge/sessions/action-callbacks.js";
 import { logger } from "../../logging/logger.js";
 import type { TelegramInteractionResponder } from "./responder.js";
-
-function parseVersion(value: string | undefined): number | undefined {
-  if (value === undefined) return undefined;
-  const version = Number(value);
-  return Number.isFinite(version) ? version : undefined;
-}
 
 export async function handleTelegramSessionWorkflow(input: {
   action: string;
@@ -43,11 +38,11 @@ export async function handleTelegramSessionWorkflow(input: {
     return true;
   }
 
-  if (!action.startsWith("session-refresh:")) return false;
+  const callback = parseSessionActionCallback(action);
+  if (callback?.kind !== "refresh") return false;
 
   const startedAt = Date.now();
-  const [, sessionId = "", versionText] = action.split(":");
-  const expectedLeaseVersion = parseVersion(versionText);
+  const { sessionId, expectedLeaseVersion } = callback;
   logger.info("telegram.session.refresh_action_received", {
     chatId,
     sessionId,

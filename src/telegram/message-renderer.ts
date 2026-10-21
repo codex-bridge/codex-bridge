@@ -21,6 +21,10 @@ export function renderTelegramMessageSpec(spec: MessageSpec): {
   ].filter(Boolean).join("\n");
   const keyboard = spec.actions.length > 0 ? new InlineKeyboard() : undefined;
   for (const [index, action] of spec.actions.entries()) {
+    const callbackBytes = Buffer.byteLength(action.callback, "utf8");
+    if (callbackBytes < 1 || callbackBytes > 64) {
+      throw new Error(`Telegram action ${action.id} callback must be 1-64 UTF-8 bytes (got ${callbackBytes})`);
+    }
     if (index > 0 && !action.sameRowAsPrevious) keyboard?.row();
     keyboard?.text(action.label, action.callback);
   }
