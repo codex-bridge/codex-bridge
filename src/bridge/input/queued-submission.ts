@@ -2,7 +2,7 @@ import { CodexAppServerClient } from "../../codex/client.js";
 import { markManagedAttachmentPathsStatus } from "./attachment-files.js";
 import type { SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import { actionRow, helpAction, sessionAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionOwnershipService } from "../sessions/ownership.js";
@@ -48,17 +48,17 @@ export class QueuedSubmissionService {
     const row = await this.deps.store.getQueuedSubmission(id);
     const resultSpec = (text: string, session?: SessionRecord): MessageSpec => createMessage({
       kind: "queue",
-      ...(session ? { session: { id: session.id, directory: this.deps.getSessionDirectory(session) } } : {}),
+      ...messageContextForSession(session ? { id: session.id, directory: this.deps.getSessionDirectory(session) } : null),
       body: [{ type: "text", text }],
       actions: actionRow(helpAction(), sessionAction())
     });
     if (!row || row.telegramChatId !== chatId) {
       return { cancelled: false, message: resultSpec("Queued message is unavailable.") };
     }
-    if (row.state !== "queued" || !row.codexQueueId) {
-      return { cancelled: false, message: resultSpec(`Queued message is already ${row.state}.`) };
-    }
     const session = await this.deps.store.getSessionById(row.sessionId);
+    if (row.state !== "queued" || !row.codexQueueId) {
+      return { cancelled: false, message: resultSpec(`Queued message is already ${row.state}.`, session ?? undefined) };
+    }
     if (session) {
       const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(session, chatId);
       if (ownershipPrompt) return { cancelled: false, message: ownershipPrompt };

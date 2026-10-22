@@ -92,7 +92,11 @@ export class SessionCatalogService {
         } : null
       };
     }))).filter((entry): entry is SessionCatalogEntry => entry !== null);
-    return { directories: [...new Set([...registeredDirectories,
-      ...sessions.filter((session) => !session.archived).map((session) => session.directory)])].sort(), sessions };
+    // Keep directory navigation independent of archive visibility and incomplete
+    // upstream inventories. Native metadata still wins for known threads.
+    const historicalDirectories = known.filter((session) => !threads.has(session.codexThreadId))
+      .map((session) => this.deps.getSessionDirectory(session));
+    return { directories: [...new Set([...registeredDirectories, ...historicalDirectories,
+      ...sessions.map((session) => session.directory)])].sort(), sessions };
   }
 }

@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { actionRow, helpAction, sessionAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import type { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
@@ -211,7 +211,7 @@ export class SessionCreationService {
     const session = await this.deps.store.getActiveSession(chatId);
     return createMessage({
       kind,
-      session: session ? { id: session.codexThreadId, directory: this.deps.getSessionDirectory(session) } : undefined,
+      ...messageContextForSession(session ? { id: session.codexThreadId, directory: this.deps.getSessionDirectory(session) } : null),
       body: [{ type: "text", text }],
       actions: actionRow(helpAction(), sessionAction())
     });

@@ -1,10 +1,12 @@
 import type { CodexAppServerClient } from "../../codex/client.js";
 import type { AppServerThreadGoal, AppServerThreadGoalStatus } from "../../codex/client.js";
+import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { currentGoalAction, goalsAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
+import { renderCurrentSessionDirectory } from "../sessions/state-presentation.js";
 
 export type GoalReadResult = {
   goal: AppServerThreadGoal | null;
@@ -33,7 +35,7 @@ export class GoalService {
   async renderActiveGoal(telegramChatId: string): Promise<MessageSpec> {
     const session = await this.deps.store.getActiveSession(telegramChatId);
     if (!session) {
-      return this.createGoalSpec("error", "No active session.", [sessionAction(), helpAction()]);
+      return this.createGoalSpec("error", "No active session.", [sessionAction(), helpAction()], null);
     }
     return this.renderGoalForSession(telegramChatId, session);
   }
@@ -41,7 +43,7 @@ export class GoalService {
   async renderSelectedGoal(telegramChatId: string, sessionId: string): Promise<MessageSpec> {
     const session = await this.resolveGoalSession(telegramChatId, sessionId);
     if (!session) {
-      return this.createGoalSpec("error", "Goal session is unavailable.", [goalsAction(), helpAction()]);
+      return this.createGoalSpec("error", "Goal session is unavailable.", [goalsAction(), helpAction()], null);
     }
     return this.renderGoalForSession(telegramChatId, session);
   }
@@ -164,8 +166,12 @@ export class GoalService {
     const lines = visible.length === 0
       ? ["No unfinished goals were found in known sessions."]
       : [`${rows.length} unfinished ${rows.length === 1 ? "goal" : "goals"}.`];
-    for (const [index, { result }] of visible.entries()) {
-      lines.push("", `${safePage * this.deps.sessionsPageSize + index + 1}. ${result.goal.objective}`);
+    for (const [index, { session, result }] of visible.entries()) {
+      lines.push(
+        "",
+        `${safePage * this.deps.sessionsPageSize + index + 1}. ${result.goal.objective}`,
+        formatSessionMarker(this.deps.getSessionDirectory(session))
+      );
     }
     const actions: MessageSpec["actions"] = [];
     for (const [index, { session, result }] of visible.entries()) {
@@ -189,26 +195,29 @@ export class GoalService {
       actions.push(currentGoalAction());
     }
     actions.push(helpAction());
-    return this.createGoalSpec("menu", lines.join("\n"), actions, null, "Goals");
+    return this.createGoalSpec("menu", [
+      ...renderCurrentSessionDirectory(activeSession ? {
+        id: activeSession.codexThreadId, directory: this.deps.getSessionDirectory(activeSession)
+      } : null),
+      { type: "text", text: lines.join("\n") }
+    ], actions, null, "Goals");
   }
 
   private createGoalSpec(
     kind: MessageSpec["kind"],
-    body: string,
+    body: string | MessageSpec["body"],
     actions: MessageSpec["actions"],
-    session?: SessionRecord | null,
+    session: SessionRecord | null,
     titleLabel?: string
   ): MessageSpec {
     return createMessage({
       kind,
-      ...(session ? {
-        session: {
+      ...messageContextForSession(session ? {
           id: session.codexThreadId,
           directory: this.deps.getSessionDirectory(session)
-        }
-      } : {}),
+      } : null),
       ...(titleLabel ? { titleLabel } : {}),
-      body: body ? [{ type: "text", text: body }] : [],
+      body: typeof body === "string" ? (body ? [{ type: "text", text: body }] : []) : body,
       actions
     });
   }

@@ -324,13 +324,13 @@ export class SessionBindingRepository {
     return updated;
   }
 
-  clearExternalUnknown(sessionId: string): boolean {
+  clearExternalUnknown(sessionId: string, expectedVersion?: number): boolean {
     const result = this.sqlite.prepare(`
       UPDATE session_leases
       SET state = 'unbound', owner_binding_id = NULL, pending_binding_id = NULL,
         owner_turn_id = NULL, version = version + 1, updated_at = ?
-      WHERE session_id = ? AND state = 'external_unknown'
-    `).run(now(), sessionId);
+      WHERE session_id = ? AND state = 'external_unknown' AND (? IS NULL OR version = ?)
+    `).run(now(), sessionId, expectedVersion ?? null, expectedVersion ?? null);
     return result.changes === 1;
   }
 

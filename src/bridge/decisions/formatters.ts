@@ -1,7 +1,7 @@
 import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { DecisionAction, DecisionRecord, SessionRecord } from "../../shared/types.js";
 import { createMessage } from "../messages/factory.js";
-import type { ActionSpec, DecisionContext, MessageSpec } from "../messages/types.js";
+import type { ActionSpec, DecisionContext, MessageSpec, SessionContext } from "../messages/types.js";
 import { pickDirectory } from "../sessions/menu-formatters.js";
 
 export type ParsedDecisionSummary = {
@@ -118,9 +118,10 @@ function decisionTerminalStatus(decision: DecisionRecord): Array<{ type: "field"
   return label ? [{ type: "field", label: "Status", value: label }] : [];
 }
 
-export function createBatchDecisionMessageSpec(count: number, actions: ActionSpec[]): MessageSpec {
+export function createBatchDecisionMessageSpec(session: SessionContext, count: number, actions: ActionSpec[]): MessageSpec {
   return createMessage({
     kind: "decision-batch",
+    session,
     body: [{ type: "text", text: `${count} pending approvals` }],
     actions
   });

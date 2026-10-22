@@ -10,7 +10,8 @@ import {
 import {
   createCalledMessage,
   createEditedMessage,
-  createMessage
+  createMessage,
+  messageContextForSession
 } from "../src/bridge/messages/factory.js";
 import { renderLegacyMessage } from "../src/bridge/messages/legacy-adapter.js";
 import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
@@ -41,6 +42,31 @@ test("message factory does not use a Codex thread name as a generated title", ()
 
   assert.equal(message.title, "Codex · .../projects/demo-app");
   assert.equal(renderLegacyMessage(message), "Codex · .../projects/demo-app\nProceed");
+});
+
+test("message context is explicit and directory messages do not claim a session identity", () => {
+  const global = createMessage({ kind: "menu", scope: "global", titleLabel: "Goals" });
+  const directory = createMessage({ kind: "menu", directory: session.directory, titleLabel: "Sections" });
+  assert.equal(global.title, "Goals");
+  assert.equal(directory.title, "Sections · .../projects/demo-app");
+  assert.equal(directory.session, undefined);
+  assert.equal(global.session, undefined);
+  assert.deepEqual(Object.keys(global).sort(), ["actions", "body", "kind", "title"]);
+  assert.deepEqual(messageContextForSession(session), { session });
+  assert.deepEqual(messageContextForSession(null), { scope: "global" });
+});
+
+test("message factory rejects omitted or ambiguous context instead of silently dropping a directory", () => {
+  const invalid = [
+    { kind: "system" },
+    { kind: "system", session: undefined },
+    { kind: "system", session, scope: "global" },
+    { kind: "system", session, directory: "/other" },
+    { kind: "system", directory: "/other", scope: "global" }
+  ];
+  for (const input of invalid) {
+    assert.throws(() => createMessage(input as never), /exactly one of session, directory, or global/);
+  }
 });
 
 test("Telegram renderer formats markdown body parts without title inference", () => {

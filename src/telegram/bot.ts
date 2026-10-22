@@ -2,7 +2,7 @@ import { Bot, Context, InlineKeyboard } from "grammy";
 
 import type { BridgeTelegramBotPort } from "../bridge/contracts.js";
 import type { AppConfig } from "../config/index.js";
-import { createMessage } from "../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../bridge/messages/factory.js";
 import { helpAction, sessionAction } from "../bridge/messages/actions.js";
 import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
@@ -61,7 +61,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     await replySpec(ctx, createMessage({
       kind: "system",
       titleLabel: "Codex",
-      session: await service.getActiveSessionContext(String(ctx.chat?.id ?? "")),
+      ...messageContextForSession(await service.getActiveSessionContext(String(ctx.chat?.id ?? ""))),
       body: [{ type: "text", text }],
       actions
     }));

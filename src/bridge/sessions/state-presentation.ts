@@ -1,9 +1,10 @@
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec, SessionContext } from "../messages/types.js";
+import { formatSessionMarker } from "../../shared/session-tag.js";
 
 export type CurrentSessionSnapshot = {
   session: SessionContext;
-  thread: string;
+  thread: string | null;
   binding: "external" | "bound" | "pending" | "other" | "unbound";
   actions: MessageSpec["actions"];
 };
@@ -17,20 +18,26 @@ const BINDING_LABELS: Record<CurrentSessionSnapshot["binding"], string> = {
 };
 
 function sessionFields(snapshot: CurrentSessionSnapshot): MessageSpec["body"] {
+  const thread = snapshot.thread?.trim();
   return [
     { type: "field", label: "Session ID", value: snapshot.session.id ?? "n/a" },
-    { type: "field", label: "Thread", value: snapshot.thread },
+    ...(thread ? [{ type: "field" as const, label: "Thread", value: thread }] : []),
     { type: "field", label: "Binding", value: BINDING_LABELS[snapshot.binding] }
   ];
 }
 
+export function renderCurrentSessionDirectory(session: SessionContext | null): MessageSpec["body"] {
+  return session ? [{ type: "heading", text: `Current session · ${formatSessionMarker(session.directory)}` }] : [];
+}
+
 export function renderCurrentSessionMenuSection(snapshot: CurrentSessionSnapshot | null): { messageSpec: MessageSpec } | null {
   return snapshot ? { messageSpec: createMessage({ kind: "menu", session: snapshot.session,
-    body: sessionFields(snapshot), actions: snapshot.actions }) } : null;
+    body: [...renderCurrentSessionDirectory(snapshot.session), ...sessionFields(snapshot)],
+    actions: snapshot.actions }) } : null;
 }
 
 export function renderSessionStatus(snapshot: CurrentSessionSnapshot | null): MessageSpec {
   return createMessage({ kind: "system", titleLabel: "Codex", surface: "session-status",
-    ...(snapshot ? { session: snapshot.session } : {}),
+    ...messageContextForSession(snapshot?.session),
     body: snapshot ? sessionFields(snapshot) : [{ type: "text", text: "No session selected." }] });
 }

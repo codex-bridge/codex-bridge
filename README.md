@@ -38,20 +38,20 @@ clients share one Bridge process and one Codex runtime.
 ## Compatibility
 
 Codex App Server schemas are version-specific. The Bridge baseline verified on
-2026-10-12 is:
+2026-10-20 is:
 
-**Latest Codex CLI version verified by this project: `0.162.1`.**
+**Latest Codex CLI version verified by this project: `0.163.0`.**
 
 | Component | Supported range | Verified version |
 | --- | --- | --- |
-| Codex CLI | `>=0.158.0 <0.163.0` | `0.162.1` |
+| Codex CLI | `>=0.158.0 <0.164.0` | `0.163.0` |
 | Node.js | `22.22.x` | `22.22.0` |
 | Yarn | `4.8.x` | `4.8.1` |
 
 The lower bound reflects retained Codex `0.158` compatibility behavior; the
-latest live protocol and ephemeral turn verification used `0.162.1`. Treat
-versions outside this range as unverified until both the protocol check and
-project tests pass.
+latest live protocol, ephemeral turn, and command-approval verification used
+`0.163.0`. Treat versions outside this range as unverified until both the
+protocol check and project tests pass.
 
 Official references: [install Codex CLI](https://developers.openai.com/codex/cli/)
 and [Codex App Server](https://developers.openai.com/codex/app-server/).

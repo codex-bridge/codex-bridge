@@ -13,6 +13,7 @@ import { handleSlackSessionWorkflow } from "../src/slack/interactions/session-wo
 import type { SlackMessageTransport } from "../src/slack/transport.js";
 import { BridgeStore } from "../src/store/index.js";
 import { testConfig } from "./bridge-test-config.js";
+import { parseSessionActionCallback } from "../src/bridge/sessions/action-callbacks.js";
 
 function menuText(menu: MessageSpec): string {
   return renderLegacyMessage(menu);
@@ -75,7 +76,10 @@ test("renders sessions as directory then section menus", async () => {
 
     const directoryMenu = await service.renderSessionMenu("chat-1", 0);
     assert.equal(discoveryCount, 0);
-    assert.equal(directoryMenu.title, "Sessions · /workspace/project");
+    assert.equal(directoryMenu.title, "Sessions");
+    assert.equal(directoryMenu.session, undefined);
+    assert.ok(directoryMenu.body.every((part) => part.type !== "field" || part.label !== "Thread"));
+    assert.deepEqual(directoryMenu.body[0], { type: "heading", text: "Current session · /workspace/project" });
     assert.ok(directoryMenu.actions.some((action) => action.callback.startsWith("session-dir:")));
     assert.ok(directoryMenu.actions.some((action) => action.callback === "quick:help"));
     assert.equal(directoryMenu.actions.filter((action) => action.callback === "quick:help").length, 1);
@@ -89,10 +93,11 @@ test("renders sessions as directory then section menus", async () => {
       "**Codex · /workspace/project**\n\nSession ID thread-2"
     );
     assert.equal(await service.envelopeChatMessage("chat-1", "**Help**"), "**Help**");
-    assert.match(
-      menuActions(directoryMenu).map((action) => action.callback).join("\n"),
-      new RegExp(`^session-release-bridge:${second.id}:\\d+$`, "m")
-    );
+    assert.ok(menuActions(directoryMenu).some((action) => {
+      const callback = parseSessionActionCallback(action.callback);
+      return callback?.kind === "releaseBridge" && callback.sessionId === second.id &&
+        callback.expectedLeaseVersion === store.getSessionLease(second.id)?.version;
+    }));
     const directoryButton = menuActions(directoryMenu)
       .find((action) => action.callback.startsWith("session-dir:"));
     assert.match(directoryButton?.label ?? "", /2 sections/);
@@ -109,10 +114,11 @@ test("renders sessions as directory then section menus", async () => {
     assert.match(menuText(sectionMenu), /Current session/);
     assert.equal(menuText(sectionMenu).match(/Sections · \/workspace\/project/g)?.length, 1);
     assert.ok(menuActions(sectionMenu).some((action) => action.group === "Sessions"));
-    assert.match(
-      menuActions(sectionMenu).map((action) => action.callback).join("\n"),
-      new RegExp(`^session-release-bridge:${second.id}:\\d+$`, "m")
-    );
+    assert.ok(menuActions(sectionMenu).some((action) => {
+      const callback = parseSessionActionCallback(action.callback);
+      return callback?.kind === "releaseBridge" && callback.sessionId === second.id &&
+        callback.expectedLeaseVersion === store.getSessionLease(second.id)?.version;
+    }));
     const sectionButtonLabels = menuActions(sectionMenu)
       .map((action) => action.label)
       .join("\n");
@@ -397,6 +403,7 @@ test("Slack session selection reports external active-writer conflicts on repeat
     testConfig(databasePath),
     store,
     {
+      readThreadStatus: async () => ({ activity: "idle", activityType: "notLoaded" }),
       resumeThread: async () => {
         resumeCount += 1;
         throw new Error("thread thread-active-writer already has an active writer");
@@ -442,7 +449,7 @@ test("Slack session selection reports external active-writer conflicts on repeat
 
     assert.equal(await handleSlackSessionWorkflow(input), true);
     assert.equal(await handleSlackSessionWorkflow(input), true);
-    assert.equal(resumeCount, 1);
+    assert.equal(resumeCount, 2);
     assert.equal(edits.length, 2);
     assert.equal(store.getSessionLease(session.id)?.state, "external_unknown");
     assert.equal((await store.getActiveSession(chatId))?.id, session.id);
@@ -677,7 +684,11 @@ test("renders selected session confirmation for selector replacement", async () 
     const text = await service.renderSelectedSessionMessage(session);
     assert.match(text, /^\*\*Codex · .*\/workspace\/project\*\*/);
     assert.match(text, /Session ID thread-selected/);
-    assert.match(text, /Thread n\/a/);
+    assert.doesNotMatch(text, /\nThread /);
+    const root = await service.renderSelectedSessionMessage({ ...session, telegramChatId: "slack:T:C" });
+    assert.doesNotMatch(root, /\nThread /);
+    const slack = await service.renderSelectedSessionMessage({ ...session, telegramChatId: "slack:T:C:123.456" });
+    assert.match(slack, /\nThread 123\.456/);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -710,7 +721,9 @@ test("archives a session only for its idle Bridge owner", async () => {
     const ownership = store.claimSession(session.id, "chat-1");
     assert.equal(ownership.owned, true);
     const callback = await service.getSessionArchiveCallback("chat-1", session.id);
-    assert.match(callback ?? "", new RegExp(`^session-archive:${session.id}:\\d+$`));
+    assert.deepEqual(parseSessionActionCallback(callback ?? ""), {
+      kind: "archive", sessionId: session.id, expectedLeaseVersion: store.getSessionLease(session.id)?.version
+    });
 
     assert.equal(store.setSessionOwnerTurn(session.id, "chat-1", "turn-busy"), true);
     assert.equal(await service.getSessionArchiveCallback("chat-1", session.id), null);
@@ -1093,7 +1106,9 @@ test("deletes Codex first and Bridge history only after explicit confirmation", 
 
     const prompt = await service.requestDeleteSession("chat-1", session.id, lease.version);
     assert.match(renderLegacyMessage(prompt), /permanently/);
-    assert.match(prompt.actions.map((action) => action.callback).join("\n"), /session-delete-confirm:/);
+    assert.deepEqual(parseSessionActionCallback(prompt.actions[0]?.callback ?? ""), {
+      kind: "deleteConfirm", sessionId: session.id, expectedLeaseVersion: lease.version
+    });
     assert.equal(prompt.kind, "decision");
     assert.deepEqual(prompt.actions.map((action) => action.id), ["confirm-delete", "cancel"]);
     assert.equal(prompt.actions[0]?.style, "danger");
@@ -1893,6 +1908,73 @@ test("session refresh reads history without claiming or switching the session", 
   }
 });
 
+for (const action of ["send", "select"] as const) {
+  test(`external session ${action} retries recovery without an explicit refresh`, async () => {
+    const store = new BridgeStore(":memory:");
+    let resumes = 0;
+    let sends = 0;
+    const service = new BridgeService(testConfig(":memory:"), store, {
+      readThreadStatus: async () => ({ activity: "idle", activityType: "notLoaded" }),
+      resumeThread: async () => { resumes++; return { messages: [] }; },
+      sendTurn: async () => { sends++; return { turnId: "recovered-turn" }; },
+      listRecentThreadMessages: async () => [{ role: "assistant", text: "restored" }]
+    } as unknown as CodexAppServerClient);
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    try {
+      const session = await store.upsertDiscoveredSession({ telegramChatId: "chat-1",
+        codexThreadId: "recover", pathKey: "/work/rollout.jsonl", currentCwd: "/work" });
+      await store.setActiveSession("chat-1", session.id);
+      store.markSessionExternalUnknown(session.id);
+      if (action === "send") {
+        const result = await service.handleIncomingUserText({ telegramChatId: "chat-1",
+          telegramMessageId: "recover-message", text: "hello" });
+        assert.equal(result.routed, true);
+        assert.equal(sends, 1);
+      } else {
+        const result = await service.activateSession("chat-1", session.id);
+        assert.equal(result.recentMessages[0]?.text, "restored");
+        assert.equal(sends, 0);
+      }
+      assert.ok(resumes >= 1);
+      assert.equal(store.getSessionLease(session.id)?.state, "active");
+      assert.equal(store.getSessionLease(session.id)?.ownerBindingId, store.getSessionBinding(session.id, "chat-1")?.id);
+    } finally { store.close(); }
+  });
+}
+
+for (const action of ["send", "select"] as const) {
+  test(`a changed selection during ${action} recovery cannot claim the old session`, async () => {
+    const store = new BridgeStore(":memory:");
+    let sends = 0;
+    const old = await store.upsertDiscoveredSession({ telegramChatId: "chat-1", codexThreadId: "old", pathKey: "/old" });
+    const next = await store.upsertDiscoveredSession({ telegramChatId: "chat-1", codexThreadId: "next", pathKey: "/next" });
+    await store.setActiveSession("chat-1", old.id);
+    store.markSessionExternalUnknown(old.id);
+    const service = new BridgeService(testConfig(":memory:"), store, {
+      readThreadStatus: async () => {
+        await store.selectSession("chat-1", next.id);
+        return { activity: "idle", activityType: "notLoaded" };
+      },
+      resumeThread: async () => ({ messages: [] }),
+      sendTurn: async () => { sends++; return { turnId: "unexpected" }; }
+    } as unknown as CodexAppServerClient);
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    try {
+      if (action === "select") {
+        await assert.rejects(service.activateSession("chat-1", old.id), SessionActivationError);
+      } else {
+        const result = await service.handleIncomingUserText({ telegramChatId: "chat-1",
+          telegramMessageId: "changed-message", text: "hello" });
+        assert.equal(result.routed, false);
+        assert.match(renderLegacyMessage(result.prompt!), /selection changed/);
+      }
+      assert.equal(sends, 0);
+      assert.equal(store.getSessionLease(old.id)?.ownerBindingId, null);
+      assert.equal((await store.getActiveSession("chat-1"))?.id, next.id);
+    } finally { store.close(); }
+  });
+}
+
 test("external session refresh retries ownership after Codex becomes idle", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-refresh-external-test-"));
   const databasePath = join(directory, "bridge.sqlite");
@@ -1901,6 +1983,7 @@ test("external session refresh retries ownership after Codex becomes idle", asyn
     testConfig(databasePath),
     store,
     {
+      resumeThread: async () => ({ messages: [] }),
       readThreadStatus: async () => ({
         activity: "idle",
         activityType: "completed"
@@ -2015,7 +2098,9 @@ test("refresh status is appended with the final external lock action", async () 
 
     assert.match(sent[0]?.text ?? "", /^Codex · /);
     assert.match(sent[0]?.text ?? "", /occupied outside the Bridge/);
-    assert.equal(sent[0]?.callback, `session-refresh:${session.id}:${store.getSessionLease(session.id)?.version}`);
+    assert.deepEqual(parseSessionActionCallback(sent[0]?.callback ?? ""), {
+      kind: "refresh", sessionId: session.id, expectedLeaseVersion: store.getSessionLease(session.id)?.version
+    });
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -3525,7 +3610,7 @@ test("closing a Run phase during a send keeps its phase summary", async () => {
     await Promise.all([first, latest, clearing]);
 
     assert.equal(sends.length, 1);
-    assert.match(edits.at(-1) ?? "", /^Run · .*project\nRun ×\d+ · Reported successes ×\d+ · Reported failures ×\d+$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*project\nRun ×\d+ · Reported successes ×\d+ · Reported failures ×\d+ · Unreported ×\d+$/);
     assert.deepEqual(deletes, []);
   } finally {
     store.close();
@@ -4348,6 +4433,40 @@ test("bridge auto compact completion includes retry next step", async () => {
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Telegram and Slack can create a session after archiving the last session in a directory", async () => {
+  for (const sourceId of ["123", "slack:T:C:1"]) {
+    const store = new BridgeStore(":memory:");
+    const starts: string[] = [];
+    const service = new BridgeService(testConfig(":memory:"), store, {
+      listThreadsForCwd: async () => [],
+      startThread: async (cwd: string) => { starts.push(cwd); return { threadId: "new" }; }
+    } as unknown as CodexAppServerClient);
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    try {
+      const archived = await store.upsertDiscoveredSession({
+        telegramChatId: sourceId, codexThreadId: "old", pathKey: "/work/project"
+      });
+      await store.markSessionCodexArchived(archived.id);
+      assert.equal(store.getSessionBinding(archived.id, sourceId), null);
+      const menu = await service.renderSessionMenu(sourceId);
+      const directory = menu.actions.find((action) => action.callback.startsWith("session-dir:"));
+      assert.ok(directory);
+      assert.match(directory.label, /0 sections/);
+      const hash = directory.callback.split(":")[1]!;
+      const sections = await service.renderSessionSectionMenu(sourceId, hash);
+      assert.ok(sections.actions.some((action) => action.callback === `session-new:${hash}`));
+      assert.ok(!sections.actions.some((action) => action.callback.startsWith("section:")));
+      const result = await service.requestCreateSessionFromDirectorySelector(sourceId, hash);
+      assert.match(result.title, /^Session created/);
+      assert.deepEqual(starts, ["/work/project"]);
+      assert.equal((await store.getActiveSession(sourceId))?.codexThreadId, "new");
+      assert.deepEqual((await store.listKnownSessions(sourceId)).map((session) => session.codexThreadId), ["new"]);
+      assert.notEqual((await store.getSessionByThreadId("old"))?.codexArchivedAt, null);
+      assert.equal(store.getSessionBinding(archived.id, sourceId), null);
+    } finally { store.close(); }
   }
 });
 

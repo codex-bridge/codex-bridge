@@ -72,6 +72,7 @@ export class StatusViewService {
         : "Codex runtime is disconnected.\nNo active session.";
       return createMessage({
         kind: "system",
+        scope: "global",
         titleLabel: "Codex status",
         body: [{ type: "text", text }],
         actions: actionRow(sessionAction(), helpAction())

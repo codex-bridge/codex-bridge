@@ -48,8 +48,8 @@ async function sendFixture(t: TestContext, attachmentRoot?: string) {
     sessionOwnershipService: {} as never, rememberNotificationSession: () => {}, getSessionDirectory: () => "/work",
     isStaleActiveTurnError: () => false, isMissingRuntimeThreadError: () => false, isActiveWriterConflictError: () => false,
     findProviderMismatch: async () => null, sessionRefreshCallback: () => "unused",
-    createIncomingPromptSpec: (kind, text) => createMessage({ kind, body: [{ type: "text", text }] }),
-    createSessionActionSpec: (_session, kind, text) => createMessage({ kind, body: [{ type: "text", text }] }),
+    createIncomingPromptSpec: (kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
+    createSessionActionSpec: (_session, kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
     sendLongSpec: async () => {}, setSessionStatus: async () => {} });
   const api = new LocalWebBridgeApi(new SessionCatalogService({ store, getSessionDirectory: () => "/work",
     readEffectiveProvider: async () => null, codexClient: { listThreadsForCwd: async () => [], listArchivedThreadsForCwd: async () => [] } }),
@@ -164,10 +164,10 @@ async function historyFixture(t: TestContext, overrides: Partial<SessionReaderDe
   store.claimSession(session.id, "web:local");
   const reader = new SessionReader({
     store, codexClient: {} as SessionReaderDependencies["codexClient"],
-    isRuntimeConnected: () => false, canReadThreadStatus: () => false,
+    isRuntimeConnected: () => false, recoverExternalSession: async () => null,
     getSessionDirectory: () => "/work", readDisplayPathFromRollout: async () => null,
     pickDirectory: () => null, readRecentMessagesFromRollout: async () => [],
-    isActiveWriterConflictError: () => false, ...overrides
+    ...overrides
   });
   const api = new LocalWebBridgeApi(new SessionCatalogService({
     store, getSessionDirectory: () => "/work", readEffectiveProvider: async () => null,
@@ -396,9 +396,15 @@ test("catalog empty and upstream failure do not fabricate sessions or connection
   } finally { store.close(); }
 });
 
-test("catalog directories exclude archive-only locations from the active navigation", async () => {
+test("catalog directories retain archive-only and stored historical locations without fabricating sessions", async () => {
   const store = new BridgeStore(":memory:");
   try {
+    store.registerWebDirectory("/registered");
+    const historical = await store.upsertDiscoveredSession({
+      telegramChatId: "123", codexThreadId: "historical", pathKey: "/historical"
+    });
+    await store.markSessionCodexArchived(historical.id);
+    const archivedAt = (await store.getSessionByThreadId("historical"))!.codexArchivedAt;
     const catalog = new SessionCatalogService({
       store, getSessionDirectory: (session) => session.pathKey, readEffectiveProvider: async () => null,
       codexClient: {
@@ -407,10 +413,31 @@ test("catalog directories exclude archive-only locations from the active navigat
       }
     });
     const result = await catalog.list();
-    assert.deepEqual(result.directories, ["/active"]);
+    assert.deepEqual(result.directories, ["/active", "/archive", "/historical", "/registered"]);
     assert.deepEqual(result.sessions.map((entry) => [entry.threadId, entry.archived]), [
       ["active", false], ["archived", true]
     ]);
+    assert.equal((await store.getSessionByThreadId("historical"))!.codexArchivedAt, archivedAt);
+    assert.equal(store.getSessionBinding(historical.id, "web:local"), null);
+  } finally { store.close(); }
+});
+
+test("historical directory navigation preserves native provider filtering and current directory metadata", async () => {
+  const store = new BridgeStore(":memory:");
+  try {
+    for (const [codexThreadId, pathKey] of [["wrong", "/wrong"], ["moved", "/old"]] as const) {
+      await store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId, pathKey });
+    }
+    const catalog = new SessionCatalogService({
+      store, getSessionDirectory: (session) => session.pathKey, readEffectiveProvider: async () => "custom",
+      codexClient: {
+        listThreadsForCwd: async () => [thread("moved", { currentCwd: "/current" })],
+        listArchivedThreadsForCwd: async () => [thread("wrong", { currentCwd: "/wrong", modelProvider: "openai", archivedAt: 99 })]
+      }
+    });
+    const result = await catalog.list();
+    assert.deepEqual(result.directories, ["/current"]);
+    assert.deepEqual(result.sessions.map((entry) => entry.threadId), ["moved"]);
   } finally { store.close(); }
 });
 
@@ -487,7 +514,7 @@ test("Web session mutations refuse result delivery after window revocation or ow
       interaction: { renameSession: async () => {
         if (change === "window") revoked = true;
         else store.requestSessionHandoff(session.id, "123", true);
-        return createMessage({ kind: "system", body: [{ type: "text", text: "renamed" }] });
+        return createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "renamed" }] });
       } }
     } as never);
 
@@ -512,7 +539,7 @@ test("Web release returns a guarded receipt after intentionally dropping session
     mutation: { releaseBridgeSessionLock: async (_sourceId: string, sessionId: string, version?: number) => {
       const result = store.releaseBridgeSessionLock(sessionId, "web:local", version);
       if (revokeDuringRelease) windowCurrent = false;
-      return createMessage({ kind: result.released ? "system" : "error", body: [{ type: "text", text: result.reason }] });
+      return createMessage({ scope: "global", kind: result.released ? "system" : "error", body: [{ type: "text", text: result.reason }] });
     } }
   } as never);
 

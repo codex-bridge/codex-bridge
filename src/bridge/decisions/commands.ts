@@ -109,6 +109,7 @@ export class DecisionCommandService {
           ? this.deps.createMcpInputPromptSpec(decisionSession, decision)
           : createMessage({
               kind: "mcp",
+              scope: "global",
               titleLabel: "MCP Input Required",
               body: [{ type: "text", text: buildAwaitingMcpPrompt(decision) }],
               actions: [helpAction()]

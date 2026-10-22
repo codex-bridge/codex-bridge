@@ -42,7 +42,7 @@ test("runtime prompts include Connect only while Codex is disconnected", () => {
     getSessionDirectory: (value) => value.currentCwd ?? value.pathKey
   });
 
-  assert.deepEqual(factory.createIncoming("error", "Disconnected").actions, [
+  assert.deepEqual(factory.createIncoming("error", "Disconnected", null).actions, [
     { id: "bot-connect", label: "Connect", callback: "quick:bot_connect", group: "Bot" },
     { id: "help", label: "Help", callback: "quick:help", execution: { type: "session-tool", tool: "help" } }
   ]);

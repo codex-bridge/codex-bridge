@@ -50,6 +50,100 @@ test("called aggregation does not retain command-like tool names", () => {
   assert.deepEqual(aggregate.operations, []);
 });
 
+test("Called aggregation isolates failed events without changing event totals or prior groups", () => {
+  const inputs = [
+    event({ label: "Called", toolName: "mcp__playwright__browser_take_screenshot" }),
+    event({ label: "Called", toolName: "mcp__playwright__browser_take_screenshot" }),
+    event({ label: "Called", toolName: "mcp__playwright__browser_take_screenshot", failed: true, text: "timeout" })
+  ];
+  let aggregate = emptyPhaseAggregate();
+  for (const input of inputs) {
+    const normalized = normalizeProgressEvent(input);
+    assert.ok(normalized);
+    const before = structuredClone(aggregate);
+    const previous = aggregate;
+    aggregate = appendPhaseEvent(aggregate, normalized);
+    assert.deepEqual(previous, before);
+  }
+  assert.equal(aggregate.eventCount, 3);
+  assert.deepEqual(aggregate.operations, [
+    { name: "playwright.browser_take_screenshot", count: 2 },
+    { name: "playwright.browser_take_screenshot", count: 1, failed: true }
+  ]);
+});
+
+test("Called failures survive storage and freeze the card before another same-tool event", async () => {
+  const store = new BridgeStore(":memory:");
+  const sends: string[] = [];
+  const edits: string[] = [];
+  try {
+    const session = await store.upsertDiscoveredSession({
+      telegramChatId: "chat-1", codexThreadId: "thread-1", pathKey: "/workspace/project"
+    });
+    const service = new ProgressService({
+      getSessionDirectory: () => "/workspace/project",
+      getInFlightTurnId: () => "turn-1",
+      shouldSkipCalledProgress: () => false,
+      getActiveProgressPhaseMessage: (threadId, turnId) => store.getActiveProgressPhaseMessage(threadId, turnId),
+      getLatestProgressPhaseMessage: (threadId, turnId) => store.getLatestProgressPhaseMessage(threadId, turnId),
+      getProgressPhaseMessageForFileEdit: (threadId, turnId, itemId) => store.getProgressPhaseMessageForFileEdit(threadId, turnId, itemId),
+      updateFinalProgressPhaseAggregate: (id, aggregate) => store.updateFinalProgressPhaseAggregate(id, aggregate),
+      listActiveProgressPhaseMessages: () => store.listActiveProgressPhaseMessages(),
+      listPendingProgressPhaseFinalDelivery: () => store.listPendingProgressPhaseFinalDelivery(),
+      createProgressPhaseMessage: (input) => store.createProgressPhaseMessage(input),
+      updateActiveProgressPhaseMessage: (id, input) => store.updateActiveProgressPhaseMessage(id, input),
+      recordSuccessfulRunContentUpdate: (id) => store.recordSuccessfulRunContentUpdate(id),
+      finalizeProgressPhaseMessage: (input) => store.finalizeProgressPhaseMessage(input),
+      updateFinalProgressPhaseMessageState: (input) => store.updateFinalProgressPhaseMessageState(input),
+      markProgressPhaseMessageDeliveryState: (input) => store.markProgressPhaseMessageDeliveryState(input),
+      editMessageSpec: async (_chatId, _messageId, spec) => {
+        edits.push(renderLegacyMessage(spec));
+        return true;
+      },
+      sendTemporaryMessageSpec: async (_chatId, spec) => {
+        const text = renderLegacyMessage(spec);
+        sends.push(text);
+        return { messageId: String(sends.length), text };
+      }
+    });
+    await service.sendProgressMessage(session, event({
+      label: "Called", toolName: "mcp__playwright__browser_run_code_unsafe"
+    }));
+    await service.sendProgressMessage(session, event({
+      label: "Called", toolName: "mcp__playwright__browser_take_screenshot"
+    }));
+    await service.sendProgressMessage(session, event({
+      label: "Called", toolName: "mcp__playwright__browser_take_screenshot", failed: true,
+      text: "raw private error timed out"
+    }));
+    const frozen = store.getLatestProgressPhaseMessage("thread-1", "turn-1");
+    assert.equal(frozen?.state, "step_failed");
+    assert.equal(store.getActiveProgressPhaseMessage("thread-1", "turn-1"), null);
+    assert.deepEqual(frozen?.aggregate.operations, [
+      { name: "playwright.browser_run_code_unsafe", count: 1 },
+      { name: "playwright.browser_take_screenshot", count: 1 },
+      { name: "playwright.browser_take_screenshot", count: 1, failed: true }
+    ]);
+    assert.equal(edits.at(-1), [
+      "Called · /workspace/project",
+      "playwright.browser_run_code_unsafe ×1 → playwright.browser_take_screenshot ×1 → playwright.browser_take_screenshot ×1 (failed)",
+      "Error: timeout"
+    ].join("\n"));
+    assert.doesNotMatch(edits.at(-1) ?? "", /Step failed|raw private/);
+
+    await service.sendProgressMessage(session, event({
+      label: "Called", toolName: "mcp__playwright__browser_take_screenshot"
+    }));
+    const active = store.getActiveProgressPhaseMessage("thread-1", "turn-1");
+    assert.equal(active?.phaseSeq, 2);
+    assert.deepEqual(active?.aggregate.operations, [{ name: "playwright.browser_take_screenshot", count: 1 }]);
+    assert.equal(sends.length, 2);
+    assert.notEqual(active?.id, frozen?.id);
+  } finally {
+    store.close();
+  }
+});
+
 test("upstream failure wording does not claim Bridge System ownership", () => {
   assert.equal(normalizeProgressEvent(event({ label: "Unknown", failed: true, text: "connection lost" })), null);
   assert.equal(normalizeProgressEvent(event({ label: "Run", failed: true, text: "connection lost" }))?.kind, "run");
@@ -138,7 +232,7 @@ test("a failed step freezes its Run phase and the next Run starts a fresh card",
     assert.equal(frozen?.state, "step_failed");
     assert.equal(frozen?.phaseSeq, 1);
     assert.equal(frozen?.failureReason, "timeout");
-    assert.match(edits.at(-1) ?? "", /^Run · .*\nCompleted\nRun ×2 · Reported successes ×1 · Reported failures ×1\nReason: timeout\nTask continued$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×2 · Reported successes ×1 · Reported failures ×1 · Unreported ×0\nReason: timeout\nTask continued$/);
     assert.doesNotMatch(edits.at(-1) ?? "", /secret endpoint|raw stderr/);
 
     await service.sendProgressMessage(session, event({ label: "Run", toolName: "yarn lint" }));
@@ -250,7 +344,7 @@ test("Run count includes initial send and successful replacements across restart
     assert.equal(frozen?.aggregate.run.updates, 3);
     assert.equal(frozen?.aggregate.run.succeeded, 0);
     assert.equal(frozen?.aggregate.run.failed, 0);
-    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×4 · Reported successes ×0 · Reported failures ×0$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×4 · Reported successes ×0 · Reported failures ×0 · Unreported ×4$/);
   } finally {
     store.close();
   }

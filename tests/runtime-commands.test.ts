@@ -65,7 +65,7 @@ test("runtime transition replies preserve the initiating session directory", asy
 test("restart buttons use the conversation rather than the selector surface", async () => {
   for (const platform of ["slack", "telegram"] as const) {
     const calls: string[] = [];
-    const reply = createMessage({ kind: "system", titleLabel: "Codex" });
+    const reply = createMessage({ scope: "global", kind: "system", titleLabel: "Codex" });
     const service = {
       restartServiceMessage: async (chatId: string) => { calls.push(chatId); return reply; }
     } as unknown as BridgeRuntimePort & BridgeTurnControlPort;

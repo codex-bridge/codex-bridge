@@ -3,7 +3,7 @@ import { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
 import { RuntimeController, type RuntimeState } from "./controller.js";
 import { helpAction, messageAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec, SessionContext } from "../messages/types.js";
 
 export type RuntimeCommandDependencies = {
@@ -112,7 +112,7 @@ export class RuntimeCommandService {
     return createMessage({
       kind: "system",
       titleLabel: "Codex",
-      session: await this.deps.getActiveSessionContext(chatId),
+      ...messageContextForSession(await this.deps.getActiveSessionContext(chatId)),
       body: [{ type: "text", text: body }],
       actions: this.deps.runtime.isTransitioning()
         ? [helpAction()]

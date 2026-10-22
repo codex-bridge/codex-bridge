@@ -1,6 +1,6 @@
 import type { BridgeSlackTurnWorkflowPort } from "../../bridge/contracts.js";
 import { helpAction, sessionAction } from "../../bridge/messages/actions.js";
-import { createMessage } from "../../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../../bridge/messages/factory.js";
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { SlackMessageTransport } from "../transport.js";
 
@@ -30,7 +30,7 @@ export async function handleSlackTurnWorkflow(input: {
     await transport.sendMessageSpec(chatId, createMessage({
       kind: "system",
       titleLabel: "Codex",
-      session: await service.getActiveSessionContext(chatId),
+      ...messageContextForSession(await service.getActiveSessionContext(chatId)),
       body: [{ type: "text", text }],
       actions
     }));
@@ -54,7 +54,7 @@ export async function handleSlackTurnWorkflow(input: {
     const messageSpec = createMessage({
       kind: "system",
       titleLabel: "Codex",
-      session: await service.getActiveSessionContext(context.surfaceId),
+      ...messageContextForSession(await service.getActiveSessionContext(context.surfaceId)),
       body: [{ type: "text", text: input.messageText }],
       actions: [helpAction()]
     });

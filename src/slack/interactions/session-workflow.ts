@@ -2,6 +2,7 @@ import type { KnownBlock } from "@slack/types";
 
 import type { BridgeSlackSessionWorkflowPort } from "../../bridge/contracts.js";
 import { SessionActivationError } from "../../bridge/sessions/ownership.js";
+import { parseSessionActionCallback } from "../../bridge/sessions/action-callbacks.js";
 import {
   archiveAction,
   deleteAction,
@@ -9,7 +10,7 @@ import {
   messageAction,
   sessionAction
 } from "../../bridge/messages/actions.js";
-import { createMessage } from "../../bridge/messages/factory.js";
+import { createMessage, messageContextForSession } from "../../bridge/messages/factory.js";
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { ActionSpec } from "../../bridge/messages/types.js";
 import { sessionActionResultDelivery } from "../../bridge/interactions/session-delivery.js";
@@ -32,13 +33,12 @@ export function parseSessionWorkflowAction(value: string): SessionWorkflowAction
   if (value.startsWith("session:")) {
     return { type: "session.select", sessionId: value.slice("session:".length), legacySection: false };
   }
-  if (value.startsWith("session-refresh:")) {
-    const [, sessionId = "", versionText] = value.split(":");
-    const version = versionText === undefined ? undefined : Number(versionText);
+  const callback = parseSessionActionCallback(value);
+  if (callback?.kind === "refresh") {
     return {
       type: "session.refresh",
-      sessionId,
-      expectedLeaseVersion: Number.isFinite(version) ? version : undefined
+      sessionId: callback.sessionId,
+      expectedLeaseVersion: callback.expectedLeaseVersion
     };
   }
   return null;
@@ -81,7 +81,7 @@ export async function handleSlackSessionWorkflow(input: {
       await transport.sendMessageSpec(chatId, createMessage({
         kind: "system",
         titleLabel: "Codex",
-        session: await service.getActiveSessionContext(chatId),
+        ...messageContextForSession(await service.getActiveSessionContext(chatId)),
         body: [{ type: "text", text: "This thread is already bound to a session." }],
         actions: [helpAction(), sessionAction()]
       }));
@@ -127,7 +127,13 @@ export async function handleSlackSessionWorkflow(input: {
     messageTs: context.sourceMessageId ?? null,
     expectedLeaseVersion: action.expectedLeaseVersion ?? null
   });
-  const refreshed = await service.refreshSessionView(chatId, action.sessionId, action.expectedLeaseVersion);
+  let refreshed;
+  try { refreshed = await service.refreshSessionView(chatId, action.sessionId, action.expectedLeaseVersion); }
+  catch (error) {
+    if (!(error instanceof SessionActivationError)) throw error;
+    await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context, error.messageSpec));
+    return true;
+  }
   if (context.sourceMessageId) {
     await transport.clearMessageActions(
       context.surfaceId,

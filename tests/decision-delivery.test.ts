@@ -6,6 +6,8 @@ import { createMessage } from "../src/bridge/messages/factory.js";
 import type { MessageSpec } from "../src/bridge/messages/types.js";
 import type { DecisionRecord, SessionRecord } from "../src/shared/types.js";
 import type { BridgeMessageOptions } from "../src/bridge/transport.js";
+import { BridgeStore } from "../src/store/index.js";
+import { createBatchDecisionMessageSpec, createDecisionMessageSpec } from "../src/bridge/decisions/formatters.js";
 
 function session(chatId: string): SessionRecord {
   return {
@@ -44,6 +46,7 @@ function createDeliveryHarness(delivered = true) {
   const sentOptions: Array<BridgeMessageOptions | undefined> = [];
   const deleted: string[] = [];
   const edited: string[] = [];
+  const editedSpecs: MessageSpec[] = [];
   const updatedTargets: Array<{ decisionId: string; chatId: string; messageId: string }> = [];
   let nextMessageId = 100;
   const transport = {
@@ -74,7 +77,9 @@ function createDeliveryHarness(delivered = true) {
       session: { id: target.id, directory: target.pathKey },
       actions
     }),
-    createBatchDecisionMessageSpec: (count, actions) => createMessage({
+    getSessionDirectory: (target) => target.currentCwd ?? target.pathKey,
+    createBatchDecisionMessageSpec: (session, count, actions) => createMessage({
+      session,
       kind: "decision",
       body: [{ type: "text", text: String(count) }],
       actions
@@ -85,13 +90,14 @@ function createDeliveryHarness(delivered = true) {
       sentOptions.push(options);
       return delivered ? { message_id: String(nextMessageId++) } : null;
     },
-    editMessageSpec: async (chatId, messageId) => {
+    editMessageSpec: async (chatId, messageId, spec) => {
       edited.push(`${chatId}/${messageId}`);
+      editedSpecs.push(spec);
       return true;
     }
   });
 
-  return { service, sent, sentOptions, deleted, edited, updatedTargets };
+  return { service, sent, sentOptions, deleted, edited, editedSpecs, updatedTargets };
 }
 
 test("does not resend a pending decision to the same Slack thread", async () => {
@@ -117,6 +123,8 @@ test("retires the old decision message when a session moves to another Slack thr
 
   assert.deepEqual(harness.deleted, []);
   assert.deepEqual(harness.edited, ["slack:T:C:100.1/42"]);
+  assert.equal(harness.editedSpecs[0]?.title, "Decision Moved · /workspace/project");
+  assert.equal(harness.editedSpecs[0]?.session?.id, "session-1");
   assert.deepEqual(harness.sent, ["slack:T:C:100.2"]);
   assert.deepEqual(harness.sentOptions, [{ unavailableThreadNotice: { kind: "action-required" } }]);
   assert.deepEqual(harness.updatedTargets, [{
@@ -131,4 +139,51 @@ test("an undelivered decision with a separate root reminder is not attached as a
   await harness.service.sendDecisionMessage(session("slack:T:C:100.2"), decision("slack:T:C:100.2", null));
   assert.deepEqual(harness.sentOptions, [{ unavailableThreadNotice: { kind: "action-required" } }]);
   assert.deepEqual(harness.updatedTargets, []);
+});
+
+test("batch approval creation and closure use the actual session directory before delivery", async () => {
+  const store = new BridgeStore(":memory:");
+  try {
+    const target = await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "thread", pathKey: "/work/stale", currentCwd: "/work/current"
+    });
+    await store.setActiveSession("chat", target.id);
+    const decisions = await Promise.all(["first", "second"].map((approvalId) => store.createOrReplacePendingDecision({
+      sessionId: target.id, telegramChatId: "chat", approvalId, kind: "item/commandExecution/requestApproval",
+      title: "Run command", summary: "command: yarn test", requiresUserInput: false
+    })));
+    const sent: MessageSpec[] = [];
+    const edited: MessageSpec[] = [];
+    const service = new DecisionDeliveryService({
+      store, sessionOperationQueue: { run: async (_id, operation) => operation() },
+      getSessionDirectory: (session) => session.currentCwd ?? session.pathKey,
+      isBatchableDecision: () => true, createDecisionMessageSpec, createBatchDecisionMessageSpec,
+      getExecpolicyAmendment: () => null,
+      requireMessageTransport: () => { throw new Error("Unexpected fallback"); },
+      sendMessageSpec: async (chat, spec) => {
+        assert.equal(chat, "chat");
+        sent.push(structuredClone(spec));
+        return { message_id: "batch" };
+      },
+      editMessageSpec: async (chat, id, spec) => {
+        assert.equal(chat, "chat"); assert.equal(id, "batch"); edited.push(spec); return true;
+      }
+    });
+    await service.syncBatchDecisionMessage(target);
+    assert.equal(sent[0]?.title, "Decisions · /work/current");
+    assert.deepEqual(sent[0]?.actions.map((action) => action.callback), [
+      `ba:${target.id}:${store.getSessionLease(target.id)?.version ?? 0}`,
+      `bd:${target.id}:${store.getSessionLease(target.id)?.version ?? 0}`,
+      `bc:${target.id}:${store.getSessionLease(target.id)?.version ?? 0}`
+    ]);
+    assert.ok(sent[0]?.actions.every((action) => Buffer.byteLength(action.callback) <= 64));
+    assert.deepEqual(sent[0]?.session, { id: target.id, directory: "/work/current" });
+    await store.resolveDecision(decisions[0]!.id, "approved");
+    await service.syncBatchDecisionMessage(target);
+    assert.equal(sent.length, 1);
+    assert.equal(edited[0]?.title, "No Pending Approvals · /work/current");
+    assert.deepEqual(edited[0]?.session, sent[0]?.session);
+    assert.deepEqual(edited[0]?.actions, []);
+    assert.equal((await store.getSessionById(target.id))?.batchDecisionMessageId, null);
+  } finally { store.close(); }
 });

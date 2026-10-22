@@ -44,6 +44,20 @@ test("archived catalog excludes active and empty directories and uses stable rec
   assert.deepEqual(groups[1]?.sessions.map((entry) => entry.threadId), ["archived-old", "a-null", "z-null"]);
 });
 
+test("active navigation keeps archive-only directories empty and searchable without exposing archived sessions", () => {
+  const catalog: Catalog = {
+    directories: ["/archive-only"],
+    sessions: [session("archived", "/archive-only", 100, true)]
+  };
+  assert.deepEqual(buildCatalogGroups(catalog, { mode: "active", query: "" }), [
+    { directory: "/archive-only", sessions: [], open: false }
+  ]);
+  assert.deepEqual(buildCatalogGroups(catalog, { mode: "active", query: "/archive-only" })
+    .map((group) => group.directory), ["/archive-only"]);
+  assert.deepEqual(buildCatalogGroups(catalog, { mode: "archived", query: "" })
+    .flatMap((group) => group.sessions.map((entry) => entry.threadId)), ["archived"]);
+});
+
 test("catalog search stays inside the selected lifecycle view and matches directory, name or thread ID", () => {
   const catalog: Catalog = {
     directories: ["/work", "/empty"],

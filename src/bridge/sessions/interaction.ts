@@ -38,7 +38,7 @@ export class SessionInteractionService {
     const owner = lease?.ownerBindingId ? this.deps.store.getSessionBindingById(lease.ownerBindingId) : null;
     const snapshot: CurrentSessionSnapshot = {
       session: { id: session.codexThreadId, directory: this.deps.getSessionDirectory(session) },
-      thread: this.deps.parseSlackChatId(chatId)?.threadTs ?? "n/a",
+      thread: this.deps.parseSlackChatId(chatId)?.threadTs ?? null,
       binding: lease?.state === "external_unknown" ? "external"
         : binding && owner?.id === binding.id ? "bound"
         : binding && lease?.pendingBindingId === binding.id ? "pending"

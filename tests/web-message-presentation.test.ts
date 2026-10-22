@@ -6,6 +6,7 @@ import { presentWebMessage } from "../src/web/message-presentation.js";
 
 test("Web message projection keeps typed actions and removes platform callbacks", () => {
   const message = createMessage({
+    scope: "global",
     kind: "actions",
     actions: [userTextAction("continue", "Continue", "platform:callback", "continue"), helpAction()]
   });
@@ -20,6 +21,7 @@ test("Web message projection keeps typed actions and removes platform callbacks"
 
 test("Web status actions preserve the requested detail mode as typed data", () => {
   const presented = presentWebMessage(createMessage({
+    scope: "global",
     kind: "system",
     actions: [statusViewAction(false), statusViewAction(true)]
   }));

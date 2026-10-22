@@ -4,9 +4,10 @@ import type { BridgeMessageOptions, BridgeMessageTransport, BridgeSentMessage } 
 import { logger } from "../../logging/logger.js";
 import { actionRow, messageAction } from "../messages/actions.js";
 import { createMessage } from "../messages/factory.js";
-import type { MessageSpec } from "../messages/types.js";
+import type { MessageSpec, SessionContext } from "../messages/types.js";
 import type { SessionDecisionOperationQueue } from "./session-operation-queue.js";
 import { canDeliverSession } from "../notifications/delivery-target.js";
+import { createBatchDecisionCallback } from "./action-callbacks.js";
 
 type DecisionStore = Pick<
   BridgeStore,
@@ -26,7 +27,8 @@ export type DecisionDeliveryDependencies = {
   sessionOperationQueue: Pick<SessionDecisionOperationQueue, "run">;
   isBatchableDecision: (decision: DecisionRecord) => boolean;
   createDecisionMessageSpec: (session: SessionRecord, decision: DecisionRecord, actions: MessageSpec["actions"]) => MessageSpec;
-  createBatchDecisionMessageSpec: (count: number, actions: MessageSpec["actions"]) => MessageSpec;
+  createBatchDecisionMessageSpec: (session: SessionContext, count: number, actions: MessageSpec["actions"]) => MessageSpec;
+  getSessionDirectory: (session: SessionRecord) => string;
   getExecpolicyAmendment: (decision: DecisionRecord) => string[] | null;
   sendMessageSpec: (chatId: string, messageSpec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<BridgeSentMessage | null>;
   editMessageSpec: (chatId: string, messageId: string, messageSpec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<boolean>;
@@ -48,7 +50,7 @@ export class DecisionDeliveryService {
     }
 
     if (decision.telegramMessageId && decision.telegramChatId !== targetChatId) {
-      await this.retireDecisionMessage(decision);
+      await this.retireDecisionMessage(session, decision);
     }
 
     const actions = decision.kind === "mcpServer/elicitation/request"
@@ -82,7 +84,7 @@ export class DecisionDeliveryService {
     }
   }
 
-  private async retireDecisionMessage(decision: DecisionRecord): Promise<void> {
+  private async retireDecisionMessage(session: SessionRecord, decision: DecisionRecord): Promise<void> {
     if (!decision.telegramMessageId) return;
     try {
       await this.deps.editMessageSpec(
@@ -90,6 +92,7 @@ export class DecisionDeliveryService {
         decision.telegramMessageId,
         createMessage({
           kind: "decision",
+          session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
           titleLabel: "Decision Moved",
           body: [{ type: "text", text: "This approval moved to the active conversation." }],
           actions: []
@@ -134,13 +137,14 @@ export class DecisionDeliveryService {
         return;
       }
       const actions = actionRow(
-        messageAction("approve-all", "Approve All", `decision-batch:${latestSession.id}:${lease?.version ?? 0}:a`),
-        messageAction("decline-all", "Decline All", `decision-batch:${latestSession.id}:${lease?.version ?? 0}:d`),
-        messageAction("cancel-all", "Cancel All", `decision-batch:${latestSession.id}:${lease?.version ?? 0}:c`)
+        messageAction("approve-all", "Approve All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "accept")),
+        messageAction("decline-all", "Decline All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "decline")),
+        messageAction("cancel-all", "Cancel All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "cancel"))
       );
       await this.clearBatchDecisionMessage(latestSession);
-      const messageSpec = this.deps.createBatchDecisionMessageSpec(batchable.length, actions);
-      messageSpec.session = { id: latestSession.id, directory: latestSession.pathKey };
+      const messageSpec = this.deps.createBatchDecisionMessageSpec(
+        { id: latestSession.id, directory: this.deps.getSessionDirectory(latestSession) }, batchable.length, actions
+      );
       const sent = await this.deps.sendMessageSpec(
         ownerSourceId,
         messageSpec,
@@ -160,7 +164,7 @@ export class DecisionDeliveryService {
         createMessage({
           kind: "decision-batch",
           titleLabel: "No Pending Approvals",
-          session: { id: latestSession.id, directory: latestSession.pathKey },
+          session: { id: latestSession.id, directory: this.deps.getSessionDirectory(latestSession) },
           body: [{ type: "text", text: "All batchable approvals have been resolved or moved." }],
           actions: []
         })

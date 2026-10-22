@@ -86,7 +86,7 @@ test("slow activation cannot restore an older selection or expose its history", 
       return { session, recentMessages: [{ role: "assistant", text: "private history" }] };
     } }, isActiveWriterConflictError: () => false,
     clearBatchDecisionMessage: async () => {}, sessionRefreshCallback: () => "unused",
-    createSessionActionSpec: (_session, kind, text) => createMessage({ kind, body: [{ type: "text", text }] }) });
+    createSessionActionSpec: (_session, kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }) });
   const result = activation.activateSession(next, first.id);
   await reading;
   await store.selectSession(next, newer.id);
@@ -104,7 +104,7 @@ test("Slack parent cards are edited in place without operational buttons, and mi
     update: async (input: typeof edits[number]) => { edits.push(input); if (missing) throw new Error("message_not_found"); return {}; },
     postMessage: async () => { throw new Error("Must not recreate parent"); }
   } } as unknown as WebClient);
-  const message = createMessage({ kind: "system", body: [{ type: "text", text: "Selected session" }] });
+  const message = createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "Selected session" }] });
   await transport.updateConversationSession(next, message);
   assert.equal(edits[0]?.channel, "CTEST");
   assert.equal(edits[0]?.ts, "next");

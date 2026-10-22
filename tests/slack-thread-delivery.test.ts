@@ -63,7 +63,7 @@ function fixture() {
 
 test("a verified parent receives content and controls in the intended thread", async () => {
   const f = fixture();
-  const sent = await f.transport.sendMessageSpec(chatId, createMessage({ kind: "decision",
+  const sent = await f.transport.sendMessageSpec(chatId, createMessage({ scope: "global", kind: "decision",
     body: [{ type: "text", text: "PRIVATE REQUEST" }],
     actions: [{ id: "approve", label: "Approve", callback: "decision:secret:a" }] }), actionRequired);
   assert.deepEqual(sent, { message_id: "2.0001" });
@@ -78,7 +78,7 @@ test("a verified parent receives content and controls in the intended thread", a
 for (const kind of ["user", "codex", "progress", "edited", "error", "system", "refresh", "decision"] as const) {
   test(`missing parent cannot forward ${kind} content by default`, async () => {
     const f = fixture(); f.behavior.parent = "missing";
-    const sent = await f.transport.sendMessageSpec(chatId, createMessage({ kind,
+    const sent = await f.transport.sendMessageSpec(chatId, createMessage({ scope: "global", kind,
       body: [{ type: "text", text: "PRIVATE CONTENT" }] }));
     assert.equal(sent, null);
     assert.deepEqual(f.posts, []);
@@ -217,7 +217,7 @@ test("split messages stop after fallback and do not associate a root notice ID w
   const f = fixture(); f.behavior.parent = "missing";
   const sender = new MessageDeliveryService({ maxLength: 4000, queue: new KeyedQueue(), getEnvelopeTitle: async () => "unused" });
   sender.registerTransport(f.transport);
-  const sent = await sender.sendSpecAndGetLastMessage(chatId, createMessage({ kind: "decision",
+  const sent = await sender.sendSpecAndGetLastMessage(chatId, createMessage({ scope: "global", kind: "decision",
     body: [{ type: "text", text: "PRIVATE ".repeat(10000) }] }), actionRequired);
   assert.equal(sent, null);
   assert.equal(f.posts.length, 1);
@@ -226,7 +226,7 @@ test("split messages stop after fallback and do not associate a root notice ID w
 
 test("explicit status cards are protected, while selectors at the same position remain editable", async () => {
   const f = fixture();
-  const message = createMessage({ kind: "system", body: [{ type: "text", text: "Binding result" }] });
+  const message = createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "Binding result" }] });
   const context = { platform: "slack" as const, conversationId: chatId, surfaceId: "slack:T:C", sourceMessageId: "1.0001",
     sourceSurface: "session-status" as const };
   await deliverSlackInteraction(f.transport, context, { mode: "edit", target: "surface", message });

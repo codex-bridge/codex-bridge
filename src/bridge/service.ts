@@ -25,6 +25,7 @@ import { NotificationDeliveryTargets } from "./notifications/delivery-target.js"
 import { SessionBindingService, bindingEventText } from "./sessions/binding.js";
 import { WEB_SOURCE_ID } from "../shared/source-address.js";
 import { SessionReader } from "./sessions/reader.js";
+import { ExternalSessionRecoveryService } from "./sessions/external-recovery.js";
 import { SessionViewService } from "./sessions/view.js";
 import { SessionActivationService } from "./sessions/activation.js";
 import { SessionCreationService } from "./sessions/creation.js";
@@ -239,9 +240,20 @@ export class BridgeService {
     const createCommandResultSpec = this.messageFactory.createCommandResultSpec.bind(this.messageFactory);
     const createSessionCommandResultSpec = this.messageFactory.createSessionCommandResultSpec.bind(this.messageFactory);
     this.notificationSessionRouter = new NotificationSessionRouter(store);
+    const externalRecovery = new ExternalSessionRecoveryService({
+      store, codexClient,
+      isRuntimeConnected: () => this.isRuntimeConnected(),
+      canReadThreadStatus: () => this.canReadThreadStatus(),
+      isBusy: (session) => state.inFlightTurnIdByThread.has(session.codexThreadId) ||
+        this.sessionBindingService.hasPendingDispatch(session.codexThreadId),
+      getSessionDirectory: (session) => this.getSessionDirectory(session),
+      isActiveWriterConflictError
+    });
+    const recoverExternalSession = (session: SessionRecord) => externalRecovery.recover(session);
     this.sessionOwnershipService = new SessionOwnershipService({
       store,
       codexClient,
+      recoverExternalSession,
       isRuntimeConnected: () => this.isRuntimeConnected(),
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       staleBridgeLeaseMs: DEFAULT_STALE_BRIDGE_LEASE_MS,
@@ -272,6 +284,7 @@ export class BridgeService {
     });
     this.sessionBindingService = new SessionBindingService({
       store,
+      recoverExternalSession,
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       onStateChanged: (sourceId) => this.updateConversationSession(sourceId),
@@ -337,12 +350,11 @@ export class BridgeService {
       store,
       codexClient,
       isRuntimeConnected: () => this.isRuntimeConnected(),
-      canReadThreadStatus: () => this.canReadThreadStatus(),
+      recoverExternalSession,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       readDisplayPathFromRollout: (rolloutPath) => this.rolloutReader.readDisplayPath(rolloutPath),
       pickDirectory,
-      readRecentMessagesFromRollout: (rolloutPath) => this.rolloutReader.readRecentMessages(rolloutPath),
-      isActiveWriterConflictError
+      readRecentMessagesFromRollout: (rolloutPath) => this.rolloutReader.readRecentMessages(rolloutPath)
     });
     this.sessionViewService = new SessionViewService({
       store,
@@ -612,7 +624,7 @@ export class BridgeService {
     this.incomingPayloadService = new IncomingPayloadService({
       openaiApiKey: this.config.openaiApiKey,
       transcriptionModel: this.config.slackAudioTranscriptionModel,
-      createPromptSpec: (kind, text) => this.runtimePromptFactory.createIncoming(kind, text),
+      createPromptSpec: (kind, text) => this.runtimePromptFactory.createIncoming(kind, text, null),
       handleIncomingUserText: (input) => this.handleIncomingUserText(input)
     });
     this.incomingPreflightService = new IncomingPreflightService({
@@ -660,7 +672,8 @@ export class BridgeService {
       sessionOperationQueue: this.sessionDecisionOperationQueue,
       isBatchableDecision: (decision) => isBatchableDecision(decision),
       createDecisionMessageSpec: (session, decision, actions) => createDecisionMessageSpec(session, decision, actions),
-      createBatchDecisionMessageSpec: (count, actions) => createBatchDecisionMessageSpec(count, actions),
+      createBatchDecisionMessageSpec,
+      getSessionDirectory: (session) => this.getSessionDirectory(session),
       getExecpolicyAmendment: (decision) => getExecpolicyAmendment(decision),
       sendMessageSpec: (chatId, messageSpec, options) => this.messageOperations.sendMessageSpec(chatId, messageSpec, options),
       editMessageSpec: (chatId, messageId, messageSpec, options) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec, options)
@@ -1046,7 +1059,7 @@ export class BridgeService {
     const slackChat = parseSlackChatId(session.telegramChatId);
     return this.messageFactory.createSelectedSessionSpec(
       session,
-      slackChat?.threadTs ?? "n/a",
+      slackChat?.threadTs ?? null,
       actions
     );
   }

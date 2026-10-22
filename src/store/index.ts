@@ -376,8 +376,8 @@ export class BridgeStore {
     return this.sessionBindingRepository.markExternalUnknown(sessionId);
   }
 
-  clearSessionExternalUnknown(sessionId: string): boolean {
-    return this.sessionBindingRepository.clearExternalUnknown(sessionId);
+  clearSessionExternalUnknown(sessionId: string, expectedVersion?: number): boolean {
+    return this.sessionBindingRepository.clearExternalUnknown(sessionId, expectedVersion);
   }
 
   releaseBridgeSessionLock(sessionId: string, sourceId: string, expectedVersion?: number): SessionReleaseResult {

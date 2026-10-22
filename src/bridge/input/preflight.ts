@@ -2,11 +2,11 @@ import { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
 import type { DecisionRecord, SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, messageContextForSession } from "../messages/factory.js";
 import { helpAction } from "../messages/actions.js";
 import type { CodexTurnInputPart } from "../../codex/client.js";
 import type { MessageSpec } from "../messages/types.js";
-import { SessionOwnershipService } from "../sessions/ownership.js";
+import { SessionActivationError, SessionOwnershipService } from "../sessions/ownership.js";
 import { validateDecisionInput } from "../decisions/formatters.js";
 
 export type IncomingTextInput = {
@@ -30,7 +30,7 @@ export type IncomingPreflightDependencies = {
   getActiveSession: (chatId: string) => Promise<SessionRecord | null>;
   recoverSlackDmActiveSession: (chatId: string) => Promise<SessionRecord | null>;
   getSessionDirectory: (session: SessionRecord) => string;
-  createIncomingPromptSpec: (kind: MessageSpec["kind"], text: string, session?: SessionRecord) => MessageSpec;
+  createIncomingPromptSpec: (kind: MessageSpec["kind"], text: string, session: SessionRecord | null) => MessageSpec;
   createMcpInputPromptSpec: (session: SessionRecord, decision: DecisionRecord, errorMessage?: string) => MessageSpec;
   sendLongSpec: (chatId: string, messageSpec: MessageSpec) => Promise<void>;
   syncBatchDecisionMessageForSessionId: (sessionId: string) => Promise<void>;
@@ -44,11 +44,12 @@ export class IncomingPreflightService {
     await this.deps.ensureChatAllowed(input.telegramChatId);
 
     if (!this.deps.isRuntimeConnected()) {
+      const selected = await this.deps.getActiveSession(input.telegramChatId);
       return {
         kind: "response",
         response: {
           routed: false,
-          prompt: this.deps.createIncomingPromptSpec("error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.")
+          prompt: this.deps.createIncomingPromptSpec("error", "Codex runtime is disconnected.\nUse /bot_connect to reconnect.", selected)
         }
       };
     }
@@ -57,9 +58,20 @@ export class IncomingPreflightService {
       (await this.deps.getActiveSession(input.telegramChatId)) ??
       (await this.deps.recoverSlackDmActiveSession(input.telegramChatId));
     if (activeSession) {
-      const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(activeSession, input.telegramChatId);
-      if (ownershipPrompt) {
-        return { kind: "response", response: { routed: false, prompt: ownershipPrompt } };
+      const selectedId = activeSession.id;
+      try {
+        const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(activeSession, input.telegramChatId, {
+          assertCurrent: async () => {
+            if ((await this.deps.getActiveSession(input.telegramChatId))?.id !== selectedId) {
+              throw new SessionActivationError(this.deps.createIncomingPromptSpec("system",
+                "The session selection changed. Send your message again in the selected session.", activeSession));
+            }
+          }
+        });
+        if (ownershipPrompt) return { kind: "response", response: { routed: false, prompt: ownershipPrompt } };
+      } catch (error) {
+        if (!(error instanceof SessionActivationError)) throw error;
+        return { kind: "response", response: { routed: false, prompt: error.messageSpec } };
       }
     }
 
@@ -67,6 +79,7 @@ export class IncomingPreflightService {
     if (pendingElicitation) {
       const currentSession = await this.deps.getActiveSession(input.telegramChatId);
       if (!currentSession || currentSession.id !== pendingElicitation.sessionId) {
+        const original = await this.deps.store.getSessionById(pendingElicitation.sessionId);
         await this.deps.store.resolveDecision(pendingElicitation.id, "stale");
         const text = "The MCP form is no longer tied to the active session. Switch back to that session and try again.";
         return {
@@ -75,6 +88,9 @@ export class IncomingPreflightService {
             routed: false,
             prompt: createMessage({
               kind: "mcp",
+              ...messageContextForSession(original ? {
+                id: original.id, directory: this.deps.getSessionDirectory(original)
+              } : null),
               titleLabel: "MCP Input Required",
               body: [{ type: "text", text }],
               actions: [helpAction()]

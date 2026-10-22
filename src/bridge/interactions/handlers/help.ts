@@ -1,5 +1,5 @@
 import type { BridgeChatPort } from "../../contracts.js";
-import { createMessage } from "../../messages/factory.js";
+import { createMessage, messageContextForSession } from "../../messages/factory.js";
 import type { InteractionContext, InteractionDelivery } from "../types.js";
 
 export async function handleHelpAction(
@@ -12,7 +12,7 @@ export async function handleHelpAction(
     message: createMessage({
       kind: "menu",
       titleLabel: "Help",
-      session: await service.getActiveSessionContext(context.conversationId),
+      ...messageContextForSession(await service.getActiveSessionContext(context.conversationId)),
       actions: await service.getHelpMenuActions(context.conversationId)
     })
   };

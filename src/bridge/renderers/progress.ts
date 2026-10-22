@@ -8,6 +8,7 @@ import { formatSessionMarker } from "../../shared/session-tag.js";
 import type {
   ProgressFailureReason,
   ProgressPhaseMessageRecord,
+  ProgressPhaseOperationGroup,
   ProgressPhaseState
 } from "../../shared/types.js";
 import { phaseTitle } from "../progress/lifecycle.js";
@@ -57,13 +58,19 @@ export function createProgressMessageSpec(input: {
   }
 
   const subject = formatProgressSubject(input.event);
-  const body = [{ type: "text" as const, text: subject }];
+  const failedCall = input.event.failed &&
+    (input.event.label === "Called" || input.event.label.startsWith("Called "));
+  const body = [{
+    type: "text" as const,
+    text: failedCall ? formatCalledOperation({ name: subject, count: 1, failed: true }) : subject
+  }];
   if (input.event.input && input.event.input !== subject) {
     body.push({ type: "text", text: input.event.input });
   }
   if (input.event.failed) {
     const lines = input.event.label === "Run"
-      ? completedRunLines(input.event.failureReason)
+      ? runFailureLines(input.event.failureReason)
+      : failedCall ? [`Error: ${formatFailureReason(input.event.failureReason)}`]
       : [`Step failed · ${formatFailureReason(input.event.failureReason)}`];
     body.push(...lines.map((text) => ({ type: "text" as const, text })));
   }
@@ -90,15 +97,28 @@ export function createProgressPhaseSummarySpec(input: {
 function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   const aggregate = record.aggregate;
   const outcome = phaseOutcomeLine(record.state, record.failureReason);
+  if (record.phaseKind === "called") {
+    const lines = [aggregate.operations.length > 0
+      ? aggregate.operations.map(formatCalledOperation).join(" → ")
+      : eventCountLine(aggregate.eventCount)];
+    if (record.state === "step_failed" || record.state === "failed") {
+      lines.push(`Error: ${formatFailureReason(record.failureReason)}`);
+    } else if (outcome) {
+      lines.unshift(outcome);
+    }
+    return lines;
+  }
   const lines = outcome ? [outcome] : [];
   if (record.phaseKind === "run") {
     const { updates, succeeded, failed } = aggregate.run;
     // A persisted card already has one successfully sent preview; updates counts later edits.
     const displayedUpdates = updates + 1;
-    const statistics = `Run ×${displayedUpdates} · Reported successes ×${succeeded} · Reported failures ×${failed}`;
+    // Display counts and runtime reports are independent; do not reconcile the source counters.
+    const unreported = Math.max(0, displayedUpdates - succeeded - failed);
+    const statistics = `Run ×${displayedUpdates} · Reported successes ×${succeeded} · Reported failures ×${failed} · Unreported ×${unreported}`;
     const runLines = record.state === "step_failed" || record.state === "failed"
-      ? completedRunLines(record.failureReason, statistics)
-      : [...lines, statistics];
+      ? [statistics, ...runFailureLines(record.failureReason)]
+      : [...(record.state === "completed" ? [] : lines), statistics];
     if (record.state === "step_failed") runLines.push("Task continued");
     return runLines;
   }
@@ -137,10 +157,11 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     }
     return lines.length ? lines : [eventCountLine(aggregate.eventCount)];
   }
-  if (record.phaseKind === "called" && aggregate.operations.length > 0) {
-    lines.push(aggregate.operations.map(({ name, count }) => `${name} ×${count}`).join(" → "));
-  }
   return lines.length ? lines : [eventCountLine(aggregate.eventCount)];
+}
+
+function formatCalledOperation({ name, count, failed }: ProgressPhaseOperationGroup): string {
+  return `${name} ×${count}${failed ? " (failed)" : ""}`;
 }
 
 function eventCountLine(count: number): string {
@@ -162,10 +183,8 @@ function formatFailureReason(reason: ProgressFailureReason | null | undefined): 
   return (reason ?? "other_failure").replaceAll("_", " ");
 }
 
-function completedRunLines(reason: ProgressFailureReason | null | undefined, statistics?: string): string[] {
+function runFailureLines(reason: ProgressFailureReason | null | undefined): string[] {
   return [
-    "Completed",
-    ...(statistics ? [statistics] : []),
     ...(reason && reason !== "other_failure" ? [`Reason: ${formatFailureReason(reason)}`] : [])
   ];
 }

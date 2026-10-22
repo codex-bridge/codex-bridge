@@ -80,6 +80,7 @@ test("Slack transport wraps button callback data with the target chat id", async
   const chatId = "slack:TTEST0001:DTEST0001";
 
   await transport.sendMessageSpec(chatId, createMessage({
+    scope: "global",
     kind: "system",
     titleLabel: "Choose",
     actions: [messageAction("open", "Open", "session:one")]
@@ -109,6 +110,7 @@ test("Slack transport signs wrapped button callback data when configured", async
   const chatId = "slack:TTEST0001:DTEST0001";
 
   await transport.sendMessageSpec(chatId, createMessage({
+    scope: "global",
     kind: "system",
     titleLabel: "Choose",
     actions: [messageAction("open", "Open", "session:one")]
@@ -182,6 +184,7 @@ test("Slack transport reuses callback content blocks when clearing actions", asy
 
 test("Slack transport renders sessions as native Slack blocks with actions", async () => {
   const postedBlocks = renderSlackMessageSpec("slack:TTEST0001:DTEST0001", createMessage({
+    scope: "global",
     kind: "menu",
     titleLabel: "Sessions",
     body: [
@@ -264,6 +267,7 @@ test("Slack transport preserves native session picker after Codex title envelope
 
 test("Slack transport groups help action rows with section labels", async () => {
   const postedBlocks = renderSlackMessageSpec("slack:TTEST0001:DTEST0001", createMessage({
+    scope: "global",
     kind: "help",
     titleLabel: "codex-bridge",
     actions: [
@@ -406,6 +410,7 @@ test("Slack transport renders created sessions as structured status", async () =
 test("Slack transport renders created session follow-up actions", async () => {
   const postedBlocks = renderSlackMessageSpec("slack:TTEST0001:DTEST0001", createMessage({
     kind: "system",
+    scope: "global",
     titleLabel: "Session created · codex-lb",
     actions: actionRow(
       messageAction("help", "Help", "quick:help"),

@@ -1,12 +1,12 @@
 import type { SessionRecord } from "../../shared/types.js";
-import { formatSessionMarker } from "../../shared/session-tag.js";
+import { formatSessionMarker, formatSessionTitle } from "../../shared/session-tag.js";
 import type { BridgeStore } from "../../store/index.js";
 import { logger } from "../../logging/logger.js";
 import { actionRow, messageAction } from "../messages/actions.js";
-import { createMessage } from "../messages/factory.js";
+import { createMessage, type MessageContextInput } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatSessionMenuLabel } from "./menu-formatters.js";
-import { renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
+import { renderCurrentSessionDirectory, renderCurrentSessionMenuSection, type CurrentSessionSnapshot } from "./state-presentation.js";
 import type { CachedThreadProvider } from "../../codex/thread-metadata-cache.js";
 import {
   SessionMenuSnapshotCache,
@@ -88,7 +88,6 @@ export class SessionMenuService {
           )
         ],
         [
-          ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
           ...(current?.messageSpec.body ?? []),
           { type: "text", text: "No sessions are currently available." },
           ...(hiddenCount > 0
@@ -97,7 +96,7 @@ export class SessionMenuService {
           { type: "text", text: "No recoverable Codex threads were found for this chat." },
           { type: "text", text: "Try again after the app server has existing threads available." }
         ],
-        current?.messageSpec.session
+        { scope: "global" }
       );
       return messageSpec;
     }
@@ -127,10 +126,9 @@ export class SessionMenuService {
         )
       ],
       [
-        ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
         ...(current?.messageSpec.body ?? [])
       ],
-      current?.messageSpec.session
+      { scope: "global" }
     );
     return messageSpec;
   }
@@ -141,6 +139,7 @@ export class SessionMenuService {
   ): Promise<MessageSpec> {
     const selectorChatId = this.deps.getSessionSelectorChatId(telegramChatId);
     await this.deps.refreshSessionsForChat(selectorChatId);
+    const snapshot = await this.deps.getCurrentSessionSnapshot(telegramChatId);
     const sessions = (await this.deps.store.listKnownSessions(selectorChatId, { includeArchived: true }))
       .filter((session) => session.codexArchivedAt !== null);
     const activityTimes = new Map(
@@ -178,14 +177,19 @@ export class SessionMenuService {
         messageAction("back", "Back", "session-page:0")
       )
     ];
-    return this.createMenuSpec(
-        null,
-        "Archived sessions",
-        actions,
-        sortedSessions.length === 0
-          ? [{ type: "text", text: "No archived sessions are available." }]
-          : [{ type: "text", text: "Choose a session to restore." }]
-      );
+    const body: MessageSpec["body"] = sortedSessions.length === 0
+      ? [{ type: "text", text: "No archived sessions are available." }]
+      : [
+          { type: "text", text: "Choose a session to restore." },
+          ...visibleSessions.map((session, index) => ({
+            type: "text" as const,
+            text: `${safePage * this.deps.sessionsPageSize + index + 1}. ${formatSessionTitle(session.displayName, this.deps.getSessionDirectory(session))}\n${formatSessionMarker(this.deps.getSessionDirectory(session))}`
+          }))
+        ];
+    return this.createMenuSpec(null, "Archived sessions", actions, [
+      ...renderCurrentSessionDirectory(snapshot?.session ?? null),
+      ...body
+    ], { scope: "global" });
   }
 
   async renderSessionSectionMenu(
@@ -206,7 +210,7 @@ export class SessionMenuService {
       ), [
           { type: "text", text: "Session directory menu expired." },
           { type: "text", text: "Refresh to load the current session directories." }
-        ]);
+        ], { scope: "global" });
     }
     const entries = [...group.entries].sort((left, right) => right.activityAt - left.activityAt);
     const totalPages = Math.max(1, Math.ceil(entries.length / this.deps.sessionsPageSize));
@@ -229,7 +233,7 @@ export class SessionMenuService {
     const labels = await Promise.all(visibleEntries.map((entry) => this.deps.formatSectionMenuLabel(entry, providerLabel)));
     const messageSpec = this.createMenuSpec(
       current,
-      `Sections · ${formatSessionMarker(group.directoryKey)}`,
+      "Sections",
       [
         ...(current?.messageSpec.actions ?? []),
         ...visibleEntries.map((entry, index) => messageAction(
@@ -253,9 +257,9 @@ export class SessionMenuService {
         )
       ],
       [
-        ...(current ? [{ type: "heading" as const, text: "Current session" }] : []),
         ...(current?.messageSpec.body ?? []),
-      ]
+      ],
+      { directory: group.directoryKey }
     );
     return messageSpec;
   }
@@ -264,14 +268,14 @@ export class SessionMenuService {
     current: { messageSpec: MessageSpec } | null,
     title: string,
     actions: MessageSpec["actions"],
-    body?: MessageSpec["body"],
-    titleSession?: MessageSpec["session"]
+    body: MessageSpec["body"] | undefined,
+    context: MessageContextInput
   ): MessageSpec {
     return createMessage({
       kind: "menu",
       surface: "session-selector",
       titleLabel: title,
-      ...(titleSession ? { session: titleSession } : {}),
+      ...context,
       body: body ?? current?.messageSpec.body ?? [],
       actions
     });
@@ -295,12 +299,12 @@ export class SessionMenuService {
         includeUnknownThreads: options?.includeUnknownThreads
       });
     }
-    let discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId);
+    let discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId, { includeArchived: true });
     if (discoveredSessions.length === 0 && options?.refresh !== true) {
       await this.deps.refreshSessionsForChat(telegramChatId, {
         includeUnknownThreads: options?.includeUnknownThreads
       });
-      discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId);
+      discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId, { includeArchived: true });
     }
     const storedMessageTimes = await this.deps.store.listLatestMessageTimes(discoveredSessions.map((session) => session.id));
     const activityTimes = new Map(discoveredSessions.map((session) => [
@@ -308,7 +312,7 @@ export class SessionMenuService {
       Math.max(session.latestActivityAt, storedMessageTimes.get(session.id) ?? 0)
     ]));
     const sortedSessions = this.deps.sortSessionsByMenuActivity(discoveredSessions, activityTimes);
-    const entriesByDirectory = new Map<string, SectionMenuEntry[]>();
+    const groupsByDirectory = new Map<string, DirectoryMenuGroup>();
     const providerByDirectory = new Map<string, string | null>();
     await Promise.all([...new Set(sortedSessions.map((session) => this.deps.getSessionDirectory(session)))].map(async (directoryKey) => {
       providerByDirectory.set(directoryKey, await this.deps.readEffectiveProvider(directoryKey));
@@ -331,7 +335,7 @@ export class SessionMenuService {
         sessionProvider.provider &&
         sessionProvider.provider !== effectiveProvider
       ) {
-        hiddenCount += 1;
+        if (session.codexArchivedAt === null) hiddenCount += 1;
         logger.info("bridge.session_menu.provider_filtered", {
           chatId: telegramChatId,
           sessionId: session.id,
@@ -341,20 +345,20 @@ export class SessionMenuService {
         });
         continue;
       }
-      const entry: SectionMenuEntry = {
-        session,
-        activityAt: activityTimes.get(session.id) ?? session.latestActivityAt
-      };
-      entriesByDirectory.set(directoryKey, [...(entriesByDirectory.get(directoryKey) ?? []), entry]);
+      const activityAt = activityTimes.get(session.id) ?? session.latestActivityAt;
+      let group = groupsByDirectory.get(directoryKey);
+      if (!group) {
+        group = { directoryKey, hash: this.deps.hashDirectoryKey(directoryKey), sectionCount: 0, activityAt, entries: [] };
+        groupsByDirectory.set(directoryKey, group);
+      }
+      group.activityAt = Math.max(group.activityAt, activityAt);
+      // Historical sessions keep the directory available, not the session selectable.
+      if (session.codexArchivedAt === null) {
+        group.entries.push({ session, activityAt });
+        group.sectionCount += 1;
+      }
     }
-    const groups = [...entriesByDirectory.entries()]
-      .map(([directoryKey, entries]) => ({
-        directoryKey,
-        hash: this.deps.hashDirectoryKey(directoryKey),
-        sectionCount: entries.length,
-        activityAt: Math.max(...entries.map((entry) => entry.activityAt)),
-        entries
-      }))
+    const groups = [...groupsByDirectory.values()]
       .sort((left, right) => right.activityAt - left.activityAt);
     return this.deps.snapshots.set(telegramChatId, {
       discoveredCount: discoveredSessions.length,

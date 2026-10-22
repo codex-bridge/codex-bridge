@@ -48,7 +48,7 @@ for (const [label, expected] of [
 ]) {
   test(`send and edit enforce the button text boundary (${Array.from(label!).length} characters)`, async () => {
     const f = slackFixture();
-    const spec = createMessage({ kind: "menu", actions: [{ id: "item", label: label!, callback: "session:full-id" }] });
+    const spec = createMessage({ scope: "global", kind: "menu", actions: [{ id: "item", label: label!, callback: "session:full-id" }] });
     await f.transport.sendMessageSpec("slack:T:C:1", spec);
     await f.transport.editMessageSpec("slack:T:C:1", "2", spec);
     for (const payload of f.payloads) {
