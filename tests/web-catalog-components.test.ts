@@ -81,6 +81,20 @@ test("catalog renders all registered directory groups in established order witho
   }
 });
 
+test("catalog retains a create action for archive-only directories without rendering archived sessions", () => {
+  const html = renderToStaticMarkup(createElement(SessionCatalog, {
+    ...catalogProps, catalog: { directories: ["/historical"], sessions: [{
+      threadId: "archived-thread", sessionId: "archived-session", name: "Archived task",
+      directory: "/historical", archived: true, provider: "test", updatedAt: 100,
+      connection: "inactive", ownership: null
+    }] }
+  }));
+  assert.match(html, /aria-label="Expand directory \/historical"/u);
+  assert.match(html, /aria-label="Create a session in \/historical"/u);
+  assert.doesNotMatch(html, /aria-label="Create a session in \/historical"[^>]*disabled/u);
+  assert.doesNotMatch(html, /Archived task|archived-thread|No directories yet/u);
+});
+
 test("directory and session forms render with only their own operation callbacks", () => {
   const directory = renderToStaticMarkup(createElement(AddDirectoryDialog, {
     onAddDirectory: unexpected, busy: false, operation: null, feedback: null,
