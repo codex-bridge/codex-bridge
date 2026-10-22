@@ -299,12 +299,12 @@ export class SessionMenuService {
         includeUnknownThreads: options?.includeUnknownThreads
       });
     }
-    let discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId);
+    let discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId, { includeArchived: true });
     if (discoveredSessions.length === 0 && options?.refresh !== true) {
       await this.deps.refreshSessionsForChat(telegramChatId, {
         includeUnknownThreads: options?.includeUnknownThreads
       });
-      discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId);
+      discoveredSessions = await this.deps.store.listKnownSessions(telegramChatId, { includeArchived: true });
     }
     const storedMessageTimes = await this.deps.store.listLatestMessageTimes(discoveredSessions.map((session) => session.id));
     const activityTimes = new Map(discoveredSessions.map((session) => [
@@ -312,7 +312,7 @@ export class SessionMenuService {
       Math.max(session.latestActivityAt, storedMessageTimes.get(session.id) ?? 0)
     ]));
     const sortedSessions = this.deps.sortSessionsByMenuActivity(discoveredSessions, activityTimes);
-    const entriesByDirectory = new Map<string, SectionMenuEntry[]>();
+    const groupsByDirectory = new Map<string, DirectoryMenuGroup>();
     const providerByDirectory = new Map<string, string | null>();
     await Promise.all([...new Set(sortedSessions.map((session) => this.deps.getSessionDirectory(session)))].map(async (directoryKey) => {
       providerByDirectory.set(directoryKey, await this.deps.readEffectiveProvider(directoryKey));
@@ -335,7 +335,7 @@ export class SessionMenuService {
         sessionProvider.provider &&
         sessionProvider.provider !== effectiveProvider
       ) {
-        hiddenCount += 1;
+        if (session.codexArchivedAt === null) hiddenCount += 1;
         logger.info("bridge.session_menu.provider_filtered", {
           chatId: telegramChatId,
           sessionId: session.id,
@@ -345,20 +345,20 @@ export class SessionMenuService {
         });
         continue;
       }
-      const entry: SectionMenuEntry = {
-        session,
-        activityAt: activityTimes.get(session.id) ?? session.latestActivityAt
-      };
-      entriesByDirectory.set(directoryKey, [...(entriesByDirectory.get(directoryKey) ?? []), entry]);
+      const activityAt = activityTimes.get(session.id) ?? session.latestActivityAt;
+      let group = groupsByDirectory.get(directoryKey);
+      if (!group) {
+        group = { directoryKey, hash: this.deps.hashDirectoryKey(directoryKey), sectionCount: 0, activityAt, entries: [] };
+        groupsByDirectory.set(directoryKey, group);
+      }
+      group.activityAt = Math.max(group.activityAt, activityAt);
+      // Historical sessions keep the directory available, not the session selectable.
+      if (session.codexArchivedAt === null) {
+        group.entries.push({ session, activityAt });
+        group.sectionCount += 1;
+      }
     }
-    const groups = [...entriesByDirectory.entries()]
-      .map(([directoryKey, entries]) => ({
-        directoryKey,
-        hash: this.deps.hashDirectoryKey(directoryKey),
-        sectionCount: entries.length,
-        activityAt: Math.max(...entries.map((entry) => entry.activityAt)),
-        entries
-      }))
+    const groups = [...groupsByDirectory.values()]
       .sort((left, right) => right.activityAt - left.activityAt);
     return this.deps.snapshots.set(telegramChatId, {
       discoveredCount: discoveredSessions.length,

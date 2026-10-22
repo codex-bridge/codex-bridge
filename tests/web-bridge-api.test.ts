@@ -396,9 +396,15 @@ test("catalog empty and upstream failure do not fabricate sessions or connection
   } finally { store.close(); }
 });
 
-test("catalog directories exclude archive-only locations from the active navigation", async () => {
+test("catalog directories retain archive-only and stored historical locations without fabricating sessions", async () => {
   const store = new BridgeStore(":memory:");
   try {
+    store.registerWebDirectory("/registered");
+    const historical = await store.upsertDiscoveredSession({
+      telegramChatId: "123", codexThreadId: "historical", pathKey: "/historical"
+    });
+    await store.markSessionCodexArchived(historical.id);
+    const archivedAt = (await store.getSessionByThreadId("historical"))!.codexArchivedAt;
     const catalog = new SessionCatalogService({
       store, getSessionDirectory: (session) => session.pathKey, readEffectiveProvider: async () => null,
       codexClient: {
@@ -407,10 +413,31 @@ test("catalog directories exclude archive-only locations from the active navigat
       }
     });
     const result = await catalog.list();
-    assert.deepEqual(result.directories, ["/active"]);
+    assert.deepEqual(result.directories, ["/active", "/archive", "/historical", "/registered"]);
     assert.deepEqual(result.sessions.map((entry) => [entry.threadId, entry.archived]), [
       ["active", false], ["archived", true]
     ]);
+    assert.equal((await store.getSessionByThreadId("historical"))!.codexArchivedAt, archivedAt);
+    assert.equal(store.getSessionBinding(historical.id, "web:local"), null);
+  } finally { store.close(); }
+});
+
+test("historical directory navigation preserves native provider filtering and current directory metadata", async () => {
+  const store = new BridgeStore(":memory:");
+  try {
+    for (const [codexThreadId, pathKey] of [["wrong", "/wrong"], ["moved", "/old"]] as const) {
+      await store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId, pathKey });
+    }
+    const catalog = new SessionCatalogService({
+      store, getSessionDirectory: (session) => session.pathKey, readEffectiveProvider: async () => "custom",
+      codexClient: {
+        listThreadsForCwd: async () => [thread("moved", { currentCwd: "/current" })],
+        listArchivedThreadsForCwd: async () => [thread("wrong", { currentCwd: "/wrong", modelProvider: "openai", archivedAt: 99 })]
+      }
+    });
+    const result = await catalog.list();
+    assert.deepEqual(result.directories, ["/current"]);
+    assert.deepEqual(result.sessions.map((entry) => entry.threadId), ["moved"]);
   } finally { store.close(); }
 });
 

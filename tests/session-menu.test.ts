@@ -4436,6 +4436,40 @@ test("bridge auto compact completion includes retry next step", async () => {
   }
 });
 
+test("Telegram and Slack can create a session after archiving the last session in a directory", async () => {
+  for (const sourceId of ["123", "slack:T:C:1"]) {
+    const store = new BridgeStore(":memory:");
+    const starts: string[] = [];
+    const service = new BridgeService(testConfig(":memory:"), store, {
+      listThreadsForCwd: async () => [],
+      startThread: async (cwd: string) => { starts.push(cwd); return { threadId: "new" }; }
+    } as unknown as CodexAppServerClient);
+    (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
+    try {
+      const archived = await store.upsertDiscoveredSession({
+        telegramChatId: sourceId, codexThreadId: "old", pathKey: "/work/project"
+      });
+      await store.markSessionCodexArchived(archived.id);
+      assert.equal(store.getSessionBinding(archived.id, sourceId), null);
+      const menu = await service.renderSessionMenu(sourceId);
+      const directory = menu.actions.find((action) => action.callback.startsWith("session-dir:"));
+      assert.ok(directory);
+      assert.match(directory.label, /0 sections/);
+      const hash = directory.callback.split(":")[1]!;
+      const sections = await service.renderSessionSectionMenu(sourceId, hash);
+      assert.ok(sections.actions.some((action) => action.callback === `session-new:${hash}`));
+      assert.ok(!sections.actions.some((action) => action.callback.startsWith("section:")));
+      const result = await service.requestCreateSessionFromDirectorySelector(sourceId, hash);
+      assert.match(result.title, /^Session created/);
+      assert.deepEqual(starts, ["/work/project"]);
+      assert.equal((await store.getActiveSession(sourceId))?.codexThreadId, "new");
+      assert.deepEqual((await store.listKnownSessions(sourceId)).map((session) => session.codexThreadId), ["new"]);
+      assert.notEqual((await store.getSessionByThreadId("old"))?.codexArchivedAt, null);
+      assert.equal(store.getSessionBinding(archived.id, sourceId), null);
+    } finally { store.close(); }
+  }
+});
+
 test("creates a same-directory session and switches the active session", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-session-new-test-"));
   const databasePath = join(directory, "bridge.sqlite");

@@ -5,6 +5,59 @@ import { SessionMenuService } from "../src/bridge/sessions/menu.js";
 import { SessionMenuSnapshotCache } from "../src/bridge/sessions/menu-snapshots.js";
 import type { CurrentSessionSnapshot } from "../src/bridge/sessions/state-presentation.js";
 
+test("historical directories remain scoped, ordered and paginated while archived sessions stay out of section menus", async () => {
+  const store = new BridgeStore(":memory:");
+  try {
+    const oldest = await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "oldest", pathKey: "/work/old", latestActivityAt: 100
+    });
+    const newest = await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "newest", pathKey: "/work/new", latestActivityAt: 300
+    });
+    await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "active", pathKey: "/work/old", latestActivityAt: 200
+    });
+    await store.upsertDiscoveredSession({
+      telegramChatId: "other-chat", codexThreadId: "private", pathKey: "/private", codexArchivedAt: 1
+    });
+    await store.upsertDiscoveredSession({
+      telegramChatId: "chat", codexThreadId: "wrong-provider", pathKey: "/wrong-provider", codexArchivedAt: 1
+    });
+    await store.markSessionCodexArchived(oldest.id);
+    await store.markSessionCodexArchived(newest.id);
+    const menu = new SessionMenuService({
+      store, sessionsPageSize: 1, snapshots: new SessionMenuSnapshotCache(),
+      getSessionSelectorChatId: (chat) => chat, refreshSessionsForChat: async () => {},
+      getSessionDirectory: (session) => session.currentCwd ?? session.pathKey,
+      sortSessionsByMenuActivity: (sessions, activityTimes) => [...sessions]
+        .sort((a, b) => activityTimes.get(b.id)! - activityTimes.get(a.id)!),
+      hashDirectoryKey: (directory) => directory,
+      formatDirectoryMenuLabel: (group) => group.directoryKey,
+      formatSectionMenuLabel: async (entry) => entry.session.codexThreadId,
+      getSessionProvider: (threadId) => ({ provider: threadId === "wrong-provider" ? "openai" : "custom", known: true }),
+      readEffectiveProvider: async () => "custom", readEffectiveProviderLabel: async () => "Codex",
+      getCurrentSessionSnapshot: async () => null
+    });
+    for (const [page, directory] of [[0, "/work/new"], [1, "/work/old"]] as const) {
+      const result = await menu.renderSessionMenu("chat", page, { reuseSnapshot: page > 0 });
+      assert.deepEqual(result.actions.filter((action) => action.callback.startsWith("session-dir:"))
+        .map((action) => action.label), [directory]);
+    }
+    const empty = await menu.getDirectoryGroup("chat", "/work/new");
+    assert.equal(empty?.sectionCount, 0);
+    assert.equal(empty?.activityAt, 300);
+    assert.equal(await menu.getDirectoryGroup("chat", "/private"), null);
+    assert.equal(await menu.getDirectoryGroup("chat", "/wrong-provider"), null);
+    const emptySections = await menu.renderSessionSectionMenu("chat", "/work/new");
+    assert.ok(emptySections.actions.some((action) => action.callback === "session-new:/work/new"));
+    assert.ok(!emptySections.actions.some((action) => action.callback.startsWith("section:")));
+    const mixedSections = await menu.renderSessionSectionMenu("chat", "/work/old");
+    assert.deepEqual(mixedSections.actions.filter((action) => action.callback.startsWith("section:"))
+      .map((action) => action.label), ["active"]);
+    assert.equal((await menu.getDirectoryGroup("chat", "/work/old"))?.sectionCount, 1);
+  } finally { store.close(); }
+});
+
 test("cross-directory selectors remain global and archived entries retain their own directories across pages", async () => {
   const store = new BridgeStore(":memory:");
   try {
