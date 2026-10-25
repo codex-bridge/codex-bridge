@@ -81,6 +81,7 @@ test("Called failures survive storage and freeze the card before another same-to
       telegramChatId: "chat-1", codexThreadId: "thread-1", pathKey: "/workspace/project"
     });
     const service = new ProgressService({
+      getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
       getSessionDirectory: () => "/workspace/project",
       getInFlightTurnId: () => "turn-1",
       shouldSkipCalledProgress: () => false,
@@ -194,6 +195,7 @@ test("a failed step freezes its Run phase and the next Run starts a fresh card",
       pathKey: "/workspace/project"
     });
     const service = new ProgressService({
+      getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
       getSessionDirectory: () => "/workspace/project",
       getInFlightTurnId: () => "turn-1",
       shouldSkipCalledProgress: () => false,
@@ -255,6 +257,7 @@ test("Bridge connection failure creates a System card only when no activity phas
       pathKey: "/workspace/project"
     });
     const service = new ProgressService({
+      getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
       getSessionDirectory: () => "/workspace/project",
       getInFlightTurnId: () => "turn-1",
       shouldSkipCalledProgress: () => false,
@@ -300,6 +303,7 @@ test("Run count includes initial send and successful replacements across restart
       telegramChatId: "chat-1", codexThreadId: "thread-1", pathKey: "/workspace/project"
     });
     const makeService = () => new ProgressService({
+      getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
       getSessionDirectory: () => "/workspace/project",
       getInFlightTurnId: () => "turn-1",
       shouldSkipCalledProgress: () => false,

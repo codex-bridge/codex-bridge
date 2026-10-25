@@ -80,7 +80,7 @@ async function main(): Promise<void> {
     bot?.stop();
     await web?.stop();
     await slack?.stop();
-    service.shutdown();
+    await service.shutdown();
     await codexClient.close();
     store.close();
     logger.info("app.shutdown.complete");

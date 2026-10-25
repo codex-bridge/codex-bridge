@@ -75,6 +75,7 @@ async function fixture() {
   const sent: MessageSpec[] = [];
   const edited: Array<{ id: string; spec: MessageSpec }> = [];
   const restart = () => new ProgressService({
+    getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
     getSessionDirectory: () => directory,
     getInFlightTurnId: () => "turn-1",
     shouldSkipCalledProgress: () => false,

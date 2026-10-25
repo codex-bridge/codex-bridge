@@ -10,6 +10,7 @@ import type { BridgeMessageOptions } from "../src/bridge/transport.js";
 import { deliverSlackInteraction } from "../src/slack/interactions/responder.js";
 import { handleSlackSessionWorkflow } from "../src/slack/interactions/session-workflow.js";
 import type { BridgeSlackSessionWorkflowPort } from "../src/bridge/contracts.js";
+import { PhaseDeliveryAdapter } from "../src/bridge/progress/delivery.js";
 
 logger.configureOutput({ console: "none", file: false });
 const chatId = "slack:T:C:1.0001";
@@ -27,11 +28,13 @@ function fixture() {
     parent: "available" as "available" | "missing" | "unknown" | "denied" | "tombstone",
     response: "thread" as "thread" | "root" | "unknown" | "other-channel" | "no-id",
     postError: null as unknown,
+    parentError: null as unknown,
     deleteFails: false
   };
   const client = {
     conversations: { history: async (input: Record<string, unknown>) => {
       reads.push(input);
+      if (behavior.parentError) throw behavior.parentError;
       if (behavior.parent === "denied") throw { data: { error: "missing_scope" } };
       if (behavior.parent === "unknown") return { ok: false };
       return { ok: true, messages: behavior.parent === "missing" ? []
@@ -211,6 +214,25 @@ test("an unavailable thread edit is skipped without recreating a parent or sendi
   assert.equal(await f.transport.editMessageText(chatId, "2.0001", "PRIVATE", management), false);
   assert.deepEqual(f.posts, []);
   assert.deepEqual(f.edits, []);
+});
+
+test("progress edits distinguish uncertain Slack parent checks from definite permission failures", async () => {
+  const spec = createMessage({ scope: "global", kind: "progress", body: [{ type: "text", text: "Summary" }] });
+  for (const [parent, error, expected] of [
+    ["unknown", null, "retryable"],
+    ["available", new Error("history request timed out"), "retryable"],
+    ["denied", null, "unavailable"],
+    ["missing", null, "unavailable"]
+  ] as const) {
+    const f = fixture(); f.behavior.parent = parent; f.behavior.parentError = error;
+    const adapter = new PhaseDeliveryAdapter({
+      editMessageSpec: (...args) => f.transport.editMessageSpec(...args),
+      sendTemporaryMessageSpec: async () => assert.fail("unexpected send")
+    });
+    assert.equal(await adapter.editResult(chatId, "2.0001", spec), expected);
+    assert.deepEqual(f.edits, []);
+    assert.deepEqual(f.posts, [], "unverified edits never fall back to root");
+  }
 });
 
 test("split messages stop after fallback and do not associate a root notice ID with the original", async () => {
