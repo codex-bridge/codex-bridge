@@ -11,6 +11,7 @@ type SlackResponse = { channel?: string; ts?: string; message?: { thread_ts?: st
 type SlackMessageAvailability = {
   state: "available" | "missing" | "unknown";
   surface?: MessageSpec["surface"];
+  error?: unknown;
 };
 
 function slackErrorCode(error: unknown): string | null {
@@ -60,6 +61,7 @@ export class SlackThreadDelivery {
     const checkedMessageId = target.threadTs ?? (incomingSurface === "session-selector" ? messageId : null);
     if (checkedMessageId) {
       const available = await this.messageAvailability(chatId, target, checkedMessageId);
+      if (available.state === "unknown") throw available.error ?? new Error("Slack message availability is unknown.");
       if (available.state !== "available") return false;
       if (messageId === checkedMessageId && available.surface === "session-status" && incomingSurface !== "session-status") {
         logger.info("slack.message.surface_edit_skipped", { chatId, messageId, incomingSurface: incomingSurface ?? null });
@@ -88,7 +90,7 @@ export class SlackThreadDelivery {
       return { state: "missing" };
     } catch (error) {
       this.logFailure("slack.thread.parent_unverified", chatId, target, error);
-      return { state: "unknown" };
+      return { state: "unknown", error };
     }
   }
 

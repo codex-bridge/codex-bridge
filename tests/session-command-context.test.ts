@@ -58,7 +58,7 @@ for (const chatId of ["123", "slack:T1:C1", "slack:T1:C1:123.456"]) {
       assert.equal((await store.getActiveSession("other-chat"))?.id, other.id);
       assert.equal((await store.listKnownSessions(chatId)).length, 1);
     } finally {
-      service.shutdown();
+      await service.shutdown();
       store.close();
     }
   });
@@ -89,7 +89,7 @@ test("disconnected commands without a selection do not borrow another conversati
     }
     assert.equal(await store.getActiveSession("empty-chat"), null);
   } finally {
-    service.shutdown();
+    await service.shutdown();
     store.close();
   }
 });

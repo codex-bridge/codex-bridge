@@ -708,6 +708,7 @@ export class BridgeService {
       requireMessageTransport: (chatId) => this.messageSender.requireTransport(chatId),
     });
     this.progressService = new ProgressService({
+      getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       getInFlightTurnId: (threadId) => state.inFlightTurnIdByThread.get(threadId) ?? null,
       shouldSkipCalledProgress: (session, now) => this.subagentDelivery.shouldSkipCalledProgress(session, now),
@@ -986,11 +987,13 @@ export class BridgeService {
 
   async bootstrap(): Promise<void> {
     await this.runtimeCommandService.bootstrap();
+    this.progressService.start();
     await this.versionUpdateNotifier.start();
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.versionUpdateNotifier.stop();
+    await this.progressService.stop();
   }
 
   async ensureChatAllowed(telegramChatId: string): Promise<void> {

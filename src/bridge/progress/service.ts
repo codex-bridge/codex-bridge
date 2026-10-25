@@ -7,12 +7,12 @@ import type {
   ProgressPhaseState
 } from "../../shared/types.js";
 import { logger } from "../../logging/logger.js";
-import { createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import { truncateTemporaryMessageSpec } from "../messages/temporary.js";
 import type { BridgeMessageOptions } from "../transport.js";
-import { createProgressMessageSpec, createProgressPhaseSummarySpec } from "../renderers/progress.js";
+import { createProgressMessageSpec } from "../renderers/progress.js";
 import { PhaseDeliveryAdapter } from "./delivery.js";
+import { FinalProgressDelivery } from "./final-delivery.js";
 import { appendPhaseEvent, emptyPhaseAggregate, opensNewPhase } from "./lifecycle.js";
 import {
   normalizeProgressEvent,
@@ -28,6 +28,7 @@ export type ProgressServiceDependencies = {
   getInFlightTurnId: (threadId: string) => string | null;
   shouldSkipCalledProgress: (session: SessionRecord, now: number) => boolean;
   getActiveProgressPhaseMessage: (threadId: string, turnId: string) => ProgressPhaseMessageRecord | null;
+  getProgressPhaseMessage: (id: string) => ProgressPhaseMessageRecord | null;
   getLatestProgressPhaseMessage: (threadId: string, turnId: string) => ProgressPhaseMessageRecord | null;
   getProgressPhaseMessageForFileEdit: (threadId: string, turnId: string, itemId: string) => ProgressPhaseMessageRecord | null;
   updateFinalProgressPhaseAggregate: (id: string, aggregate: ProgressPhaseAggregate) => ProgressPhaseMessageRecord | null;
@@ -73,11 +74,24 @@ export type ProgressServiceDependencies = {
 
 export class ProgressService {
   private readonly delivery: PhaseDeliveryAdapter;
+  private readonly finalDelivery: FinalProgressDelivery;
   private readonly queueByTurn = new Map<string, Promise<void>>();
   private readonly lastProgressByTurn = new Map<string, { text: string; failed: boolean; sentAt: number }>();
 
   constructor(private readonly deps: ProgressServiceDependencies) {
     this.delivery = new PhaseDeliveryAdapter(deps);
+    this.finalDelivery = new FinalProgressDelivery({
+      getRecord: deps.getProgressPhaseMessage,
+      listPending: deps.listPendingProgressPhaseFinalDelivery,
+      mark: deps.markProgressPhaseMessageDeliveryState,
+      enqueue: (key, operation) => this.enqueue(key, operation)
+    }, this.delivery);
+  }
+
+  start(): void { this.finalDelivery.start(); }
+  async stop(): Promise<void> {
+    await this.finalDelivery.stop();
+    await Promise.allSettled(this.queueByTurn.values());
   }
 
   async sendProgressMessage(session: SessionRecord, event: ProgressNotificationEvent, turnId?: string): Promise<void> {
@@ -108,7 +122,7 @@ export class ProgressService {
             id: updated.id, state: "step_failed", failureReason: normalized.failureReason
           });
         }
-        if (updated) await this.deliverFinalSummary(updated, updated.directory);
+        if (updated) await this.finalDelivery.deliver(updated.id);
         return;
       }
       const now = Date.now();
@@ -118,7 +132,7 @@ export class ProgressService {
       if (duplicatePreview && normalized.kind !== "edited") return;
       if (normalized.kind === "called" && !event.failed && this.deps.shouldSkipCalledProgress(session, now)) return;
       if (opensNewPhase(active, normalized) && active) {
-        await this.finalizePhase(active, "phase_complete", null, directory);
+        await this.finalizePhase(active, "phase_complete", null);
         active = null;
       }
 
@@ -155,7 +169,7 @@ export class ProgressService {
       }
 
       if (event.failed && record) {
-        await this.finalizePhase(record, "step_failed", normalized.failureReason, directory);
+        await this.finalizePhase(record, "step_failed", normalized.failureReason);
       }
     });
   }
@@ -187,7 +201,7 @@ export class ProgressService {
     await this.enqueue(this.turnKey(threadId, turnId), async () => {
       const active = this.deps.getActiveProgressPhaseMessage(threadId, turnId);
       if (active) {
-        await this.finalizePhase(active, terminalState(terminal), null, active.directory);
+        await this.finalizePhase(active, terminalState(terminal), null);
         return;
       }
       if (terminal !== "failed") return;
@@ -198,7 +212,7 @@ export class ProgressService {
         state: "failed",
         failureReason: latest.failureReason
       });
-      if (promoted) await this.deliverFinalSummary(promoted, promoted.directory);
+      if (promoted) await this.finalDelivery.deliver(promoted.id);
     });
   }
 
@@ -214,16 +228,13 @@ export class ProgressService {
   }
 
   async retryPendingFinalDeliveries(): Promise<void> {
-    for (const record of this.deps.listPendingProgressPhaseFinalDelivery()) {
-      await this.deliverFinalSummary(record, record.directory);
-    }
+    await this.finalDelivery.retryPending();
   }
 
   private async finalizePhase(
     active: ProgressPhaseMessageRecord,
     state: Exclude<ProgressPhaseState, "active">,
-    failureReason: ProgressFailureReason | null,
-    directory: string
+    failureReason: ProgressFailureReason | null
   ): Promise<void> {
     const finalized = this.deps.finalizeProgressPhaseMessage({
       id: active.id,
@@ -232,28 +243,7 @@ export class ProgressService {
       deliveryState: "pending_finalization"
     });
     if (!finalized) return;
-    await this.deliverFinalSummary(finalized, directory);
-  }
-
-  private async deliverFinalSummary(record: ProgressPhaseMessageRecord, directory: string): Promise<void> {
-    const summary = truncateTemporaryMessageSpec(createProgressPhaseSummarySpec({ directory, record }));
-    if (await this.delivery.edit(record.sourceId, record.platformMessageId, summary)) {
-      this.deps.markProgressPhaseMessageDeliveryState({ id: record.id, deliveryState: "synced" });
-      return;
-    }
-
-    if (record.correctionMessageId) return;
-    const correction = await this.delivery.send(record.sourceId, createMessage({
-      kind: "system",
-      titleLabel: "System",
-      session: { id: null, directory },
-      body: [{ type: "text", text: "Phase update pending" }]
-    }));
-    this.deps.markProgressPhaseMessageDeliveryState({
-      id: record.id,
-      deliveryState: correction ? "correction_sent" : "pending_finalization",
-      ...(correction ? { correctionMessageId: correction.messageId } : {})
-    });
+    await this.finalDelivery.deliver(finalized.id);
   }
 
   private enqueue(key: string, operation: () => Promise<void>): Promise<void> {

@@ -49,7 +49,7 @@ export type ProgressFailureReason =
   | "unavailable"
   | "cancelled"
   | "other_failure";
-export type ProgressPhaseDeliveryState = "synced" | "pending_finalization" | "correction_sent";
+export type ProgressPhaseDeliveryState = "synced" | "pending_finalization" | "correction_sent" | "unavailable";
 
 export interface ProgressPhaseOperationGroup {
   name: string;

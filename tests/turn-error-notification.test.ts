@@ -55,7 +55,7 @@ async function harness(t: test.TestContext, options: { failNoticeOnce?: boolean;
   };
   t.after(async () => {
     internal.goShortcutService.cancel("thread");
-    service.shutdown();
+    await service.shutdown();
     store.close();
     await rm(directory, { recursive: true, force: true });
   });

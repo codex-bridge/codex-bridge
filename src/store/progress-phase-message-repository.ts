@@ -134,7 +134,9 @@ export class ProgressPhaseMessageRepository {
   updateFinalAggregate(id: string, aggregate: ProgressPhaseAggregate): ProgressPhaseMessageRecord | null {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
-      SET aggregate_json = ?, delivery_state = 'pending_finalization', updated_at = ?
+      SET aggregate_json = ?,
+        delivery_state = CASE WHEN delivery_state = 'unavailable' THEN delivery_state ELSE 'pending_finalization' END,
+        updated_at = ?
       WHERE id = ? AND state != 'active'
     `).run(JSON.stringify(aggregate), now(), id);
     return this.get(id);
@@ -270,9 +272,12 @@ export class ProgressPhaseMessageRepository {
   }): ProgressPhaseMessageRecord | null {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
-      SET delivery_state = ?, correction_message_id = COALESCE(?, correction_message_id), updated_at = ?
+      SET delivery_state = ?,
+        correction_message_id = CASE WHEN ? THEN ? ELSE correction_message_id END,
+        updated_at = ?
       WHERE id = ?
-    `).run(input.deliveryState, input.correctionMessageId ?? null, now(), input.id);
+    `).run(input.deliveryState, input.correctionMessageId !== undefined ? 1 : 0,
+      input.correctionMessageId ?? null, now(), input.id);
     return this.get(input.id);
   }
 
@@ -283,7 +288,9 @@ export class ProgressPhaseMessageRepository {
   }): ProgressPhaseMessageRecord | null {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
-      SET state = ?, failure_reason = COALESCE(?, failure_reason), updated_at = ?
+      SET state = ?, failure_reason = COALESCE(?, failure_reason),
+        delivery_state = CASE WHEN delivery_state = 'unavailable' THEN delivery_state ELSE 'pending_finalization' END,
+        updated_at = ?
       WHERE id = ? AND state != 'active'
     `).run(input.state, input.failureReason ?? null, now(), input.id);
     return this.get(input.id);
@@ -292,7 +299,10 @@ export class ProgressPhaseMessageRepository {
   listPendingFinalDelivery(): ProgressPhaseMessageRecord[] {
     return (this.sqlite.prepare(`
       SELECT * FROM progress_phase_messages
-      WHERE state != 'active' AND delivery_state IN ('pending_finalization', 'correction_sent')
+      WHERE state != 'active' AND (
+        delivery_state IN ('pending_finalization', 'correction_sent')
+        OR (delivery_state = 'synced' AND correction_message_id IS NOT NULL)
+      )
       ORDER BY updated_at ASC, phase_seq ASC
     `).all() as ProgressPhaseMessageRow[]).map(asRecord);
   }
