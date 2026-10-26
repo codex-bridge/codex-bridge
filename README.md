@@ -76,6 +76,36 @@ a session can read its conversation or act on it.
 - The Node and Yarn versions pinned in `package.json`; Volta is recommended.
 - At least one enabled client: Web, Telegram, or Slack.
 
+## Set up with Codex
+
+For guided setup instead of the manual steps below, clone this repository, open
+Codex in its directory, and paste:
+
+```text
+Help me configure and run Codex Bridge so I can chat with Codex in a browser.
+Read README.md, package.json, .env.example, and docs/operations.md first; use
+the repository's Windows helpers when applicable.
+
+Check my OS, the pinned Node/Yarn versions, and Codex CLI compatibility and
+authentication. Reuse my existing Codex configuration; if login or a credential
+is needed, guide me through it without asking me to paste secrets into chat.
+Install missing project dependencies and build both the backend and Web UI.
+
+Configure Web only, with Telegram and Slack disabled. Use .env for a direct
+start or .env.bridge for the repository's process helpers. Default to
+127.0.0.1:8787; ask before enabling LAN access. Never expose this unauthenticated
+service to the public internet. Preserve existing configuration and data; ask
+before changing a running installation, installing system tools, or modifying
+firewall, certificate trust, or autostart settings.
+
+Start Bridge without launching a duplicate instance, keep it running after
+setup, and check /api/web/health and that the Web page loads. Report any blocker
+instead of claiming success from the health endpoint alone. Give me the exact
+URL and stop/restart instructions, and open the page if possible. Explain how
+to connect this browser window, add a project directory, and create or select
+a session and explicitly take control so I can send my first message.
+```
+
 ## Quick start: Web only
 
 1. Install Codex CLI using the [official instructions](https://developers.openai.com/codex/cli/),
