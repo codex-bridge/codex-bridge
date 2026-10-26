@@ -23,6 +23,7 @@ export type NotificationTurnDependencies = {
   cancelGoShortcut: (threadId: string) => void;
   rememberRateLimitSession: (threadId: string, sessionId: string) => void;
   deliverVersionUpdateAfterRootTurn: (session: SessionRecord | null) => Promise<boolean>;
+  onTurnSettled?: (session: SessionRecord, event: AppServerTurnLifecycleEvent) => void;
 };
 
 export class NotificationTurnService {
@@ -31,7 +32,8 @@ export class NotificationTurnService {
   async handleStatusUpdate(
     statusUpdate: AppServerStatusUpdate,
     terminalTurnId?: string,
-    terminalState?: AppServerTurnLifecycleEvent["terminalState"]
+    terminalState?: AppServerTurnLifecycleEvent["terminalState"],
+    terminalError?: string
   ): Promise<void> {
     if (!this.deps.inFlightTurnIdByThread.has(statusUpdate.threadId)) {
       await this.deps.queuedSubmissionService.reconcileStartedSubmission(statusUpdate.threadId);
@@ -63,6 +65,8 @@ export class NotificationTurnService {
         terminal: terminalState ?? (hadError ? "failed" : "completed"),
         ...(terminalTurnId ? { turnId: terminalTurnId } : {})
       });
+      if (terminalTurnId) this.deps.onTurnSettled?.(session, { threadId: statusUpdate.threadId,
+        turnId: terminalTurnId, kind: "completed", terminalState, ...(terminalError ? { error: terminalError } : {}) });
       if (hadAssistantOutput || hadError) {
         this.deps.scheduleGoShortcut(session);
       }

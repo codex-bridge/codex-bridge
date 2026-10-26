@@ -2,6 +2,14 @@
 
 ## Purpose and boundaries
 
+Background notifications are opt-in through a compact bell control in the sidebar
+utilities. Keep notification policy separate from the timeline and its formatting.
+Bridge emits semantic attention events; the browser applies permission, page
+visibility and deduplication. Do not infer a stopped turn from command failures,
+message titles, or prose. Clicking a notification selects a session without taking
+over connection rights or session ownership. Unsupported and permission-blocked
+states explain their reason in the control's hover help, not a persistent banner.
+
 This is a personal LAN entry point for Codex conversations. Directories and sessions appear on the left, and the conversation appears on the right. Interaction is allowed only after explicitly obtaining the browser-window connection and session ownership. The interface provides no spectator mode and does not invent missing state. It has no authentication and must not be exposed to the public internet.
 
 ## Visual system and components

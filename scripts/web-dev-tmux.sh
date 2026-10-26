@@ -7,6 +7,8 @@ readonly SCRIPT_DIR="${0:A:h}"
 readonly PROJECT_ROOT="${SCRIPT_DIR:h}"
 readonly WEB_DEV_HOST="${WEB_DEV_HOST:-127.0.0.1}"
 readonly WEB_DEV_PORT="${WEB_DEV_PORT:-51049}"
+readonly WEB_DEV_TLS_CERT_FILE="${WEB_DEV_TLS_CERT_FILE:-}"
+readonly WEB_DEV_TLS_KEY_FILE="${WEB_DEV_TLS_KEY_FILE:-}"
 
 require_tmux() {
   if ! command -v tmux >/dev/null 2>&1; then
@@ -39,7 +41,8 @@ print_status() {
     local -r web_dev_host="$(session_option @bridge_web_dev_host)"
     local -r web_dev_port="$(session_option @bridge_web_dev_port)"
     if [[ -n "${web_dev_host}" && -n "${web_dev_port}" ]]; then
-      print "Web dev is running at http://${web_dev_host}:${web_dev_port}"
+      local -r web_dev_protocol="$(session_option @bridge_web_dev_protocol)"
+      print "Web dev is running at ${web_dev_protocol:-http}://${web_dev_host}:${web_dev_port}"
     else
       print "Web dev is running, but its address is unavailable."
     fi
@@ -49,6 +52,12 @@ print_status() {
 }
 
 start() {
+  if [[ -n "${WEB_DEV_TLS_CERT_FILE}" || -n "${WEB_DEV_TLS_KEY_FILE}" ]]; then
+    if [[ ! -r "${WEB_DEV_TLS_CERT_FILE}" || ! -r "${WEB_DEV_TLS_KEY_FILE}" ]]; then
+      print -u2 "Set both WEB_DEV_TLS_CERT_FILE and WEB_DEV_TLS_KEY_FILE to readable certificate files."
+      exit 1
+    fi
+  fi
   if is_running; then
     local -r existing_root="$(tmux show-option -t "${SESSION_NAME}" -qv @bridge_web_dev_root)"
     if [[ -n "${existing_root}" && "${existing_root}" != "${PROJECT_ROOT}" ]]; then
@@ -69,6 +78,7 @@ start() {
   tmux set-option -t "${SESSION_NAME}" @bridge_web_dev_root "${PROJECT_ROOT}" >/dev/null
   tmux set-option -t "${SESSION_NAME}" @bridge_web_dev_host "${WEB_DEV_HOST}" >/dev/null
   tmux set-option -t "${SESSION_NAME}" @bridge_web_dev_port "${WEB_DEV_PORT}" >/dev/null
+  tmux set-option -t "${SESSION_NAME}" @bridge_web_dev_protocol "$([[ -n "${WEB_DEV_TLS_CERT_FILE}" ]] && print https || print http)" >/dev/null
 
   tmux set-environment -t "${SESSION_NAME}" DOTENV_CONFIG_PATH ".env.bridge"
   tmux set-environment -t "${SESSION_NAME}" DOTENV_OVERRIDE "false"
@@ -77,6 +87,8 @@ start() {
   tmux set-environment -t "${SESSION_NAME}" WEB_ENABLED "true"
   tmux set-environment -t "${SESSION_NAME}" WEB_HOST "${WEB_DEV_HOST}"
   tmux set-environment -t "${SESSION_NAME}" WEB_PORT "${WEB_DEV_PORT}"
+  tmux set-environment -t "${SESSION_NAME}" WEB_TLS_CERT_FILE "${WEB_DEV_TLS_CERT_FILE}"
+  tmux set-environment -t "${SESSION_NAME}" WEB_TLS_KEY_FILE "${WEB_DEV_TLS_KEY_FILE}"
   tmux set-environment -t "${SESSION_NAME}" BRIDGE_DB_FILE "./workspaces/web-dev.sqlite"
 
   tmux new-window -d -t "${SESSION_NAME}:" -n bridge -c "${PROJECT_ROOT}" \

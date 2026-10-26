@@ -61,7 +61,7 @@ function parseAllowedChatIds(raw: string | undefined): Set<string> | null {
 
 export interface AppConfig {
   /** Undefined keeps existing chat-only configurations unchanged. */
-  web?: { host: string; port: number };
+  web?: { host: string; port: number; tls?: { certFile: string; keyFile: string } };
   telegramBotToken: string;
   telegramAllowedChatIds: Set<string> | null;
   slackEnabled: boolean;
@@ -161,7 +161,10 @@ export function loadConfig(): AppConfig {
     if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65_535) {
       throw new Error("WEB_PORT must be an integer between 1 and 65535.");
     }
-    web = { host, port };
+    const certFile = process.env.WEB_TLS_CERT_FILE?.trim();
+    const keyFile = process.env.WEB_TLS_KEY_FILE?.trim();
+    if (Boolean(certFile) !== Boolean(keyFile)) throw new Error("WEB_TLS_CERT_FILE and WEB_TLS_KEY_FILE must be configured together.");
+    web = { host, port, ...(certFile && keyFile ? { tls: { certFile, keyFile } } : {}) };
   }
 
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "";

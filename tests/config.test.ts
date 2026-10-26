@@ -7,6 +7,8 @@ const envKeys = [
   "WEB_ENABLED",
   "WEB_HOST",
   "WEB_PORT",
+  "WEB_TLS_CERT_FILE",
+  "WEB_TLS_KEY_FILE",
   "SLACK_ALLOWED_CHANNEL_IDS",
   "SLACK_APP_TOKEN",
   "SLACK_BOT_TOKEN",
@@ -174,6 +176,15 @@ test("allows Web-only startup and defaults to loopback", () => {
 test("allows explicit LAN listening without enabling chat adapters", () => {
   const config = withEnv({ WEB_ENABLED: "true", WEB_HOST: "0.0.0.0", WEB_PORT: "9090" }, () => loadConfig());
   assert.deepEqual(config.web, { host: "0.0.0.0", port: 9090 });
+});
+
+test("Web TLS is explicit, paired and does not affect disabled Web configuration", () => {
+  assert.deepEqual(withEnv({ WEB_ENABLED: "true", WEB_TLS_CERT_FILE: "/cert.pem", WEB_TLS_KEY_FILE: "/key.pem" },
+    () => loadConfig()).web?.tls, { certFile: "/cert.pem", keyFile: "/key.pem" });
+  for (const key of ["WEB_TLS_CERT_FILE", "WEB_TLS_KEY_FILE"]) {
+    assert.throws(() => withEnv({ WEB_ENABLED: "true", [key]: "/tls.pem" }, () => loadConfig()), /configured together/);
+  }
+  assert.equal(withEnv({ TELEGRAM_BOT_TOKEN: "test", WEB_TLS_CERT_FILE: "/unused" }, () => loadConfig()).web, undefined);
 });
 
 test("rejects invalid Web enablement and listening configuration", () => {

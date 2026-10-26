@@ -18,6 +18,7 @@ import { SessionCatalogService } from "./sessions/catalog.js";
 import { WebDirectoryRegistry } from "./sessions/directory-registry.js";
 import { SessionAccessService } from "./sessions/access.js";
 import { LocalWebBridgeApi } from "../web/bridge-api.js";
+import { WebAttentionService } from "../web/attention.js";
 import { WebMessageTransport } from "../web/transport.js";
 import { WebDecisionService } from "../web/decisions.js";
 import { WebAttachmentStorage } from "../web/attachments.js";
@@ -183,6 +184,7 @@ export class BridgeService {
   private readonly turnRouteQueue = new KeyedQueue();
   private readonly sessionCardQueue = new KeyedQueue();
   private webMessageTransport: WebMessageTransport | null = null;
+  private webAttention: WebAttentionService | null = null;
   private readonly notificationDeliveryTargets: NotificationDeliveryTargets;
   private readonly notificationQueue = new KeyedQueue();
   private readonly subagents = new SubagentTracker();
@@ -532,7 +534,8 @@ export class BridgeService {
       scheduleGoShortcut: (session) => this.goShortcutService.schedule(session),
       cancelGoShortcut: (threadId) => this.goShortcutService.cancel(threadId),
       rememberRateLimitSession: (threadId, sessionId) => this.rateLimitNotifier.rememberSession(threadId, sessionId),
-      deliverVersionUpdateAfterRootTurn: (session) => this.versionUpdateNotifier.deliverAfterRootTurn(session)
+      deliverVersionUpdateAfterRootTurn: (session) => this.versionUpdateNotifier.deliverAfterRootTurn(session),
+      onTurnSettled: (session, event) => this.webAttention?.turnSettled(session, event)
     });
     this.notificationRecoveryService = new NotificationRecoveryService({
       errorSeenByThread: state.errorSeenByThread,
@@ -587,7 +590,8 @@ export class BridgeService {
       resolveNotificationSession: (threadId) => this.notificationDeliveryTargets.resolve(threadId),
       sendProgressMessage: (session, event, turnId) => this.sendProgressMessage(session, event, turnId),
       recordBridgeConnectionFailure: (session, threadId, turnId) =>
-        this.progressService.recordBridgeConnectionFailure(session, threadId, turnId)
+        this.progressService.recordBridgeConnectionFailure(session, threadId, turnId),
+      onRuntimeStopped: (session, turnId) => this.webAttention?.runtimeStopped(session, turnId)
     });
     this.notificationApprovalService = new NotificationApprovalService({
       store,
@@ -1096,12 +1100,19 @@ export class BridgeService {
 
   createWebApi(): LocalWebBridgeApi {
     if (!this.webMessageTransport) {
+      const attention = this.webAttention = new WebAttentionService(this.store, (session) => this.getSessionDirectory(session));
       this.webMessageTransport = new WebMessageTransport(this.store, {
         isRuntimeConnected: () => this.isRuntimeConnected(),
         isApprovalPending: (approvalId) => this.codexClient.isApprovalPending(approvalId)
       });
       this.registerMessageTransport(this.webMessageTransport);
       this.sessionBindingService.subscribe((event) => this.webMessageTransport?.observeBinding(event));
+      this.sessionBindingService.subscribe((event) => {
+        void attention.observeBinding(event).catch(() => logger.warn("web.attention.binding_failed"));
+      });
+      this.webMessageTransport.subscribe((delivery) => {
+        void attention.observeMessage(delivery).catch(() => logger.warn("web.attention.decision_failed"));
+      });
     }
     const transport = this.webMessageTransport;
     return new LocalWebBridgeApi(new SessionCatalogService({
@@ -1118,7 +1129,7 @@ export class BridgeService {
       canReleaseToCodex: (sessionId) => this.sessionActionGuardService.isAvailable(WEB_SOURCE_ID, sessionId)
     }), { store: this.store, service: this.sessionBindingService }, {
       access: new SessionAccessService(this.store), reader: this.sessionReader,
-      sender: this.incomingTurnService, transport, store: this.store,
+      sender: this.incomingTurnService, transport, attention: this.webAttention!, store: this.store,
       isRuntimeConnected: () => this.isRuntimeConnected()
     }, new WebDecisionService({
       access: new SessionAccessService(this.store), store: this.store, commands: this.decisionCommandService,

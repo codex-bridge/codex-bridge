@@ -20,6 +20,12 @@ WEB_PORT=8787
 `WEB_HOST` accepts an IP address or `localhost`. Use a LAN IP or `0.0.0.0` only
 on a trusted network. The browser and API must use the same origin.
 
+Optional `WEB_TLS_CERT_FILE` and `WEB_TLS_KEY_FILE` enable native HTTPS on this
+same listener. Configure both files or neither; unreadable or invalid TLS files
+fail startup instead of falling back to HTTP. Origin checks use the listener's
+actual scheme and port, never forwarded headers. Use a certificate trusted by
+the browser. HTTPS does not add user authentication.
+
 `GET /api/web/health` checks the Web listener, not the Codex runtime.
 
 ## Security boundaries
@@ -65,7 +71,8 @@ never silently acquires a new one.
 - `connection-lost` with `taken_over`, `restored`, `released`, or
   `server_stopped`;
 - `session-binding` metadata targeted to the relevant source;
-- `message` events with `send`, `edit`, `delete`, or `clear-actions` operations.
+- `message` events with `send`, `edit`, `delete`, or `clear-actions` operations;
+- `attention` events for live, Web-owned sessions, independent of selected session.
 
 Message events carry a complete structured `MessageSpec`, logical message and
 session IDs, the native thread ID, and the lease version. They do not contain
@@ -73,6 +80,31 @@ Slack/Telegram-rendered HTML or chat callback payloads.
 
 Events are ephemeral and are not replayed. Every write rechecks the current
 window grant and session owner.
+
+## Background notifications
+
+The bell control explicitly enables notifications for the current browser origin.
+Only the window holding the Web connection receives attention events. The browser
+shows them only while its page is hidden, with permission and a secure context.
+Notification types are: a completed reply turn, actionable approval or input,
+execution stopped by a terminal failure, and acquisition of a previously pending
+session binding. A completed reply turn does not mean the user's overall task is
+finished. A normal tool failure followed by continued execution is not a notice.
+Manual interrupts without a terminal error are quiet.
+
+Attention events contain stable IDs, session/thread identity, directory, display
+name and lease version; no response text, commands or error payloads are copied
+into OS notifications. Duplicate events are bounded and deduplicated in memory.
+History reads and reconnection do not replay notifications. Session transfer or
+window takeover cancels pending notices and closes existing ones for the lost access.
+Immediately successful bindings and other immediate action receipts are quiet.
+
+The notification-only service worker displays notices and routes clicks back to
+the originating open tab. Clicking selects the session; it never takes over a
+connection or binds a session. Closed pages are not reopened. There is no Web Push
+subscription, third-party provider, offline cache or background network connection.
+Sleeping browsers or suspended tabs may miss events. Mobile browser support also
+depends on platform restrictions, such as installed-web-app requirements.
 
 ## Catalog and directories
 

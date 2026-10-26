@@ -32,6 +32,7 @@ export type NotificationDispatcherDependencies = {
   resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
   sendProgressMessage: (session: SessionRecord, event: ProgressNotificationEvent, turnId: string) => Promise<void>;
   recordBridgeConnectionFailure: (session: SessionRecord, threadId: string, turnId: string) => Promise<boolean>;
+  onRuntimeStopped?: (session: SessionRecord, turnId: string) => void;
 };
 
 export class NotificationDispatcher {
@@ -43,6 +44,7 @@ export class NotificationDispatcher {
       for (const route of this.deps.store.listActiveTurnRoutes()) {
         const session = await this.deps.store.getSessionById(route.sessionId);
         if (session && route.sourceId === session.telegramChatId && await canDeliverSession(this.deps.store, session)) {
+          this.deps.onRuntimeStopped?.(session, route.turnId);
           await this.deps.recordBridgeConnectionFailure(session, route.codexThreadId, route.turnId);
         }
       }
@@ -93,7 +95,8 @@ export class NotificationDispatcher {
       await this.deps.notificationTurnService.handleStatusUpdate(
         statusUpdate,
         turnLifecycle?.kind === "completed" ? turnLifecycle.turnId : undefined,
-        turnLifecycle?.kind === "completed" ? turnLifecycle.terminalState : undefined
+        turnLifecycle?.kind === "completed" ? turnLifecycle.terminalState : undefined,
+        turnLifecycle?.error
       );
     }
 
