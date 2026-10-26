@@ -455,9 +455,10 @@ export class CodexAppServerClient {
       onTurnStarted: (turnId) => this.threadRuntimeState.trackTurnLifecycle("started", turnId),
       onTurnStartFinished: () => this.handleTurnStartFinished(),
       readCodexConfigSnapshot: (cwd) => this.readCodexConfigSnapshot(cwd),
+      readLoadedThreadsStatus: (threadId) => this.readLoadedThreadsStatus(threadId),
       request: (method, params, options) => this.request(method, params, options),
       requestKnownMethod: (method, params, options) => this.requestKnownMethod(method, params, options),
-      resumeThread: (threadId, cwd, assertCurrent) => this.resumeThread(threadId, cwd, assertCurrent),
+      resumeThread: (threadId, cwd, assertCurrent, timeoutMs) => this.resumeThread(threadId, cwd, assertCurrent, timeoutMs),
       updateObservedThreadSettingsAfterStart: (threadId, observed, result) =>
         this.updateObservedThreadSettingsAfterStart(threadId, observed, result)
     });

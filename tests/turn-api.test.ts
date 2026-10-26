@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CodexTurnApi } from "../src/codex/turn-api.js";
+import { CodexTurnApi, type TurnApiDependencies } from "../src/codex/turn-api.js";
 import { CodexThreadApi } from "../src/codex/thread-api.js";
 import type { CodexConfigSnapshot } from "../src/codex/config-snapshot.js";
 
@@ -20,6 +20,67 @@ const snapshot: CodexConfigSnapshot = {
   layerVersions: []
 };
 
+function turnFixture(overrides: Partial<TurnApiDependencies> = {}) {
+  const calls: string[] = [];
+  const api = new CodexTurnApi({
+    connect: async () => {}, getObservedThreadSettings: () => undefined,
+    readCodexConfigSnapshot: async () => snapshot,
+    readLoadedThreadsStatus: async () => null,
+    resumeThread: async () => { calls.push("resume"); },
+    request: async (method) => { calls.push(method); return { turn: { id: "turn" } }; },
+    requestKnownMethod: async () => ({}), onTurnStartBeginning: () => {}, onTurnStarted: () => {},
+    onTurnStartFinished: () => {}, updateObservedThreadSettingsAfterStart: () => {}, ...overrides
+  });
+  return { api, calls };
+}
+
+test("a loaded empty thread starts its first turn without trying to resume a nonexistent rollout", async () => {
+  const f = turnFixture({ readLoadedThreadsStatus: async (id) => {
+    assert.equal(id, "new-thread");
+    return { total: 1, activeLoaded: true };
+  }, resumeThread: async () => { assert.fail("an empty loaded thread has no rollout to resume"); } });
+  assert.deepEqual(await f.api.sendTurn("new-thread", "hello", "/project"), { turnId: "turn" });
+  assert.deepEqual(f.calls, ["turn/start"]);
+});
+
+test("send preparation checks fresh loaded state rather than remembered settings", async () => {
+  let loaded: boolean | null = true;
+  const f = turnFixture({ getObservedThreadSettings: () => ({ model: "remembered" } as never),
+    readLoadedThreadsStatus: async () => loaded === null ? null : { total: Number(loaded), activeLoaded: loaded } });
+  for (const state of [true, false, null]) {
+    loaded = state;
+    f.calls.length = 0;
+    await f.api.sendTurn("thread", "hello", "/project");
+    assert.deepEqual(f.calls, state === true ? ["turn/start"] : ["resume", "turn/start"]);
+  }
+});
+
+test("revocation during the loaded-state read prevents both resume and dispatch", async () => {
+  for (const activeLoaded of [true, false]) {
+    let revoked = false;
+    const f = turnFixture({ readLoadedThreadsStatus: async () => {
+      revoked = true;
+      return { total: Number(activeLoaded), activeLoaded };
+    } });
+    await assert.rejects(f.api.sendTurn("thread", "hello", "/project", {
+      assertCurrent: () => { if (revoked) throw new Error("revoked"); }
+    }), /revoked/);
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test("failed preparation or dispatch is never retried or replaced by a new thread", async () => {
+  for (const activeLoaded of [true, false]) {
+    const calls: string[] = [];
+    const f = turnFixture({ readLoadedThreadsStatus: async () => ({ total: Number(activeLoaded), activeLoaded }),
+      resumeThread: async () => { calls.push("resume"); throw new Error("missing thread"); },
+      request: async (method) => { calls.push(method); throw new Error("dispatch outcome unknown"); } });
+    await assert.rejects(f.api.sendTurn("thread", "hello", "/project"),
+      activeLoaded ? /dispatch outcome unknown/ : /missing thread/);
+    assert.deepEqual(calls, [activeLoaded ? "turn/start" : "resume"]);
+  }
+});
+
 test("guarded sends recheck after configuration, resume connection and resume response", async () => {
   for (const revokeAt of ["config", "resume-connect", "resume-response", "steer-connect"] as const) {
     const calls: string[] = [];
@@ -33,6 +94,7 @@ test("guarded sends recheck after configuration, resume connection and resume re
     const api = new CodexTurnApi({
       connect: async () => { if (revokeAt === "steer-connect") revoked = true; },
       readCodexConfigSnapshot: async () => { if (revokeAt === "config") revoked = true; return snapshot; },
+      readLoadedThreadsStatus: async () => null,
       resumeThread: (id, cwd, check) => thread.resumeThread(id, cwd, check), getObservedThreadSettings: () => undefined,
       request: async (method) => { calls.push(method); return {}; },
       requestKnownMethod: async (method) => { calls.push(method); return {}; },
@@ -80,6 +142,7 @@ test("a dispatched start still records its result after a window takeover; it is
   const calls: string[] = [];
   const api = new CodexTurnApi({ connect: async () => {}, getObservedThreadSettings: () => undefined,
     readCodexConfigSnapshot: async () => snapshot, resumeThread: async () => {},
+    readLoadedThreadsStatus: async () => null,
     request: async (method) => { calls.push(method); revoked = true; return { turn: { id: "accepted-turn" } }; },
     requestKnownMethod: async () => ({}), onTurnStartBeginning: () => {},
     onTurnStarted: (id) => { calls.push(id); }, onTurnStartFinished: () => {}, updateObservedThreadSettingsAfterStart: () => {} });
@@ -94,6 +157,7 @@ test("turn start delegates runtime state transitions without owning the state", 
     connect: async () => { calls.push("connect"); },
     getObservedThreadSettings: () => observed as never,
     readCodexConfigSnapshot: async () => snapshot,
+    readLoadedThreadsStatus: async () => null,
     resumeThread: async () => { calls.push("resume"); },
     request: async (method, params) => {
       calls.push(method);
@@ -136,6 +200,7 @@ test("turn start passes its timeout through resume and dispatch", async () => {
     connect: async () => {},
     getObservedThreadSettings: () => undefined,
     readCodexConfigSnapshot: async () => snapshot,
+    readLoadedThreadsStatus: async () => null,
     resumeThread: async (_threadId, _cwd, _assertCurrent, timeoutMs) => {
       calls.push({ step: "resume", timeoutMs });
     },
@@ -163,6 +228,7 @@ test("turn interrupt preserves optional turn id request shape", async () => {
     connect: async () => {},
     getObservedThreadSettings: () => undefined,
     readCodexConfigSnapshot: async () => snapshot,
+    readLoadedThreadsStatus: async () => null,
     resumeThread: async () => {},
     request: async (method, params, options) => {
       requests.push({ method, params, timeoutMs: options?.timeoutMs });
@@ -190,6 +256,7 @@ test("turn steer uses expectedTurnId and returns the server turn id", async () =
     connect: async () => {},
     getObservedThreadSettings: () => undefined,
     readCodexConfigSnapshot: async () => snapshot,
+    readLoadedThreadsStatus: async () => null,
     resumeThread: async () => {},
     request: async () => ({}),
     requestKnownMethod: async (_method, params, options) => {
