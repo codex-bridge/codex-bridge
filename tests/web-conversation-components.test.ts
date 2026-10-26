@@ -36,17 +36,12 @@ const message = (title: string, kind: MessageSpec["kind"]): MessageSpec => ({ ti
   body: [{ type: "text", text: title }], actions: [] });
 const queue: QueueSnapshot = { threadId: "a", sessionId: "session-a", leaseVersion: 1, running: true, entries: [] };
 
-test("extracted queue panel distinguishes unknown, idle and running empty queues", () => {
-  for (const snapshot of [undefined, { ...queue, running: false }]) {
+test("queue panel stays hidden for unknown and empty queues even while a turn is running", () => {
+  for (const snapshot of [undefined, { ...queue, running: false }, queue]) {
     assert.equal(renderToStaticMarkup(createElement(QueuePanel, {
       queue: snapshot, allowed: true, busy: false, onCancel: unexpected
     })), "");
   }
-  const html = renderToStaticMarkup(createElement(QueuePanel, { queue, allowed: true, busy: false, onCancel: unexpected }));
-  assert.match(html, /aria-label="Queued messages"/u);
-  assert.match(html, /A turn is running/u);
-  assert.match(html, /class="muted">0<\/span>/u);
-  assert.doesNotMatch(html, />Cancel<\/button>/u);
 });
 
 test("queue order follows the snapshot and only confirmed queued entries can be cancelled", () => {
@@ -59,6 +54,8 @@ test("queue order follows the snapshot and only confirmed queued entries can be 
     const html = renderToStaticMarkup(createElement(QueuePanel, {
       queue: { ...queue, running: false, entries }, allowed, busy, onCancel: unexpected
     }));
+    assert.match(html, /aria-label="Queued messages"/u);
+    assert.match(html, /class="muted">3<\/span>/u);
     assert.ok(html.indexOf("First item") < html.indexOf("Second item"));
     assert.ok(html.indexOf("Second item") < html.indexOf("Unknown outcome"));
     assert.equal((html.match(/disabled=""/gu) ?? []).length, disabled);
