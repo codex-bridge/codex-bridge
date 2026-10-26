@@ -1,4 +1,6 @@
-import type { CodexAppServerClient } from "../../codex/client.js";
+import type { AppServerThreadStatus, CodexAppServerClient } from "../../codex/client.js";
+import type { ListedCodexThread } from "../../codex/thread-list-api.js";
+import { logger } from "../../logging/logger.js";
 import type { BridgeStore } from "../../store/index.js";
 import type { SessionLeaseState, SessionRecord } from "../../shared/types.js";
 
@@ -28,6 +30,7 @@ export class SessionCatalogService {
     getSessionDirectory: (session: SessionRecord) => string;
     readEffectiveProvider: (directory: string) => Promise<string | null>;
     readLoadedThreadIds?: () => Promise<ReadonlySet<string> | null>;
+    readThreadMetadata?: (threadId: string) => Promise<Pick<AppServerThreadStatus, "threadId" | "cwd" | "threadName" | "modelProvider">>;
     canReleaseToCodex?: (sessionId: string) => Promise<boolean>;
   }) {}
 
@@ -65,6 +68,14 @@ export class SessionCatalogService {
     const threads = new Map(active.map((thread) => [thread.threadId, { thread, archived: false }]));
     // A thread that moved while the two lists were being read occurs only once.
     for (const thread of archived) threads.set(thread.threadId, { thread, archived: true });
+    // Stored logs can omit a new, empty thread. Require positive runtime evidence
+    // and a metadata read rather than resurrecting every historical DB record.
+    const unlistedLoaded = await Promise.all(known.filter((session) =>
+      session.codexArchivedAt === null && !threads.has(session.codexThreadId) && loadedThreadIds?.has(session.codexThreadId))
+      .map((session) => this.readLoadedMetadata(session)));
+    for (const thread of unlistedLoaded) {
+      if (thread) threads.set(thread.threadId, { thread, archived: false });
+    }
     const entries = [...threads.values()].flatMap(({ thread, archived }) => {
       const session = byThread.get(thread.threadId);
       const directory = thread.currentCwd ?? (session ? this.deps.getSessionDirectory(session) : null);
@@ -98,5 +109,24 @@ export class SessionCatalogService {
       .map((session) => this.deps.getSessionDirectory(session));
     return { directories: [...new Set([...registeredDirectories, ...historicalDirectories,
       ...sessions.map((session) => session.directory)])].sort(), sessions };
+  }
+
+  private async readLoadedMetadata(session: SessionRecord): Promise<ListedCodexThread | null> {
+    if (!this.deps.readThreadMetadata) return null;
+    try {
+      const metadata = await this.deps.readThreadMetadata(session.codexThreadId);
+      if (metadata.threadId !== session.codexThreadId) return null;
+      return {
+        threadId: metadata.threadId, name: metadata.threadName, currentCwd: metadata.cwd,
+        modelProvider: metadata.modelProvider, modelProviderKnown: metadata.modelProvider !== null,
+        pathKey: session.pathKey, updatedAt: session.latestActivityAt, createdAt: session.createdAt,
+        archivedAt: null, preview: null
+      };
+    } catch (error) {
+      logger.warn("bridge.catalog.loaded_metadata_failed", {
+        threadId: session.codexThreadId, error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
   }
 }

@@ -1114,6 +1114,7 @@ export class BridgeService {
         const loaded = await this.codexClient.readLoadedThreads();
         return loaded ? new Set(loaded.threadIds) : null;
       },
+      readThreadMetadata: (threadId) => this.codexClient.readThreadStatus(threadId, undefined, { readOnly: true, timeoutMs: 3_000 }),
       canReleaseToCodex: (sessionId) => this.sessionActionGuardService.isAvailable(WEB_SOURCE_ID, sessionId)
     }), { store: this.store, service: this.sessionBindingService }, {
       access: new SessionAccessService(this.store), reader: this.sessionReader,
