@@ -15,6 +15,7 @@ import type { TimelineCache } from "../web/src/lib/cache.ts";
 import type { ComposerDraftStore } from "../web/src/lib/composer-drafts.ts";
 import type { Catalog, Grant, MessageSpec, StreamEvent } from "../web/src/lib/protocol.ts";
 import type { SessionLocation, WindowGrantStore } from "../web/src/lib/browser-state.ts";
+import { WebNotifications, type WebAttentionEvent } from "../web/src/lib/notifications.ts";
 
 const message = (title: string, kind: MessageSpec["kind"] = "progress"): MessageSpec => ({ title, kind, body: [{ type: "text", text: title }], actions: [] });
 
@@ -93,7 +94,8 @@ test("client identities work with a random source lacking secure-context randomU
   assert.notEqual(createClientId(), createClientId());
 });
 function fixture(overrides: Partial<WorkbenchApi> = {}, cache?: TimelineCache,
-  browser?: { location?: SessionLocation; grants?: WindowGrantStore; drafts?: ComposerDraftStore }, mutationTimeoutMs?: number) {
+  browser?: { location?: SessionLocation; grants?: WindowGrantStore; drafts?: ComposerDraftStore;
+    notifications?: WebNotifications }, mutationTimeoutMs?: number) {
   const calls: string[] = [];
   let receive!: (event: StreamEvent) => void;
   let finishStream!: () => void;
@@ -129,6 +131,67 @@ function fixture(overrides: Partial<WorkbenchApi> = {}, cache?: TimelineCache,
 }
 async function settle() { await nextTick(); await nextTick(); }
 async function open(f: ReturnType<typeof fixture>, threadId = "a") { await f.controller.connect(); await settle(); f.controller.select(threadId); await settle(); }
+
+test("attention reaches an unselected Web-owned session without loading its conversation", async (t) => {
+  const shown: string[] = [], closed: string[] = [];
+  const notifications = new WebNotifications({ unavailable: null, permission: () => "granted",
+    requestPermission: async () => "granted", show: async (event, current) => {
+      if (current()) shown.push(event.threadId); return () => { closed.push(event.threadId); };
+    } }, () => true);
+  await notifications.toggle();
+  const f = fixture({}, undefined, { notifications });
+  t.after(() => f.controller.dispose());
+  await open(f);
+  f.calls.length = 0;
+  const attention: WebAttentionEvent = { id: "turn-b", kind: "turn-ended", sessionId: "session-b", threadId: "b",
+    directory: "/project", name: "B", leaseVersion: 1 };
+  f.event({ name: "attention", data: attention }); await settle();
+  assert.deepEqual(shown, ["b"]);
+  assert.equal(f.controller.getSnapshot().selected, "a");
+  assert.equal(f.controller.getSnapshot().timelines.b, undefined);
+  assert.equal(f.calls.includes("history-b"), false);
+  f.event({ name: "session-binding", data: { kind: "transferred", sourceId: "web:local", otherSourceId: "123",
+    sessionId: "session-b", threadId: "b", directory: "/project", leaseVersion: 2 } });
+  assert.deepEqual(closed, ["b"]);
+});
+
+test("acquired attention uses the new ownership metadata before the asynchronous catalog refresh", async (t) => {
+  const shown: string[] = [];
+  const notifications = new WebNotifications({ unavailable: null, permission: () => "granted",
+    requestPermission: async () => "granted", show: async (event, current) => {
+      if (current()) shown.push(event.kind); return null;
+    } }, () => true);
+  await notifications.toggle();
+  const f = fixture({}, undefined, { notifications });
+  t.after(() => f.controller.dispose());
+  f.catalog.sessions[1]!.ownership = { state: "active", ownerSourceId: "123", pendingSourceId: "web:local", version: 1 };
+  await open(f);
+  f.event({ name: "session-binding", data: { kind: "acquired", sourceId: "web:local", otherSourceId: "123",
+    sessionId: "session-b", threadId: "b", directory: "/project", leaseVersion: 2 } });
+  f.catalog.sessions[1]!.ownership = { state: "active", ownerSourceId: "web:local", pendingSourceId: null, version: 2 };
+  f.event({ name: "attention", data: { id: "acquired-b", kind: "binding-acquired", sessionId: "session-b", threadId: "b",
+    directory: "/project", name: "B", leaseVersion: 2 } });
+  await settle();
+  assert.deepEqual(shown, ["binding-acquired"]);
+});
+
+test("connection takeover closes notifications and stale stream events cannot publish new ones", async (t) => {
+  let shown = 0, closed = 0;
+  const notifications = new WebNotifications({ unavailable: null, permission: () => "granted",
+    requestPermission: async () => "granted", show: async (_event, current) => {
+      if (current()) shown++; return () => { closed++; };
+    } }, () => true);
+  await notifications.toggle();
+  const f = fixture({}, undefined, { notifications });
+  t.after(() => f.controller.dispose());
+  await open(f);
+  f.event({ name: "attention", data: { id: "turn-a", kind: "turn-ended", sessionId: "session-a", threadId: "a",
+    directory: "/project", name: "A", leaseVersion: 1 } }); await settle();
+  f.event({ name: "connection-lost", data: { reason: "taken_over" } });
+  f.event({ name: "attention", data: { id: "turn-next", kind: "turn-ended", sessionId: "session-a", threadId: "a",
+    directory: "/project", name: "A", leaseVersion: 1 } }); await settle();
+  assert.deepEqual([shown, closed], [1, 1]);
+});
 
 test("adding a directory refreshes navigation without changing the selected session", async (t) => {
   const f = fixture({ directory: async (_, path) => {

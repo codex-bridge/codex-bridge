@@ -17,6 +17,8 @@ import { sessionAccessAppearance } from "./lib/session-access-appearance";
 import { createCatalogActions } from "./lib/catalog-actions";
 import { createConversationActions } from "./lib/conversation-actions";
 import { sessionControls } from "./lib/session-controls";
+import { BrowserNotificationPlatform, WebNotifications } from "./lib/notifications";
+import { NotificationControl } from "./components/notification-control";
 
 export function App({ controller }: { controller: WorkbenchController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -42,6 +44,7 @@ export function App({ controller }: { controller: WorkbenchController }) {
 
   return <WorkbenchShell navigation={<SessionCatalog actions={catalogActions} catalog={state.catalog} catalogFresh={state.catalogFresh}
       catalogError={state.catalogError} connection={state.connection}
+      notificationControl={controller.notifications && <NotificationControl notifications={controller.notifications} />}
       serviceConnection={<ServiceConnectionControl connection={state.connection} occupied={state.occupied}
         onConnect={() => { void controller.connect(state.occupied); }} />}
       selected={state.selected} selectedEntry={entry} busy={busy} operation={state.operation}
@@ -68,11 +71,15 @@ export function createWorkbench(): WorkbenchController {
   let cache: LocalTimelineCache | undefined;
   let grants: TabWindowGrantStore | undefined;
   let drafts: LocalComposerDraftStore | undefined;
+  let storage: Storage | undefined;
+  try { storage = window.localStorage; } catch { /* Preferences are optional. */ }
+  const notifications = new WebNotifications(new BrowserNotificationPlatform(window, navigator),
+    () => document.visibilityState === "hidden", storage);
   try { cache = new LocalTimelineCache(window.localStorage); } catch { /* Local storage is optional. */ }
   try {
     grants = new TabWindowGrantStore(window.sessionStorage);
     drafts = new LocalComposerDraftStore(window.sessionStorage, window.indexedDB);
   } catch { /* Tab storage is optional. */ }
   return new WorkbenchController(new HttpWorkbenchApi(), undefined, undefined, cache,
-    { location: new BrowserSessionLocation(window), grants, drafts });
+    { location: new BrowserSessionLocation(window), grants, drafts, notifications });
 }

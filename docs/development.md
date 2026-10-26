@@ -41,6 +41,32 @@ and Slack, uses `workspaces/web-dev.sqlite`, and binds to `127.0.0.1:51049` by
 default. Override the listener with `WEB_DEV_HOST` or `WEB_DEV_PORT` before
 starting. The helper never uses PM2 or starts automatically after reboot.
 
+### HTTPS notification testing
+
+System notifications need a secure context and browser permission. Use a certificate
+trusted by the test browser. To generate a short-lived, self-signed development
+certificate (requires OpenSSL with `req -addext` support):
+
+```bash
+corepack yarn web-dev:tls <LAN-IP>
+corepack yarn web-dev:stop
+WEB_DEV_HOST=<LAN-IP> \
+WEB_DEV_TLS_CERT_FILE=./workspaces/web-dev-tls/cert.pem \
+WEB_DEV_TLS_KEY_FILE=./workspaces/web-dev-tls/key.pem \
+corepack yarn web-dev:start
+```
+
+This uses the same development port over HTTPS. The helper does not install a CA,
+change a trust store, overwrite existing certificates, or touch the production
+listener. Generated keys stay in ignored `workspaces/`. A self-signed certificate
+still needs explicit client trust; clicking through a warning is not a reliable
+way to enable notifications. Prefer your existing trusted certificate or a local
+development CA. `OPENSSL_BIN` may select a compatible OpenSSL executable.
+
+Use the bell button to enable notifications. Browser permission, the OS notification
+settings, and background-page scheduling still apply. A suspended or closed page
+does not receive live events; the notification worker does not keep SSE alive.
+
 ## Browser fixture
 
 To exercise the workbench without real Codex sessions or a production database:

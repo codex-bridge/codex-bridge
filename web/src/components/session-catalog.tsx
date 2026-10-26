@@ -17,6 +17,7 @@ export type SessionCatalogProps = {
   catalogError: string | null;
   connection: WorkbenchState["connection"];
   serviceConnection: ReactNode;
+  notificationControl?: ReactNode;
   selected: string | null;
   selectedEntry?: SessionEntryData;
   busy: boolean;
@@ -25,7 +26,7 @@ export type SessionCatalogProps = {
 };
 
 export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, catalogFresh, catalogError,
-  connection, serviceConnection, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
+  connection, serviceConnection, notificationControl, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
   const [filter, setFilter] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogMode, setCatalogMode] = useState<CatalogMode>("active");
@@ -70,6 +71,7 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
       <div className="sidebar-heading">
         <div className="brand"><h1>Codex Bridge</h1></div>
         <div className="sidebar-utilities">
+          {notificationControl}
           {connection === "connected" && serviceConnection}
           {catalog && <Button className="catalog-toggle" variant="ghost" aria-expanded={catalogOpen} aria-controls="session-catalog"
             onClick={() => setCatalogOpen((open) => !open)}>{catalogOpen ? "Hide directories"

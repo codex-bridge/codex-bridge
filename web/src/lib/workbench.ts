@@ -8,6 +8,7 @@ import type { ComposerDraftStore } from "./composer-drafts";
 import { createClientId } from "./id";
 import type { SessionLocation, WindowGrantStore } from "./browser-state";
 import { bindingAppearance } from "./binding-appearance";
+import type { WebNotifications, WebAttentionEvent } from "./notifications";
 import { WEB_MUTATION_CLIENT_TIMEOUT_MS } from "../../../src/web/protocol-limits";
 import {
   WEB_ATTACHMENT_MAX_FILES,
@@ -76,12 +77,15 @@ export class WorkbenchController {
   private readonly restoringAttachments = new Set<string>();
   constructor(private readonly api: WorkbenchApi, private readonly queries = new QueryClient(),
     private readonly windowId = createClientId(), private readonly cache?: TimelineCache,
-    private readonly browser: { location?: SessionLocation; grants?: WindowGrantStore; drafts?: ComposerDraftStore } = {},
+    private readonly browser: { location?: SessionLocation; grants?: WindowGrantStore; drafts?: ComposerDraftStore;
+      notifications?: WebNotifications } = {},
     private readonly mutationTimeoutMs = WEB_MUTATION_CLIENT_TIMEOUT_MS) {
     this.state.selected = browser.location?.read() ?? null;
     this.unsubscribeLocation = browser.location?.subscribe(() => this.select(browser.location!.read(), false));
     if (this.state.selected) this.restoreComposerDraft(this.state.selected);
+    browser.notifications?.onOpen((threadId) => { if (!this.disposed) this.select(threadId); });
   }
+  get notifications(): WebNotifications | undefined { return this.browser.notifications; }
   getSnapshot = (): WorkbenchState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   private update(patch: Partial<WorkbenchState>): void {
@@ -182,6 +186,7 @@ export class WorkbenchController {
     this.queries.clear();
   }
   private revoke(reason: string): void {
+    this.browser.notifications?.clear();
     this.generation++; this.readSequence++; this.grant = null; this.stopStreams();
     this.browser.grants?.clear();
     this.update({ connection: "revoked", occupied: true, ready: false, loading: false, catalogFresh: false,
@@ -227,22 +232,33 @@ export class WorkbenchController {
       this.poll = setInterval(() => { void this.refresh(false); }, 8000);
     } else if (event.name === "session-binding") {
       const binding = event.data as SessionBindingEvent;
+      if (binding.kind === "transferred") this.browser.notifications?.withdrawSession(binding.sessionId);
       const lostSelected = binding.kind === "transferred" && binding.threadId === this.state.selected;
       if (lostSelected) {
         this.readSequence++;
         this.reads?.abort();
       }
-      const catalog = lostSelected && this.state.catalog ? {
+      const ownershipChanged = binding.kind === "acquired" || binding.kind === "transferred";
+      const catalog = ownershipChanged && this.state.catalog ? {
         ...this.state.catalog,
         sessions: this.state.catalog.sessions.map((entry) => entry.threadId === binding.threadId ? {
           ...entry,
-          ownership: { state: "active", ownerSourceId: binding.otherSourceId, pendingSourceId: null,
+          ownership: { state: "active", ownerSourceId: binding.kind === "acquired" ? binding.sourceId : binding.otherSourceId, pendingSourceId: null,
             version: binding.leaseVersion }
         } : entry)
       } : this.state.catalog;
       this.update({ catalog, catalogFresh: false, ready: false,
         ...(lostSelected ? { loading: false, viewableSessionId: null } : {}) });
       void this.refresh(true);
+    } else if (event.name === "attention") {
+      const attention = event.data as WebAttentionEvent;
+      if (!attention || typeof attention.id !== "string" || typeof attention.threadId !== "string" ||
+        typeof attention.sessionId !== "string" || !Number.isSafeInteger(attention.leaseVersion)) return;
+      const generation = this.generation;
+      const current = (): boolean => !this.disposed && generation === this.generation && this.state.connection === "connected" &&
+        !!this.state.catalog?.sessions.some((entry) => entry.threadId === attention.threadId && entry.sessionId === attention.sessionId &&
+          isOwned(entry));
+      void this.browser.notifications?.notify(attention, current);
     } else if (event.name === "message") {
       const message = event.data as MessageEvent;
       const entry = selectedEntry(this.state);
@@ -270,6 +286,11 @@ export class WorkbenchController {
         retry: false, queryFn: ({ signal }) => this.api.catalog(grant, signal) });
       if (!this.valid(grant, generation) || sequence !== this.catalogSequence || this.state.connection !== "connected") return;
       const before = selectedEntry(this.state);
+      for (const previous of this.state.catalog?.sessions ?? []) {
+        if (previous.sessionId && isOwned(previous) && !catalog.sessions.some((entry) => entry.sessionId === previous.sessionId && isOwned(entry))) {
+          this.browser.notifications?.withdrawSession(previous.sessionId);
+        }
+      }
       const after = catalog.sessions.find((entry) => entry.threadId === this.state.selected);
       const accessChanged = before?.sessionId !== after?.sessionId || isOwned(before) !== isOwned(after) ||
         before?.ownership?.version !== after?.ownership?.version;
@@ -689,5 +710,6 @@ export class WorkbenchController {
       }
     } finally { this.finishOperation(operation); }
   }
-  dispose(): void { this.disposed = true; this.generation++; this.stopStreams(); this.unsubscribeLocation?.(); this.listeners.clear(); }
+  dispose(): void { this.disposed = true; this.generation++; this.stopStreams(); this.unsubscribeLocation?.();
+    this.browser.notifications?.dispose(); this.listeners.clear(); }
 }
