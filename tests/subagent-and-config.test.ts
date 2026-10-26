@@ -16,7 +16,7 @@ import { KeyedQueue } from "../src/shared/keyed-queue.js";
 import { testConfig } from "./bridge-test-config.js";
 
 test("turn requests use one strict Codex config snapshot without Bridge fallbacks", async () => {
-  const calls: Record<string, unknown>[] = [];
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   let configError: Error | null = null;
   let configReads = 0;
   const runtimeState = new ThreadRuntimeState();
@@ -68,14 +68,14 @@ test("turn requests use one strict Codex config snapshot without Bridge fallback
       if (configError) throw configError;
       return snapshot;
     },
-    request: async (_method: string, params: Record<string, unknown>) => {
-      calls.push(JSON.parse(JSON.stringify(params)));
-      return { turn: { id: "turn" } };
+    request: async (method: string, params: Record<string, unknown>) => {
+      calls.push({ method, params: JSON.parse(JSON.stringify(params)) });
+      return method === "thread/loaded/list" ? { data: [] } : { turn: { id: "turn" } };
     }
   });
   await client.sendTurn("t", "hello", "/p");
   assert.equal(configReads, 1);
-  assert.deepEqual(calls[0], {
+  assert.deepEqual(calls.filter((call) => call.method === "turn/start").map((call) => call.params), [{
     threadId: "t",
     input: [{ type: "text", text: "hello" }],
     cwd: "/p",
@@ -93,13 +93,13 @@ test("turn requests use one strict Codex config snapshot without Bridge fallback
     },
     serviceTier: "priority-custom",
     personality: "pragmatic"
-  });
+  }]);
   assert.equal(runtimeState.getObservedSettings("t")!.serviceTierKnown, false);
 
   configError = new Error("snapshot failed");
   await assert.rejects(client.sendTurn("t", "again", "/p"), /snapshot failed/);
   assert.equal(configReads, 2);
-  assert.equal(calls.length, 1);
+  assert.deepEqual(calls.map((call) => call.method), ["thread/loaded/list", "turn/start"]);
 });
 
 test("early child approval is delivered only to the originating parent chat", async () => {

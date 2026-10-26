@@ -1,12 +1,13 @@
 import { buildTurnConfigParams, type CodexConfigSnapshot } from "./config-snapshot.js";
 import { asRecord, firstString } from "./protocol-utils.js";
 import { logger } from "../logging/logger.js";
-import type { AppServerThreadStatus, CodexTurnInputPart } from "./client.js";
+import type { AppServerLoadedThreadsStatus, AppServerThreadStatus, CodexTurnInputPart } from "./client.js";
 
 export type TurnApiDependencies = {
   connect: () => Promise<void>;
   getObservedThreadSettings: (threadId: string) => AppServerThreadStatus | undefined;
   readCodexConfigSnapshot: (cwd: string) => Promise<CodexConfigSnapshot>;
+  readLoadedThreadsStatus: (threadId: string) => Promise<AppServerLoadedThreadsStatus | null>;
   resumeThread: (threadId: string, cwd: string, assertCurrent?: () => void, timeoutMs?: number) => Promise<unknown>;
   request: (method: "turn/start" | "turn/interrupt", params?: unknown, options?: { timeoutMs?: number }) => Promise<unknown>;
   requestKnownMethod: (method: "turn/steer", params?: unknown, options?: { timeoutMs?: number }) => Promise<unknown>;
@@ -44,10 +45,14 @@ export class CodexTurnApi {
       text
     });
     const snapshot = options?.configSnapshot ?? await this.deps.readCodexConfigSnapshot(cwd);
-    // A thread id persisted by Bridge is not necessarily loaded in this
-    // app-server process. Always restore it before beginning a turn.
+    // A newly started thread is already loaded but may have no rollout yet.
+    // Only current runtime evidence can bypass resume; remembered settings cannot.
     options?.assertCurrent?.();
-    await this.deps.resumeThread(threadId, cwd, options?.assertCurrent, options?.timeoutMs);
+    const loaded = await this.deps.readLoadedThreadsStatus(threadId);
+    options?.assertCurrent?.();
+    if (loaded?.activeLoaded !== true) {
+      await this.deps.resumeThread(threadId, cwd, options?.assertCurrent, options?.timeoutMs);
+    }
 
     const input: CodexTurnInputPart[] = options?.inputParts?.length
       ? options.inputParts

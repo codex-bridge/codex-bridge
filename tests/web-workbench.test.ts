@@ -625,6 +625,27 @@ test("creating a session refreshes the catalog and selects only the confirmed ne
   await settle();
   assert.equal(f.controller.getSnapshot().selected, "new");
 });
+test("background reads and binding notifications do not cancel selection of a newly created session", async (t) => {
+  for (const mode of ["refresh", "binding"] as const) {
+    const f = fixture({ createSession: async (_, directory) => {
+      f.catalog.sessions.push({ threadId: "new", sessionId: "session-new", name: "new", directory, archived: false,
+        updatedAt: 1, provider: "test", connection: "active",
+        ownership: { state: "active", ownerSourceId: "web:local", pendingSourceId: null, version: 1 } });
+      if (mode === "binding") {
+        f.event({ name: "session-binding", data: { kind: "acquired", sourceId: "web:local", otherSourceId: null,
+          threadId: "new", sessionId: "session-new", directory, leaseVersion: 1 } });
+      } else await f.controller.refresh(true);
+      await settle();
+      return { threadId: "new", sessionId: "session-new", leaseVersion: 1 };
+    } });
+    t.after(() => f.controller.dispose());
+    await open(f);
+    assert.equal(await f.controller.createSession("/project"), "new");
+    await settle();
+    assert.equal(f.controller.getSnapshot().selected, "new", mode);
+    assert.equal(canInteract(f.controller.getSnapshot()), true, mode);
+  }
+});
 test("releasing a session keeps its selection but hides conversation access and never reacquires it", async (t) => {
   let releases = 0;
   const f = fixture({ manageSession: async (_, threadId, action) => {

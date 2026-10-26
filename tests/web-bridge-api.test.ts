@@ -452,6 +452,64 @@ test("catalog leaves connection unknown when loaded-thread status is unavailable
   } finally { store.close(); }
 });
 
+test("catalog reconciles known loaded sessions missing from stored thread lists using read-only metadata", async (t) => {
+  const store = new BridgeStore(":memory:");
+  t.after(() => store.close());
+  const session = await store.upsertDiscoveredSession({ telegramChatId: "web:local", codexThreadId: "new",
+    pathKey: "/old", displayName: "New session" });
+  store.claimSession(session.id, "web:local");
+  const lease = store.getSessionLease(session.id);
+  let persisted = false;
+  const reads: string[] = [];
+  const catalog = new SessionCatalogService({ store, getSessionDirectory: (entry) => entry.pathKey,
+    readEffectiveProvider: async () => "custom", readLoadedThreadIds: async () => new Set(["new", "unknown"]),
+    readThreadMetadata: async (id) => {
+      reads.push(id);
+      return { threadId: id, cwd: "/work", threadName: null, modelProvider: "custom" };
+    },
+    codexClient: { listThreadsForCwd: async () => persisted ? [thread("new", { name: "Native name" })] : [],
+      listArchivedThreadsForCwd: async () => [] }
+  });
+  const result = await catalog.list();
+  assert.deepEqual(reads, ["new"]);
+  assert.deepEqual(result.sessions.map((entry) => [entry.threadId, entry.name, entry.directory, entry.provider, entry.connection]),
+    [["new", "New session", "/work", "custom", "active"]]);
+  assert.equal(result.sessions[0]?.sessionId, session.id);
+  assert.equal(result.sessions[0]?.ownership?.ownerSourceId, "web:local");
+  assert.deepEqual(store.getSessionLease(session.id), lease);
+  assert.deepEqual(await store.getSessionById(session.id), session);
+  persisted = true;
+  assert.equal((await catalog.list()).sessions[0]?.name, "Native name");
+  assert.deepEqual(reads, ["new"]);
+});
+
+test("catalog loaded reconciliation preserves provider, archive and discoverability boundaries", async (t) => {
+  const store = new BridgeStore(":memory:");
+  t.after(() => store.close());
+  for (const id of ["wrong", "archived", "stored-archive", "unloaded", "unreadable", "mismatched"]) {
+    const session = await store.upsertDiscoveredSession({ telegramChatId: "web:local", codexThreadId: id, pathKey: "/work" });
+    if (id === "stored-archive") await store.markSessionCodexArchived(session.id);
+  }
+  const reads: string[] = [];
+  let loaded: ReadonlySet<string> | null = new Set(["wrong", "archived", "stored-archive", "unreadable", "mismatched", "unknown"]);
+  const catalog = new SessionCatalogService({ store, getSessionDirectory: (session) => session.pathKey,
+    readEffectiveProvider: async () => "custom", readLoadedThreadIds: async () => loaded,
+    readThreadMetadata: async (id) => {
+      reads.push(id);
+      if (id === "unreadable") throw new Error("metadata unavailable");
+      return { threadId: id === "mismatched" ? "another" : id, cwd: "/work", threadName: null, modelProvider: "openai" };
+    },
+    codexClient: { listThreadsForCwd: async () => [],
+      listArchivedThreadsForCwd: async () => [thread("archived", { archivedAt: 99 })] }
+  });
+  assert.deepEqual((await catalog.list()).sessions.map((entry) => [entry.threadId, entry.archived]), [["archived", true]]);
+  assert.deepEqual(reads.sort(), ["mismatched", "unreadable", "wrong"]);
+  reads.length = 0;
+  loaded = null;
+  assert.deepEqual((await catalog.list()).sessions.map((entry) => entry.threadId), ["archived"]);
+  assert.deepEqual(reads, []);
+});
+
 test("catalog exposes Bridge-computed release capability and disables it for open work", async () => {
   const store = new BridgeStore(":memory:");
   try {

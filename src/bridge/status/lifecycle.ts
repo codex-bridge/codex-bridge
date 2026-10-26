@@ -159,7 +159,8 @@ export class StatusLifecycleService {
   ): MessageSpec {
     const stage = label.trim() || "Working";
     return createMessage({
-      kind: "codex",
+      kind: "working",
+      titleLabel: "Codex",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       body: [
         { type: "text", text: `Working · ${stage} · ${formatElapsed(now - startedAt)}` },

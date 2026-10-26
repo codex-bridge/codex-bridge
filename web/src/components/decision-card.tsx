@@ -2,6 +2,7 @@ import { useState } from "react";
 import { decisionAppearance } from "../lib/decision-appearance";
 import type { MessageSpec } from "../lib/protocol";
 import { Button } from "./ui/button";
+import { AutoSizeTextarea } from "./ui/auto-size-textarea";
 
 const labels: Record<string, string> = { accept: "Approve once", acceptForSession: "Approve for session", decline: "Reject", cancel: "Cancel" };
 const variants = { accept: "default", acceptForSession: "outline", decline: "destructive", cancel: "ghost" } as const;
@@ -36,7 +37,7 @@ export function DecisionCard({ message, current, enabled, busy, onAction }: { me
       <p className="decision-input-help" id={helpId}>Required fields: {decision.requestedFields.length
         ? decision.requestedFields.map((field) => <code key={field}>{field}</code>)
         : "none"}</p>
-      <textarea id={`input-${decision.id}`} className="input json-input" value={input} maxLength={6000} disabled={disabled}
+      <AutoSizeTextarea id={`input-${decision.id}`} className="json-input" value={input} maxLength={6000} disabled={disabled}
         aria-describedby={`${helpId} ${errorId}`} aria-invalid={!!error}
         onChange={(event) => { setInput(event.target.value); setError(null); }} spellCheck={false} />
       <p id={errorId} role={error ? "alert" : undefined} className="decision-input-error">{error ?? ""}</p>

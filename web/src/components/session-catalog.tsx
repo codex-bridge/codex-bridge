@@ -1,23 +1,22 @@
-import { Fragment, memo, useEffect, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { InfoHint } from "./info-hint";
 import { SessionEntry } from "./session-entry";
+import { DirectorySection } from "./directory-section";
 import { AddDirectoryDialog, SessionManagementDialog, type SessionDialog } from "./session-dialogs";
 import { LocateIcon, PlusIcon, RefreshIcon } from "./icons";
-import { directoryLabel } from "../lib/directory-label";
+import type { CatalogActions } from "../lib/catalog-actions";
 import { buildCatalogGroups, type CatalogMode } from "../lib/catalog-view";
 import type { Catalog, SessionEntry as SessionEntryData } from "../lib/protocol";
-import type { WorkbenchController, WorkbenchFeedback, WorkbenchOperation, WorkbenchState } from "../lib/workbench";
-
-const connectionLabel = { idle: "Disconnected", connecting: "Connecting", connected: "Connected", offline: "Network offline", revoked: "Connection expired" };
+import type { WorkbenchFeedback, WorkbenchOperation, WorkbenchState } from "../lib/workbench";
 
 export type SessionCatalogProps = {
-  controller: WorkbenchController;
+  actions: CatalogActions;
   catalog: Catalog | null;
   catalogFresh: boolean;
   catalogError: string | null;
   connection: WorkbenchState["connection"];
-  occupied: boolean;
+  serviceConnection: ReactNode;
   selected: string | null;
   selectedEntry?: SessionEntryData;
   busy: boolean;
@@ -25,8 +24,8 @@ export type SessionCatalogProps = {
   directoryFeedback: WorkbenchFeedback | null;
 };
 
-export const SessionCatalog = memo(function SessionCatalog({ controller, catalog, catalogFresh, catalogError,
-  connection, occupied, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
+export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, catalogFresh, catalogError,
+  connection, serviceConnection, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
   const [filter, setFilter] = useState("");
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogMode, setCatalogMode] = useState<CatalogMode>("active");
@@ -38,7 +37,6 @@ export const SessionCatalog = memo(function SessionCatalog({ controller, catalog
   const currentDirectory = selectedEntry?.directory;
   const selectedThreadId = selectedEntry?.threadId;
   const selectedArchived = selectedEntry?.archived;
-  const connectionWarning = connection === "offline" || connection === "revoked";
 
   useEffect(() => {
     if (!selectedThreadId || !currentDirectory || selectedArchived === undefined) return;
@@ -72,24 +70,16 @@ export const SessionCatalog = memo(function SessionCatalog({ controller, catalog
       <div className="sidebar-heading">
         <div className="brand"><h1>Codex Bridge</h1></div>
         <div className="sidebar-utilities">
-          {connection === "connected" && <div className="connection-status connection-status-compact">
-            <p role="status" data-tone="neutral">{connectionLabel[connection]}</p>
-            <InfoHint text="Connecting to the service grants this browser window access only. It does not claim any session." label="Service connection help" />
-          </div>}
+          {connection === "connected" && serviceConnection}
           {catalog && <Button className="catalog-toggle" variant="ghost" aria-expanded={catalogOpen} aria-controls="session-catalog"
             onClick={() => setCatalogOpen((open) => !open)}>{catalogOpen ? "Hide directories"
               : `${catalogMode === "archived" ? "Archived" : "Directories"} · ${visibleCount}`}</Button>}
         </div>
       </div>
-      {connection !== "connected" && <div className="connection-expanded">
-        <div className="connection-status"><p role="status" data-tone={connectionWarning ? "warning" : "neutral"}>{connectionLabel[connection]}</p>
-          <InfoHint text="Connecting to the service grants this browser window access only. It does not claim any session." label="Service connection help" /></div>
-        <Button variant="outline" disabled={connection === "connecting"}
-          onClick={() => { void controller.connect(occupied); }}>{connection === "connecting" ? "Connecting…" : occupied ? "Take over service connection" : "Connect to service"}</Button>
-      </div>}
+      {connection !== "connected" && serviceConnection}
       {connection === "connected" && !catalog && <div className="catalog-state">
         <p className="muted">{catalogError ? "Failed to load directories." : "Loading directories…"}</p>
-        {catalogError && <Button variant="ghost" onClick={() => { void controller.refresh(); }}><RefreshIcon />Retry</Button>}
+        {catalogError && <Button variant="ghost" onClick={() => { void actions.refresh(); }}><RefreshIcon />Retry</Button>}
       </div>}
       {catalog && <div id="session-catalog" className="sidebar-catalog" data-open={catalogOpen ? "true" : "false"}>
         <label className="visually-hidden" htmlFor="session-search">{catalogMode === "archived" ? "Find archived sessions" : "Find directories or sessions"}</label>
@@ -112,7 +102,7 @@ export const SessionCatalog = memo(function SessionCatalog({ controller, catalog
           {catalogMode === "active" && <Button className="catalog-action" variant="ghost" aria-label="Add directory" title="Add directory"
             disabled={connection !== "connected" || busy} onClick={() => setDirectoryDialogOpen(true)}><PlusIcon /></Button>}
           <Button className="catalog-action" variant="ghost" aria-label="Refresh directories and sessions" title="Refresh"
-            disabled={connection !== "connected"} onClick={() => { void controller.refresh(); }}><RefreshIcon /></Button></div></div>
+            disabled={connection !== "connected"} onClick={() => { void actions.refresh(); }}><RefreshIcon /></Button></div></div>
         {!catalogFresh && <p className="muted">Status is temporarily unavailable. The list below may be stale.</p>}
         <nav aria-label={catalogMode === "archived" ? "Archived sessions" : "Sessions"}>
           {(catalogMode === "archived" || archivedCount > 0) && <Button className="catalog-view-switch" variant="ghost"
@@ -128,47 +118,42 @@ export const SessionCatalog = memo(function SessionCatalog({ controller, catalog
           {groups.map((group, index) => {
             const { directory, sessions, open } = group;
             const expanded = expandedDirectories.has(directory);
-            const label = directoryLabel(directory);
             return <Fragment key={directory}>
               {catalogMode === "active" && open && (index === 0 || !groups[index - 1]?.open) && <p className="directory-group-label">Open projects</p>}
               {catalogMode === "active" && hasOpenDirectory && !open && groups[index - 1]?.open && <p className="directory-group-label">Other directories</p>}
-              <section className="directory" data-open={open ? "true" : "false"} data-expanded={expanded ? "true" : "false"}>
-                <div className="directory-heading">
-                  <button type="button" className="directory-toggle" title={directory} aria-expanded={expanded}
-                    aria-label={`${expanded ? "Collapse" : "Expand"} directory ${directory}`} onClick={() => setExpandedDirectories((current) => {
-                      const next = new Set(current); if (expanded) next.delete(directory); else next.add(directory); return next;
-                    })}>
-                    <span className="directory-chevron" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
-                    <span className="directory-label"><span className="directory-name">{label.name}</span>
-                      {label.parent && <span className="directory-parent">{label.parent}</span>}</span>
-                  </button>
-                  {catalogMode === "active" && <Button className="directory-create" variant="ghost" aria-label={`Create a session in ${directory}`} title="New session"
-                    disabled={connection !== "connected" || !catalogFresh || busy}
-                    onClick={() => setSessionDialog({ kind: "create", directory })}><PlusIcon /></Button>}
-                </div>
-                {expanded && <div className="directory-sessions">{!sessions.length && <p className="directory-empty muted">No sessions</p>}
+              <DirectorySection directory={directory} open={open} expanded={expanded}
+                createDisabled={connection !== "connected" || !catalogFresh || busy}
+                onCreate={catalogMode === "active" ? () => setSessionDialog({ kind: "create", directory }) : undefined}
+                onToggle={() => setExpandedDirectories((current) => {
+                  const next = new Set(current); if (expanded) next.delete(directory); else next.add(directory); return next;
+                })}>
+                {expanded && <>
+                  {!sessions.length && <p className="directory-empty muted">No sessions</p>}
                   {sessions.map((session) => <SessionEntry key={session.threadId} session={session}
                     selected={session.threadId === selected} busy={busy}
                     elementRef={session.threadId === selected ? selectedSession : undefined}
                     connected={connection === "connected" && catalogFresh}
-                    onSelect={() => { controller.select(session.threadId); setCatalogOpen(false); }}
+                    onSelect={() => { actions.select(session.threadId); setCatalogOpen(false); }}
                     onRename={() => setSessionDialog({ kind: "rename", session })}
                     onArchive={() => setSessionDialog({ kind: "archive", session })}
-                    onRestore={() => { void controller.manageSession(session, "restore"); }}
-                    onRelease={() => { void controller.manageSession(session, "release"); }} />)}
-                </div>}
-              </section>
+                    onRestore={() => { void actions.manageSession(session, "restore"); }}
+                    onRelease={() => { void actions.manageSession(session, "release"); }} />)}
+                </>}
+              </DirectorySection>
             </Fragment>;
           })}
         </nav>
       </div>}
     </aside>
-    {directoryDialogOpen && <AddDirectoryDialog controller={controller} busy={busy} operation={operation}
+    {directoryDialogOpen && <AddDirectoryDialog onAddDirectory={actions.addDirectory} busy={busy} operation={operation}
       feedback={directoryFeedback} onClose={() => setDirectoryDialogOpen(false)} onAdded={(directory) => {
         setExpandedDirectories((current) => new Set(current).add(directory));
         setDirectoryDialogOpen(false); setCatalogOpen(true);
       }} />}
     {sessionDialog && <SessionManagementDialog key={sessionDialog.kind === "create" ? `create:${sessionDialog.directory}` : `${sessionDialog.kind}:${sessionDialog.session.threadId}`}
-      controller={controller} busy={busy} operation={operation} dialog={sessionDialog} onClose={() => setSessionDialog(null)} />}
+      busy={busy} operation={operation} dialog={sessionDialog} onClose={() => setSessionDialog(null)}
+      onConfirm={async (name) => sessionDialog.kind === "create"
+        ? !!(await actions.createSession(sessionDialog.directory))
+        : actions.manageSession(sessionDialog.session, sessionDialog.kind, sessionDialog.kind === "rename" ? name : undefined)} />}
   </>;
 });

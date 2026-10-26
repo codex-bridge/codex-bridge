@@ -62,7 +62,8 @@ export class WorkbenchController {
   private readonly listeners = new Set<() => void>();
   private grant: Grant | null = null;
   private generation = 0;
-  private selection = 0;
+  private navigationSequence = 0;
+  private readSequence = 0;
   private stream?: AbortController;
   private reads?: AbortController;
   private retryTimer?: ReturnType<typeof setTimeout>;
@@ -181,7 +182,7 @@ export class WorkbenchController {
     this.queries.clear();
   }
   private revoke(reason: string): void {
-    this.generation++; this.selection++; this.grant = null; this.stopStreams();
+    this.generation++; this.readSequence++; this.grant = null; this.stopStreams();
     this.browser.grants?.clear();
     this.update({ connection: "revoked", occupied: true, ready: false, loading: false, catalogFresh: false,
       feedback: { source: "connection", surface: "conversation", tone: "warning",
@@ -228,7 +229,7 @@ export class WorkbenchController {
       const binding = event.data as SessionBindingEvent;
       const lostSelected = binding.kind === "transferred" && binding.threadId === this.state.selected;
       if (lostSelected) {
-        this.selection++;
+        this.readSequence++;
         this.reads?.abort();
       }
       const catalog = lostSelected && this.state.catalog ? {
@@ -287,7 +288,7 @@ export class WorkbenchController {
   }
   select(threadId: string | null, writeLocation = true): void {
     if (writeLocation) this.browser.location?.write(threadId);
-    this.selection++; this.reads?.abort();
+    this.navigationSequence++; this.readSequence++; this.reads?.abort();
     this.update({ selected: threadId, viewableSessionId: null, ready: false, loading: false,
       feedback: this.state.feedback?.threadId ? null : this.state.feedback });
     if (threadId) this.restoreComposerDraft(threadId);
@@ -345,7 +346,7 @@ export class WorkbenchController {
     void this.browser.drafts?.saveAttachments(selected, next);
   }
   private async loadSelected(): Promise<void> {
-    const grant = this.grant, generation = this.generation, selected = this.state.selected, selection = ++this.selection;
+    const grant = this.grant, generation = this.generation, selected = this.state.selected, sequence = ++this.readSequence;
     this.reads?.abort();
     const entry = selectedEntry(this.state);
     if (!grant || !selected || !isOwned(entry) || this.state.connection !== "connected" || !this.state.catalogFresh) return;
@@ -353,7 +354,7 @@ export class WorkbenchController {
     const live = this.liveDuringRead = { threadId: selected, events: [] as MessageEvent[] };
     this.update({ loading: true, ready: false,
       feedback: this.state.feedback?.source === "read" && this.state.feedback.threadId === selected ? null : this.state.feedback });
-    const valid = () => this.valid(grant, generation) && selection === this.selection && this.state.connection === "connected" && isOwned(selectedEntry(this.state));
+    const valid = () => this.valid(grant, generation) && sequence === this.readSequence && this.state.connection === "connected" && isOwned(selectedEntry(this.state));
     try {
       const [history, decisions, queue] = await Promise.all([this.api.history(grant, selected, reads.signal),
         this.api.decisions(grant, selected, reads.signal), this.api.queue(grant, selected, entry?.ownership?.version, reads.signal)]);
@@ -434,7 +435,7 @@ export class WorkbenchController {
     } finally { this.finishOperation(operation); }
   }
   async createSession(directory: string): Promise<string | null> {
-    const grant = this.grant, generation = this.generation, selection = this.selection;
+    const grant = this.grant, generation = this.generation, navigation = this.navigationSequence;
     if (!grant || this.state.connection !== "connected" || !directory.trim()) return null;
     const operation = this.beginOperation({ kind: "session-create" });
     if (!operation) return null;
@@ -442,7 +443,7 @@ export class WorkbenchController {
       const receipt = await this.mutation((signal) => this.api.createSession(grant, directory, createClientId(), signal));
       if (!this.valid(grant, generation)) return null;
       await this.refresh(false);
-      if (selection === this.selection) {
+      if (navigation === this.navigationSequence) {
         this.select(receipt.threadId);
         this.update({ feedback: { source: "operation", surface: "conversation", tone: "neutral",
           threadId: receipt.threadId, message: "The new session was created and claimed by this browser window." } });
