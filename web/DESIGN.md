@@ -40,6 +40,12 @@ Binding has no human approval stage. The interface consistently uses "Bind," "Wa
 
 The Web composer exposes only the image inputs explicitly supported by App Server. File selection and clipboard paste accept PNG, JPEG, WebP, and GIF, with the server rechecking MIME type and file signature. Do not present arbitrary file-path mentions as a generic attachment capability. Pending images use fixed-size previews. Text drafts and images are isolated by browser tab and session. Refresh and session switching restore them, while separate browser tabs do not overwrite one another. Successful sending or queueing clears them; rejection and unknown results preserve them; expired data is cleaned automatically. Enter sends and Shift+Enter inserts a line break. Input method composition never sends. Within the navigation rail, the search box remains visually quieter than the brand, groups, and selected session until focused. User messages use a compact independent surface aligned to the right; code styling applies only to actual code inside a message. Information popovers and action menus both close on outside click and Escape. The archived entry has a subtle navigation surface by default, with selected styling only in the archived view.
 
+## Text input behavior
+
+Text fields use their native caret as the focus signal, without a focus outline, glow, or focus-specific background or border change. This explicit product choice overrides the general focus-ring guidance for text inputs only; buttons, links and menus retain visible keyboard focus. Error borders, error text, labels and disabled states remain intact. Do not implement this by removing focus styles globally.
+
+Controlled multiline fields use the shared native `AutoSizeTextarea`. They grow and shrink with content and recalculate after width, viewport or font changes. CSS owns size limits: the message editor starts at roughly two lines and is capped at 25dvh; JSON input keeps its larger minimum and a 40dvh cap. Neither exposes a manual resize handle or height animation. Long content scrolls inside the textarea. The composer footer stays outside scrolling text and attachments, so send and image actions remain reachable. Preserve draft restoration, selection, clipboard behavior and IME-safe Enter handling.
+
 ## Prohibited patterns
 
 Do not add a marketing hero, fake statistics, inferred green dots, automatic connection takeover, automatic retries after unknown results, executable approvals from cache, direct rendering of message HTML, or controls for unimplemented features.

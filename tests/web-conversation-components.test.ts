@@ -19,6 +19,8 @@ const { Composer } = await tsImport("../web/src/components/composer.tsx", option
   typeof import("../web/src/components/composer.tsx");
 const { QueuePanel } = await tsImport("../web/src/components/queue-panel.tsx", options) as
   typeof import("../web/src/components/queue-panel.tsx");
+const { AutoSizeTextarea } = await tsImport("../web/src/components/ui/auto-size-textarea.tsx", options) as
+  typeof import("../web/src/components/ui/auto-size-textarea.tsx");
 const unexpected = () => assert.fail("render must not execute an operation");
 const timelineActions: TimelineActions = { actMessage: unexpected, actDecision: unexpected };
 const composerActions: ComposerActions = { setDraft: unexpected, addAttachments: unexpected,
@@ -35,6 +37,22 @@ const composerProps: ComposerProps = { actions: composerActions, selected: "a", 
 const message = (title: string, kind: MessageSpec["kind"]): MessageSpec => ({ title, kind,
   body: [{ type: "text", text: title }], actions: [] });
 const queue: QueueSnapshot = { threadId: "a", sessionId: "session-a", leaseVersion: 1, running: true, entries: [] };
+
+test("auto-size textarea preserves controlled text, native semantics and consumer attributes", () => {
+  const html = renderToStaticMarkup(createElement(AutoSizeTextarea, {
+    id: "json", value: "first\nsecond", className: "json-input", rows: 4,
+    disabled: true, maxLength: 6000, "aria-invalid": true, "aria-describedby": "json-help",
+    onChange: unexpected
+  }));
+  assert.match(html, /<textarea/u);
+  assert.match(html, /class="input auto-size-textarea json-input"/u);
+  assert.match(html, /rows="4"/u);
+  assert.match(html, /aria-invalid="true"/u);
+  assert.match(html, /aria-describedby="json-help"/u);
+  assert.match(html, /disabled=""/u);
+  assert.match(html, /maxLength="6000"/u);
+  assert.match(html, />first\nsecond<\/textarea>/u);
+});
 
 test("queue panel stays hidden for unknown and empty queues even while a turn is running", () => {
   for (const snapshot of [undefined, { ...queue, running: false }, queue]) {
@@ -137,6 +155,8 @@ test("composer retains controlled drafts, image-only selection and pending/sendi
     const html = renderToStaticMarkup(createElement(Composer, props));
     assert.match(html, /<div class="composer-surface"><textarea/u);
     assert.match(html, /<label for="message-draft">Message<\/label>/u);
+    assert.match(html, /class="input auto-size-textarea"/u);
+    assert.match(html, /rows="2"/u);
     assert.ok(html.includes(`>${props.draft}</textarea>`));
     assert.match(html, /maxLength="6000"/u);
     assert.match(html, /accept="image\/png,image\/jpeg,image\/webp,image\/gif"/u);

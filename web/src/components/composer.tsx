@@ -2,6 +2,7 @@ import { memo, useRef } from "react";
 import { Button } from "./ui/button";
 import { AttachmentPreview } from "./attachment-preview";
 import { InfoHint } from "./info-hint";
+import { AutoSizeTextarea } from "./ui/auto-size-textarea";
 import type { ComposerActions } from "../lib/conversation-actions";
 import { WEB_IMAGE_MIME_TYPES } from "../../../src/web/protocol-limits";
 
@@ -26,7 +27,7 @@ export const Composer = memo(function Composer({ actions, selected, draft, attac
     <div className="composer-label"><label htmlFor="message-draft">Message</label>
       <InfoHint label="Sending and image help" text="Press Enter to send and Shift + Enter for a new line. Text beginning with / is sent normally. Select or paste up to 5 PNG, JPEG, WebP, or GIF images; 10 MiB each and 25 MiB total." /></div>
     <div className="composer-surface">
-    <textarea id="message-draft" className="input" value={draft} disabled={!selected} maxLength={6000}
+    <AutoSizeTextarea id="message-draft" value={draft} disabled={!selected} maxLength={6000}
       onChange={(event) => actions.setDraft(event.target.value)}
       onPaste={(event) => {
         const images = [...event.clipboardData.items].flatMap((item) => {
