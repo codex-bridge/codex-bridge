@@ -25,9 +25,10 @@ export const Composer = memo(function Composer({ actions, selected, draft, attac
   const fileInput = useRef<HTMLInputElement>(null);
   return <form className="composer" onSubmit={(event) => { event.preventDefault(); void actions.send(); }}>
     <div className="composer-label"><label htmlFor="message-draft">Message</label>
-      <InfoHint label="Sending and image help" text="Press Enter to send and Shift + Enter for a new line. Text beginning with / is sent normally. Select or paste up to 5 PNG, JPEG, WebP, or GIF images; 10 MiB each and 25 MiB total." /></div>
+      <InfoHint label="Sending and image help" text="Text beginning with / is sent normally. Select or paste up to 5 PNG, JPEG, WebP, or GIF images; 10 MiB each and 25 MiB total." /></div>
     <div className="composer-surface">
     <AutoSizeTextarea id="message-draft" value={draft} disabled={!selected} maxLength={6000}
+      aria-describedby="message-draft-shortcut"
       onChange={(event) => actions.setDraft(event.target.value)}
       onPaste={(event) => {
         const images = [...event.clipboardData.items].flatMap((item) => {
@@ -48,7 +49,10 @@ export const Composer = memo(function Composer({ actions, selected, draft, attac
       <Button type="button" variant="ghost" disabled={busy} aria-label={`Remove image ${file.name}`}
         onClick={() => actions.removeAttachment(index)}>Remove</Button>
     </li>)}</ul>}
-    <div className="composer-footer">{restriction && <p className="muted">{restriction}</p>}
+    <div className="composer-footer"><div className="composer-guidance">
+      {restriction && <p className="muted">{restriction}</p>}
+      <p id="message-draft-shortcut" className="composer-shortcut"><kbd>Shift + Enter</kbd> for a new line</p>
+      </div>
       <div className="composer-actions">
         <input ref={fileInput} className="attachment-input" type="file" multiple tabIndex={-1}
           accept={WEB_IMAGE_MIME_TYPES.join(",")}

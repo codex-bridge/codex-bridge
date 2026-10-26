@@ -157,6 +157,8 @@ test("composer retains controlled drafts, image-only selection and pending/sendi
     assert.match(html, /<label for="message-draft">Message<\/label>/u);
     assert.match(html, /class="input auto-size-textarea"/u);
     assert.match(html, /rows="2"/u);
+    assert.match(html, /aria-describedby="message-draft-shortcut"/u);
+    assert.match(html, /<p id="message-draft-shortcut" class="composer-shortcut"><kbd>Shift \+ Enter<\/kbd> for a new line<\/p>/u);
     assert.ok(html.includes(`>${props.draft}</textarea>`));
     assert.match(html, /maxLength="6000"/u);
     assert.match(html, /accept="image\/png,image\/jpeg,image\/webp,image\/gif"/u);

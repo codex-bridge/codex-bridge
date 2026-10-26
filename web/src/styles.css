@@ -149,6 +149,9 @@ button { cursor: pointer; }
 .composer textarea { display: block; flex: 0 1 auto; min-height: 3.5rem; max-height: 25dvh; padding: var(--space-xs); border-color: transparent; background: transparent; line-height: 1.5; }
 .composer textarea:hover:not(:disabled) { background: transparent; }
 .composer-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--space-md); margin-top: var(--space-xs); }
+.composer-guidance { display: grid; min-width: 0; gap: 0.25rem; }
+.composer-shortcut { color: var(--color-muted); font-size: var(--text-xs); }
+.composer-shortcut kbd { font: inherit; white-space: nowrap; }
 .composer-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-xs); margin-left: auto; }
 .attachment-input { display: none; }
 .attachment-list { display: grid; flex: 0 1 auto; min-height: calc(3.5rem + 2 * var(--space-xs)); overflow: auto; overscroll-behavior: contain; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--space-xs); margin: var(--space-xs) 0 0; padding: 0; list-style: none; }
