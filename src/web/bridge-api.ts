@@ -23,6 +23,7 @@ import type { MessageSpec } from "../bridge/messages/types.js";
 import type { CodexTurnInputPart } from "../codex/client.js";
 import type { IncomingAttachment } from "../bridge/input/payload.js";
 import { WebAttachmentStorage, type WebUploadFile } from "./attachments.js";
+import type { WebAttentionService, WebAttentionDelivery } from "./attention.js";
 
 export type WebSessionHistory = {
   threadId: string;
@@ -63,6 +64,7 @@ export interface WebBridgeApi {
   readHistory?: (threadId: string, expectedVersion: number | undefined, assertCurrent: () => void) => Promise<WebSessionHistoryResult>;
   sendText?: (input: WebTextInput, assertCurrent: () => void) => Promise<WebSendResult>;
   subscribeMessages?: (listener: (delivery: WebMessageDelivery) => void) => () => void;
+  subscribeAttention?: (listener: (delivery: WebAttentionDelivery) => void) => () => void;
   readDecisions?: (threadId: string, expectedVersion: number | undefined, assertCurrent: () => void) => Promise<{ snapshot: WebDecisionSnapshot; assertCurrent: () => void }>;
   actDecision?: (input: WebDecisionInput, assertCurrent: () => void) => Promise<WebDecisionReceipt>;
   createSession?: (directory: string, requestId: string, assertCurrent: () => void) => Promise<WebSessionCreateResult>;
@@ -97,6 +99,7 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     private readonly binding?: { store: BridgeStore; service: SessionBindingService },
     private readonly conversation?: { access: SessionAccessService; reader: Pick<SessionReader, "readSessionTranscript">;
       sender?: Pick<IncomingTurnService, "route">; transport?: WebMessageTransport;
+      attention?: WebAttentionService;
       isRuntimeConnected?: () => boolean; store?: Pick<BridgeStore, "hasTelegramMessage" | "listOpenDecisions"> },
     private readonly decisions?: WebDecisionService,
     private readonly directories?: WebDirectoryRegistry,
@@ -171,6 +174,10 @@ export class LocalWebBridgeApi implements WebBridgeApi {
 
   subscribeMessages(listener: (delivery: WebMessageDelivery) => void): () => void {
     return this.conversation?.transport?.subscribe(listener) ?? (() => {});
+  }
+
+  subscribeAttention(listener: (delivery: WebAttentionDelivery) => void): () => void {
+    return this.conversation?.attention?.subscribe(listener) ?? (() => {});
   }
 
   async readDecisions(threadId: string, expectedVersion: number | undefined, assertCurrent: () => void) {

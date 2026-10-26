@@ -13,6 +13,7 @@
     "web-dev:attach": "./scripts/web-dev-tmux.sh attach",
     "web-dev:status": "./scripts/web-dev-tmux.sh status",
     "web-dev:stop": "./scripts/web-dev-tmux.sh stop",
+    "web-dev:tls": "node scripts/web-dev-tls.mjs",
     "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.verify-codex.json && tsc --noEmit -p web/tsconfig.json",
     "lint": "eslint src tests web scripts/verify-codex.ts scripts/verify-codex",
     "lint:fix": "eslint src --fix",

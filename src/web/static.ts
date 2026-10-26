@@ -11,7 +11,7 @@ export const DEFAULT_WEB_ROOT = fileURLToPath(new URL("../../dist/web-ui/", impo
 
 /** Only the built entry and assets are public; never fall back API routes to HTML. */
 export async function serveWebAsset(pathname: string, response: ServerResponse, root = DEFAULT_WEB_ROOT): Promise<boolean> {
-  if (pathname !== "/" && pathname !== "/index.html" && !pathname.startsWith("/assets/")) return false;
+  if (pathname !== "/" && pathname !== "/index.html" && pathname !== "/notifications-worker.js" && !pathname.startsWith("/assets/")) return false;
   try {
     const decoded = decodeURIComponent(pathname);
     if (decoded.includes("\\") || decoded.includes("\0") || decoded.split("/").some((part) => part.startsWith("."))) return false;

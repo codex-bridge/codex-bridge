@@ -1,4 +1,6 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
+import { createServer as createSecureServer } from "node:https";
+import { readFileSync } from "node:fs";
 import { isIP, type AddressInfo } from "node:net";
 import { File } from "node:buffer";
 
@@ -165,7 +167,8 @@ export class WebServer {
   private readonly leases = new WebWindowLeaseManager();
   private currentLease: WebWindowLease | null = null;
   private readonly streams = new Set<ServerResponse>();
-  private readonly server = createServer((request, response) => {
+  private readonly server: Server;
+  private readonly handleRequest = (request: IncomingMessage, response: ServerResponse): void => {
     void this.handle(request, response).catch((error: unknown) => {
       if (!response.headersSent && !response.destroyed) {
         const status = error instanceof HttpError ? error.status : error instanceof SessionAccessError
@@ -188,9 +191,13 @@ export class WebServer {
       }
       request.resume();
     });
-  });
+  };
 
-  constructor(private readonly options: { host: string; port: number; staticRoot?: string }, private readonly bridge?: WebBridgeApi) {
+  constructor(private readonly options: { host: string; port: number; staticRoot?: string;
+    tls?: { certFile: string; keyFile: string } }, private readonly bridge?: WebBridgeApi) {
+    this.server = options.tls
+      ? createSecureServer({ cert: readFileSync(options.tls.certFile), key: readFileSync(options.tls.keyFile) }, this.handleRequest)
+      : createServer(this.handleRequest);
     this.server.requestTimeout = 10_000;
     this.server.headersTimeout = 10_000;
   }
@@ -225,14 +232,15 @@ export class WebServer {
   private checkOrigin(request: IncomingMessage): URL {
     const host = request.headers.host;
     let url: URL;
+    const protocol = this.options.tls ? "https:" : "http:";
     try {
       if (!host || !request.url?.startsWith("/") || request.url.startsWith("//")) throw new Error();
-      url = new URL(`http://${host}${request.url}`);
-      const authority = new URL(`http://${host}`);
+      url = new URL(`${protocol}//${host}${request.url}`);
+      const authority = new URL(`${protocol}//${host}`);
       if (authority.username || authority.password || authority.pathname !== "/" || authority.search || authority.hash) throw new Error();
       const hostname = url.hostname.replace(/^\[|\]$/g, "");
       if (hostname !== "localhost" && !isIP(hostname)) throw new Error();
-      if (Number(url.port || 80) !== (this.server.address() as AddressInfo).port) throw new Error();
+      if (Number(url.port || (this.options.tls ? 443 : 80)) !== (this.server.address() as AddressInfo).port) throw new Error();
     } catch {
       throw new HttpError(403, "Invalid Web host.");
     }
@@ -271,6 +279,11 @@ export class WebServer {
         if (!response.write(`event: message\ndata: ${JSON.stringify(delivery.event)}\n\n`)) response.end();
       }
     });
+    const unsubscribeAttention = this.bridge?.subscribeAttention?.((delivery) => {
+      if (!lease.signal.aborted && !response.writableEnded && !response.destroyed && delivery.isCurrent()) {
+        if (!response.write(`event: attention\ndata: ${JSON.stringify(delivery.event)}\n\n`)) response.end();
+      }
+    });
     const onRevoked = (): void => {
       if (response.writableEnded) return;
       response.end(`event: connection-lost\ndata: ${JSON.stringify({ reason: lease.signal.reason })}\n\n`);
@@ -283,6 +296,7 @@ export class WebServer {
     response.once("close", () => {
       unsubscribe?.();
       unsubscribeMessages?.();
+      unsubscribeAttention?.();
       clearInterval(heartbeat);
       lease.signal.removeEventListener("abort", onRevoked);
       this.streams.delete(response);

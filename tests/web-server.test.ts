@@ -9,6 +9,7 @@ import { SessionAccessError } from "../src/bridge/sessions/access.js";
 import { WebSendError } from "../src/web/bridge-api.js";
 import type { WebMessageDelivery } from "../src/web/transport.js";
 import { WebDecisionError } from "../src/web/decisions.js";
+import type { WebAttentionDelivery } from "../src/web/attention.js";
 import { DirectoryRegistrationError } from "../src/bridge/sessions/directory-registry.js";
 import { WEB_ATTACHMENT_MAX_FILE_BYTES, WEB_ATTACHMENT_MAX_TOTAL_BYTES } from "../src/web/protocol-limits.js";
 
@@ -240,6 +241,31 @@ test("SSE checks both current window and session occupation at each message writ
   assert.match(received, /visible/);
   assert.equal(received.includes("hidden"), false);
   assert.equal(listeners.size, 0);
+});
+
+test("attention SSE is live-only, ownership-guarded and removed when another window takes over", async (t) => {
+  const listeners = new Set<(delivery: WebAttentionDelivery) => void>();
+  const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
+    subscribeAttention: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; } });
+  const grant = await acquire(base, "notifications");
+  const opened = await stream(base, grant);
+  const remaining = opened.remaining();
+  const event: WebAttentionDelivery["event"] = { id: "visible", kind: "turn-ended", sessionId: "session", threadId: "thread",
+    directory: "/project", name: "Project", leaseVersion: 1 };
+  for (const listener of listeners) {
+    listener({ event: { ...event, id: "hidden" }, isCurrent: () => false });
+    listener({ event, isCurrent: () => true });
+  }
+  const replacement = await acquire(base, "replacement", true);
+  const received = await remaining;
+  assert.match(received, /event: attention/);
+  assert.match(received, /visible/);
+  assert.doesNotMatch(received, /hidden/);
+  assert.equal(listeners.size, 0);
+  const next = await stream(base, replacement);
+  const later = next.remaining();
+  await post(base, "/api/web/window/release", {}, replacement);
+  assert.doesNotMatch(await later, /event: attention/);
 });
 
 test("history requires window credentials, validates its target and returns a guarded content-only payload", async (t) => {
