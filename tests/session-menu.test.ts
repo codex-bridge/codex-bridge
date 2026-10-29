@@ -3610,7 +3610,7 @@ test("closing a Run phase during a send keeps its phase summary", async () => {
     await Promise.all([first, latest, clearing]);
 
     assert.equal(sends.length, 1);
-    assert.match(edits.at(-1) ?? "", /^Run · .*project\nRun ×\d+ · Reported successes ×\d+ · Reported failures ×\d+ · Unreported ×\d+$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*project\nRun ×\d+ · Unreported ×\d+ · Reported successes ×\d+ · Reported failures ×\d+$/);
     assert.deepEqual(deletes, []);
   } finally {
     store.close();

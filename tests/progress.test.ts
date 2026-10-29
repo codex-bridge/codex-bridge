@@ -448,7 +448,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
     createProgressPhaseSummarySpec({ directory: record.directory, record: { ...record, phaseKind } });
 
   assert.deepEqual(render("run").body, [
-    { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }
+    { type: "text", text: "Run ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0" }
   ]);
   assert.deepEqual(createProgressPhaseSummarySpec({
     directory: record.directory,
@@ -457,7 +457,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
       aggregate: { ...record.aggregate, run: { updates: 9, succeeded: 3, failed: 0 } }
     }
   }).body, [
-    { type: "text", text: "Run ×10 · Reported successes ×3 · Reported failures ×0 · Unreported ×7" }
+    { type: "text", text: "Run ×10 · Unreported ×7 · Reported successes ×3 · Reported failures ×0" }
   ]);
   for (const kind of ["called", "edited", "explored", "system"] as const) {
     assert.deepEqual(render(kind).body, [{ type: "text", text: "1 event" }]);
@@ -468,13 +468,13 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
     record: { ...record, state: "interrupted" }
   }).body, [
     { type: "text", text: "Interrupted" },
-    { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }
+    { type: "text", text: "Run ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0" }
   ]);
 
   assert.deepEqual(createProgressPhaseSummarySpec({
     directory: record.directory,
     record: { ...record, state: "completed" }
-  }).body, [{ type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" }]);
+  }).body, [{ type: "text", text: "Run ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0" }]);
   assert.deepEqual(createProgressPhaseSummarySpec({
     directory: record.directory,
     record: { ...record, phaseKind: "called", state: "completed" }
@@ -491,7 +491,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
       });
       assert.equal(summary.title, "Run · /workspace/project");
       assert.deepEqual(summary.body, [
-        { type: "text", text: "Run ×1 · Reported successes ×0 · Reported failures ×1 · Unreported ×0" },
+        { type: "text", text: "Run ×1 · Unreported ×0 · Reported successes ×0 · Reported failures ×1" },
         ...(failureReason === "timeout" ? [{ type: "text", text: "Reason: timeout" }] : []),
         ...(failureReason === "permission_denied" ? [{ type: "text", text: "Reason: permission denied" }] : []),
         ...(state === "step_failed" ? [{ type: "text", text: "Task continued" }] : [])
@@ -513,12 +513,13 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
 
 test("Run summaries display a nonnegative reporting gap without altering raw counts or phase states", async (t) => {
   const cases = [
-    { name: "first displayed content has no report", updates: 0, succeeded: 0, failed: 0, expected: "Run ×1 · Reported successes ×0 · Reported failures ×0 · Unreported ×1" },
-    { name: "partial reporting leaves a positive gap", updates: 1, succeeded: 0, failed: 1, expected: "Run ×2 · Reported successes ×0 · Reported failures ×1 · Unreported ×1" },
-    { name: "fully reported content has zero gap", updates: 1, succeeded: 1, failed: 1, expected: "Run ×2 · Reported successes ×1 · Reported failures ×1 · Unreported ×0" },
-    { name: "no reports does not imply success", updates: 9, succeeded: 0, failed: 0, expected: "Run ×10 · Reported successes ×0 · Reported failures ×0 · Unreported ×10" },
-    { name: "excess successes stay unchanged", updates: 0, succeeded: 3, failed: 0, expected: "Run ×1 · Reported successes ×3 · Reported failures ×0 · Unreported ×0" },
-    { name: "excess mixed reports stay unchanged", updates: 0, succeeded: 1, failed: 1, expected: "Run ×1 · Reported successes ×1 · Reported failures ×1 · Unreported ×0" }
+    { name: "first displayed content has no report", updates: 0, succeeded: 0, failed: 0, expected: "Run ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0" },
+    { name: "partial reporting leaves a positive gap", updates: 1, succeeded: 0, failed: 1, expected: "Run ×2 · Unreported ×1 · Reported successes ×0 · Reported failures ×1" },
+    { name: "fully reported content has zero gap", updates: 1, succeeded: 1, failed: 1, expected: "Run ×2 · Unreported ×0 · Reported successes ×1 · Reported failures ×1" },
+    { name: "no reports does not imply success", updates: 9, succeeded: 0, failed: 0, expected: "Run ×10 · Unreported ×10 · Reported successes ×0 · Reported failures ×0" },
+    { name: "excess successes stay unchanged", updates: 0, succeeded: 3, failed: 0, expected: "Run ×1 · Unreported ×0 · Reported successes ×3 · Reported failures ×0" },
+    { name: "excess mixed reports stay unchanged", updates: 0, succeeded: 1, failed: 1, expected: "Run ×1 · Unreported ×0 · Reported successes ×1 · Reported failures ×1" },
+    { name: "requested seven-run example", updates: 6, succeeded: 0, failed: 1, expected: "Run ×7 · Unreported ×6 · Reported successes ×0 · Reported failures ×1" }
   ];
   for (const item of cases) {
     await t.test(item.name, () => {

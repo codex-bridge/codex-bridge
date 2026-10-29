@@ -115,7 +115,7 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     const displayedUpdates = updates + 1;
     // Display counts and runtime reports are independent; do not reconcile the source counters.
     const unreported = Math.max(0, displayedUpdates - succeeded - failed);
-    const statistics = `Run ×${displayedUpdates} · Reported successes ×${succeeded} · Reported failures ×${failed} · Unreported ×${unreported}`;
+    const statistics = `Run ×${displayedUpdates} · Unreported ×${unreported} · Reported successes ×${succeeded} · Reported failures ×${failed}`;
     const runLines = record.state === "step_failed" || record.state === "failed"
       ? [statistics, ...runFailureLines(record.failureReason)]
       : [...(record.state === "completed" ? [] : lines), statistics];
