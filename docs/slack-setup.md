@@ -73,14 +73,27 @@ Session choices belong to each conversation, even while another conversation
 owns the session. A handoff completes the current choice; selecting a different
 session does not interrupt work already accepted in the previous one.
 
-If a thread's parent message was deleted, Bridge does not recreate it. Conversation
-content, history, tool results, and detailed errors stay thread-only. Minimal
-binding notices may appear at channel root. Approval or input requests may produce
-a separate root reminder to rebind and review, without request details or buttons.
-Bridge checks the parent before sending and verifies Slack's returned destination.
-If deletion races the check and content lands at root, Bridge attempts to retract
-that exact message and logs any failure. This is not an atomic delivery guarantee.
-Unverified parents and uncertain send outcomes are not automatically retried.
+If a bound session's thread parent becomes unavailable, including because of the
+free plan's history limit, the next outgoing content creates a new session status
+card at the same channel root. That content and subsequent replies continue in
+the new thread. Reply there to keep using the same Codex session; no manual
+rebinding or task restart is needed. Existing progress cards and pending approvals
+are displayed in the replacement thread as needed. Old-thread buttons are ignored.
+Bridge persists the current entry point and replacement message references locally.
+
+Status-only refreshes, unbound menus, and messages for sessions now owned elsewhere
+do not create new entry points. Those retain thread-only delivery and explicitly
+allowed minimal root reminders. A failed edit of an individual message does not
+by itself prove that the parent thread is unavailable.
+
+Bridge checks parents and verifies Slack's returned destination. If deletion
+races the check and content lands at root, Bridge attempts to retract that exact
+message before continuing. This is not an atomic delivery guarantee. Unverified
+parents and uncertain write outcomes are not blindly retried. An uncertain root
+creation is reconciled using an operation marker in Slack message metadata before
+reuse; if it cannot be confirmed, recovery remains pending instead of creating
+duplicates. An uncertain replacement-card send is also held for investigation.
+Explicit short rate-limit rejections receive one bounded retry.
 
 Slash commands are optional. If enabled, create only commands that Bridge
 recognizes, such as `/codex`, `/sessions`, `/session_new`, `/goals`,
