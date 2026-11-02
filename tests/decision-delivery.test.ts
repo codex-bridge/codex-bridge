@@ -8,6 +8,10 @@ import type { DecisionRecord, SessionRecord } from "../src/shared/types.js";
 import type { BridgeMessageOptions } from "../src/bridge/transport.js";
 import { BridgeStore } from "../src/store/index.js";
 import { createBatchDecisionMessageSpec, createDecisionMessageSpec } from "../src/bridge/decisions/formatters.js";
+import { RuntimePromptFactory } from "../src/bridge/messages/runtime-prompts.js";
+
+const promptFactory = new RuntimePromptFactory({ isRuntimeConnected: () => true,
+  getSessionDirectory: (session) => session.currentCwd ?? session.pathKey });
 
 function session(chatId: string): SessionRecord {
   return {
@@ -41,7 +45,7 @@ function decision(chatId: string, messageId: string | null): DecisionRecord {
   };
 }
 
-function createDeliveryHarness(delivered = true) {
+function createDeliveryHarness(delivered = true, openDecisions: DecisionRecord[] = []) {
   const sent: string[] = [];
   const sentOptions: Array<BridgeMessageOptions | undefined> = [];
   const deleted: string[] = [];
@@ -63,6 +67,7 @@ function createDeliveryHarness(delivered = true) {
       getSessionLease: () => null,
       getSessionBindingById: () => null,
       listPendingDecisions: async () => [],
+      listOpenDecisions: async () => openDecisions,
       updateDecisionMessageTarget: async (decisionId, chatId, messageId) => {
         updatedTargets.push({ decisionId, chatId, messageId });
       },
@@ -78,6 +83,7 @@ function createDeliveryHarness(delivered = true) {
       actions
     }),
     getSessionDirectory: (target) => target.currentCwd ?? target.pathKey,
+    createMcpInputPromptSpec: (session, decision) => promptFactory.createMcpInput(session, decision),
     createBatchDecisionMessageSpec: (session, count, actions) => createMessage({
       session,
       kind: "decision",
@@ -111,6 +117,30 @@ test("does not resend a pending decision to the same Slack thread", async () => 
   assert.deepEqual(harness.sent, []);
   assert.deepEqual(harness.deleted, []);
   assert.deepEqual(harness.updatedTargets, []);
+});
+
+test("refreshes a pending decision through its stable handle without duplicating or changing its business target", async () => {
+  const harness = createDeliveryHarness();
+  await harness.service.sendDecisionMessage(session("slack:T:C:100.1"), decision("slack:T:C:100.1", "42"), true);
+  assert.deepEqual(harness.sent, []);
+  assert.deepEqual(harness.edited, ["slack:T:C:100.1/42"]);
+  assert.ok(harness.editedSpecs[0]!.actions.length > 0);
+  assert.deepEqual(harness.updatedTargets, []);
+});
+
+test("continuation refresh preserves awaiting-input requests without restoring approval controls", async () => {
+  const chat = "slack:T:C:100.1";
+  const awaiting = { ...decision(chat, "42"), kind: "mcpServer/elicitation/request",
+    state: "awaitingInput" as const, requiresUserInput: true };
+  const elsewhere = { ...awaiting, id: "elsewhere", telegramChatId: "slack:T:C:other" };
+  const harness = createDeliveryHarness(true, [awaiting, elsewhere]);
+  await harness.service.refreshPendingMessages(session(chat));
+  assert.deepEqual(harness.edited, [`${chat}/42`]);
+  assert.equal(harness.editedSpecs[0]?.title, "MCP Input Required · /workspace/project");
+  assert.ok(harness.editedSpecs[0]!.actions.every((action) => !action.callback.startsWith("decision:")));
+  assert.deepEqual(harness.sent, []);
+  assert.deepEqual(harness.updatedTargets, []);
+  assert.equal(awaiting.state, "awaitingInput");
 });
 
 test("retires the old decision message when a session moves to another Slack thread", async () => {
@@ -158,6 +188,7 @@ test("batch approval creation and closure use the actual session directory befor
       store, sessionOperationQueue: { run: async (_id, operation) => operation() },
       getSessionDirectory: (session) => session.currentCwd ?? session.pathKey,
       isBatchableDecision: () => true, createDecisionMessageSpec, createBatchDecisionMessageSpec,
+      createMcpInputPromptSpec: (session, decision) => promptFactory.createMcpInput(session, decision),
       getExecpolicyAmendment: () => null,
       requireMessageTransport: () => { throw new Error("Unexpected fallback"); },
       sendMessageSpec: async (chat, spec) => {

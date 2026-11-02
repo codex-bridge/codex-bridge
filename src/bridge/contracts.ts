@@ -188,4 +188,8 @@ export type BridgeTelegramBotPort =
 export type BridgeSlackBotPort =
   & BridgeMessagePort
   & BridgeSlackMessagePort
-  & BridgeSlackInteractionPort;
+  & BridgeSlackInteractionPort
+  & {
+    renderSlackContinuationRoot(sourceId: string, threadTs: string | null, expectedSessionId: string): Promise<MessageSpec | null>;
+    refreshSlackContinuation(sourceId: string): Promise<void>;
+  };

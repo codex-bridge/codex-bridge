@@ -676,6 +676,7 @@ export class BridgeService {
       sessionOperationQueue: this.sessionDecisionOperationQueue,
       isBatchableDecision: (decision) => isBatchableDecision(decision),
       createDecisionMessageSpec: (session, decision, actions) => createDecisionMessageSpec(session, decision, actions),
+      createMcpInputPromptSpec: (session, decision) => this.runtimePromptFactory.createMcpInput(session, decision),
       createBatchDecisionMessageSpec,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       getExecpolicyAmendment: (decision) => getExecpolicyAmendment(decision),
@@ -827,6 +828,23 @@ export class BridgeService {
 
   registerMessageTransport(transport: BridgeMessageTransport): void {
     this.messageSender.registerTransport(transport);
+  }
+
+  async renderSlackContinuationRoot(sourceId: string, threadTs: string | null, expectedSessionId: string): Promise<MessageSpec | null> {
+    const session = await this.store.getActiveSession(sourceId);
+    if (!session || (session.id !== expectedSessionId && session.codexThreadId !== expectedSessionId)) return null;
+    const snapshot = await this.sessionInteractionService.getCurrentSessionSnapshot(sourceId);
+    if (!snapshot || snapshot.binding !== "bound" || snapshot.session.id !== session.codexThreadId) return null;
+    return renderSessionStatus({ ...snapshot, thread: threadTs });
+  }
+
+  async refreshSlackContinuation(sourceId: string): Promise<void> {
+    const snapshot = await this.sessionInteractionService.getCurrentSessionSnapshot(sourceId);
+    if (snapshot?.binding !== "bound") return;
+    const session = await this.store.getActiveSession(sourceId);
+    if (session?.codexThreadId === snapshot.session.id) {
+      await this.decisionDelivery.refreshPendingMessages({ ...session, telegramChatId: sourceId });
+    }
   }
 
   private async updateConversationSession(sourceId: string): Promise<void> {

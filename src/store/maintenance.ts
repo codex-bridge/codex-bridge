@@ -61,6 +61,10 @@ export function resetState(sqlite: SqliteDatabase, options: { dryRun?: boolean }
       .map((row) => row.name)
   );
   const tables = [
+    "slack_pending_replacements",
+    "slack_message_endpoints",
+    "slack_conversation_aliases",
+    "slack_conversation_endpoints",
     "progress_phase_messages",
     "turn_routes",
     "session_leases",
@@ -228,7 +232,8 @@ export function checkDatabase(sqlite: SqliteDatabase): DatabaseCheckResult {
     (sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{ name: string }>)
       .map((row) => row.name)
   );
-  const requiredTables = ["schema_migrations", "chats", "sessions", "messages", "decisions", "queued_submissions", "progress_phase_messages", "web_directories"];
+  const requiredTables = ["schema_migrations", "chats", "sessions", "messages", "decisions", "queued_submissions", "progress_phase_messages", "web_directories",
+    "slack_conversation_endpoints", "slack_conversation_aliases", "slack_message_endpoints", "slack_pending_replacements"];
   const missingTables = requiredTables.filter((name) => !tableNames.has(name));
   const sessionColumns = tableNames.has("sessions")
     ? new Set((sqlite.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>).map((row) => row.name))

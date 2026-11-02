@@ -251,7 +251,8 @@ test("stores each Codex thread as its own session without a section table", asyn
       "013_durable_progress_phase_messages",
       "014_progress_phase_aggregate",
       "015_progress_phase_lifecycle",
-      "016_web_directories"
+      "016_web_directories",
+      "017_slack_continuations"
     ]);
   } finally {
     store.close();
@@ -421,7 +422,7 @@ test("reports pending destructive migration without changing a database", async 
           "004_session_service_tier",
           "005_queued_submissions"
         ],
-        pendingMigrations: ["006_remove_session_codex_config", "007_codex_archive_state", "008_remove_runtime_state", "009_remove_sections", "010_shared_session_bindings", "011_durable_turn_routes", "012_session_discovery_state", "013_durable_progress_phase_messages", "014_progress_phase_aggregate", "015_progress_phase_lifecycle", "016_web_directories"],
+        pendingMigrations: ["006_remove_session_codex_config", "007_codex_archive_state", "008_remove_runtime_state", "009_remove_sections", "010_shared_session_bindings", "011_durable_turn_routes", "012_session_discovery_state", "013_durable_progress_phase_messages", "014_progress_phase_aggregate", "015_progress_phase_lifecycle", "016_web_directories", "017_slack_continuations"],
         destructiveMigrations: ["006_remove_session_codex_config", "010_shared_session_bindings"],
         backupRequired: true
       });
@@ -589,7 +590,8 @@ test("resets bridge state without dropping the current schema", async () => {
       "013_durable_progress_phase_messages",
       "014_progress_phase_aggregate",
       "015_progress_phase_lifecycle",
-      "016_web_directories"
+      "016_web_directories",
+      "017_slack_continuations"
     ]);
     assert.deepEqual(await store.listSessionsForPolling(), []);
   } finally {

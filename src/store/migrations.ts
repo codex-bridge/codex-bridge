@@ -22,7 +22,8 @@ export type SchemaMigrationVersion =
   | "013_durable_progress_phase_messages"
   | "014_progress_phase_aggregate"
   | "015_progress_phase_lifecycle"
-  | "016_web_directories";
+  | "016_web_directories"
+  | "017_slack_continuations";
 
 export const SCHEMA_MIGRATIONS: readonly SchemaMigrationVersion[] = [
   "001_current_schema",
@@ -40,7 +41,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationVersion[] = [
   "013_durable_progress_phase_messages",
   "014_progress_phase_aggregate",
   "015_progress_phase_lifecycle",
-  "016_web_directories"
+  "016_web_directories",
+  "017_slack_continuations"
 ];
 
 export interface DatabaseMigrationPlan {
@@ -247,6 +249,33 @@ export function migrate(sqlite: SqliteDatabase): void {
           directory TEXT PRIMARY KEY,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
+        );
+      `);
+    } },
+    { version: "017_slack_continuations", run: () => {
+      sqlite.exec(`
+        CREATE TABLE slack_conversation_endpoints (
+          source_id TEXT PRIMARY KEY,
+          thread_ts TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          started_at INTEGER NOT NULL
+        );
+        CREATE TABLE slack_conversation_aliases (
+          physical_source_id TEXT PRIMARY KEY,
+          source_id TEXT NOT NULL
+        );
+        CREATE TABLE slack_message_endpoints (
+          source_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          thread_ts TEXT NOT NULL,
+          physical_message_id TEXT NOT NULL,
+          PRIMARY KEY (source_id, message_id)
+        );
+        CREATE TABLE slack_pending_replacements (
+          source_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          PRIMARY KEY (source_id, message_id)
         );
       `);
     } }

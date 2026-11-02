@@ -23,6 +23,8 @@ import {
   SLACK_CALLBACK_ACTION_ID_PATTERN
 } from "./callback.js";
 import { SlackMessageTransport } from "./transport.js";
+import { SlackContinuations } from "./continuations.js";
+import type { SlackContinuationRepository } from "../store/slack-continuation-repository.js";
 import { createSlackMessageHandler } from "./message-handler.js";
 import { resolveSlackInteractionContext, type SlackActionSource } from "./interactions/context.js";
 import { readSlackSurface } from "./surfaces.js";
@@ -96,7 +98,7 @@ function requireSlackConfig(config: AppConfig): {
   };
 }
 
-export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): SlackRuntime {
+export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort, continuationStore: SlackContinuationRepository): SlackRuntime {
   const slackConfig = requireSlackConfig(config);
   // Bolt's App socketMode shortcut does not forward heartbeat settings to its
   // SocketModeReceiver. Keep reconnecting native, but tolerate short stalls.
@@ -115,12 +117,17 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): S
     token: slackConfig.botToken
   });
   // A timed-out write may already have succeeded. Do not automatically repeat it.
-  const transport = new SlackMessageTransport(new WebClient(slackConfig.botToken, {
+  let botUserId: string | null = null;
+  const client = new WebClient(slackConfig.botToken, {
     retryConfig: { retries: 0 }, rejectRateLimitedCalls: true, timeout: 10_000
-  }), config.bridgeCallbackSecret);
+  });
+  const continuations = new SlackContinuations({ client, store: continuationStore,
+    rootSpec: (sourceId, threadTs, sessionId) => service.renderSlackContinuationRoot(sourceId, threadTs, sessionId),
+    callbackSecret: config.bridgeCallbackSecret, botUserId: () => botUserId,
+    onReady: (sourceId) => service.refreshSlackContinuation(sourceId) });
+  const transport = new SlackMessageTransport(client, config.bridgeCallbackSecret, continuations);
   service.registerMessageTransport(transport);
 
-  let botUserId: string | null = null;
   let teamIdFallback = "unknown";
 
   const { handleText, sendPrompt, sendSpec } = createSlackMessageHandler({
@@ -287,12 +294,13 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): S
     };
     const decoded = decodeSlackCallbackValue(data, config.bridgeCallbackSecret);
     if (decoded) {
-      const interaction = resolveSlackInteractionContext(
+      const resolved = resolveSlackInteractionContext(
         decoded.chatId,
         decoded.action,
         source,
         body.trigger_id
       );
+      const interaction = resolved ? transport.normalizeInteraction(resolved) : null;
       if (!interaction) {
         logger.info("slack.callback.ignored_unroutable_surface", {
           action: decoded.action,
@@ -338,7 +346,8 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): S
       ts: body.container?.message_ts ?? body.message?.ts ?? null
     });
     logger.warn("slack.callback.legacy_value", { chatId });
-    const interaction = resolveSlackInteractionContext(chatId, data, source, body.trigger_id);
+    const resolved = resolveSlackInteractionContext(chatId, data, source, body.trigger_id);
+    const interaction = resolved ? transport.normalizeInteraction(resolved) : null;
     if (!interaction) {
       logger.info("slack.callback.legacy_ignored_unroutable_surface", {
         action: data,
@@ -368,7 +377,7 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort): S
     const text = readSlackQueueModalText(view.state.values);
     if (!decoded || decoded.action !== "queue:submit" || !text) return;
     const result = await service.handleIncomingUserText({
-      telegramChatId: decoded.chatId,
+      telegramChatId: transport.resolveConversationId(decoded.chatId),
       telegramMessageId: `slack-queue:${body.view.id}`,
       text,
       queue: true

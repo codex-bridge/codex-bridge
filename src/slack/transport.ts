@@ -13,6 +13,9 @@ import { buildSlackButton } from "./buttons.js";
 import { renderSlackMessageSpec } from "./message-renderer.js";
 import { messageTransportPlatform } from "../shared/source-address.js";
 import { SlackThreadDelivery } from "./thread-delivery.js";
+import { withCurrentSlackThread, type SlackContinuations } from "./continuations.js";
+import { KeyedQueue } from "../shared/keyed-queue.js";
+import type { InteractionContext } from "../bridge/interactions/types.js";
 
 type SlackChatRef = {
   channelId: string;
@@ -50,11 +53,42 @@ export function parseSlackChatId(chatId: string): SlackChatRef | null {
 export class SlackMessageTransport implements BridgeMessageTransport {
   readonly name = "slack";
   private readonly delivery: SlackThreadDelivery;
+  private readonly endpointQueue = new KeyedQueue();
 
   constructor(
     private readonly client: WebClient,
-    private readonly callbackSecret: string | null = null
-  ) { this.delivery = new SlackThreadDelivery(client); }
+    private readonly callbackSecret: string | null = null,
+    private readonly continuations?: SlackContinuations
+  ) { this.delivery = new SlackThreadDelivery(client, continuations ? {
+    recover: (chatId, target, sessionId) => continuations.recover(chatId, target, sessionId),
+    sent: (chatId, target, messageId) => continuations.remember(chatId, target, messageId),
+    replaced: (chatId, oldId, newId) => continuations.replaced(chatId, oldId, newId),
+    reserveReplacement: (chatId, messageId) => continuations.reserveReplacement(chatId, messageId),
+    rejectReplacement: (chatId, messageId) => continuations.rejectReplacement(chatId, messageId)
+  } : undefined); }
+
+  resolveConversationId(chatId: string): string {
+    return this.continuations?.resolveSource(chatId) ?? chatId;
+  }
+
+  normalizeInteraction(context: InteractionContext): InteractionContext | null {
+    if (this.continuations && !this.continuations.isCurrentSurface(context.surfaceId)) {
+      logger.info("slack.callback.retired_surface", { surfaceId: context.surfaceId });
+      return null;
+    }
+    return { ...context, conversationId: this.resolveConversationId(context.conversationId),
+      surfaceId: this.resolveConversationId(context.surfaceId) };
+  }
+
+  private inConversation<T>(chatId: string, operation: (sourceId: string) => Promise<T>): Promise<T> {
+    const sourceId = this.resolveConversationId(chatId);
+    return this.continuations ? this.endpointQueue.run(sourceId, () => operation(sourceId)) : operation(sourceId);
+  }
+
+  private target(chatId: string): SlackChatRef {
+    const ref = this.requireSlackChatRef(chatId);
+    return { ...ref, ...this.continuations?.target(chatId) };
+  }
 
   canHandle(chatId: string): boolean {
     return messageTransportPlatform(chatId) === "slack";
@@ -73,8 +107,10 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     text: string,
     options?: BridgeMessageOptions
   ): Promise<BridgeSentMessage | null> {
-    const ref = this.requireSlackChatRef(chatId);
-    return this.delivery.send(chatId, ref, { text, blocks: this.buildBlocks(chatId, text, options) }, options);
+    return this.inConversation(chatId, async (sourceId) => {
+      const ref = this.target(sourceId);
+      return this.delivery.send(sourceId, ref, { text, blocks: this.buildBlocks(sourceId, text, options) }, options);
+    });
   }
 
   async editMessageText(
@@ -83,8 +119,15 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     text: string,
     options?: BridgeMessageOptions
   ): Promise<boolean> {
-    const ref = this.requireSlackChatRef(chatId);
-    return this.delivery.edit(chatId, ref, messageId, { text, blocks: this.buildBlocks(chatId, text, options) }, options);
+    return this.inConversation(chatId, async (sourceId) => {
+      const ref = this.target(sourceId);
+      const mapped = this.continuations?.message(sourceId, messageId);
+      const updatedOptions = options?.messageSpec ? { ...options,
+        messageSpec: withCurrentSlackThread(options.messageSpec, ref.threadTs) } : options;
+      return this.delivery.edit(sourceId, ref, mapped?.messageId ?? messageId,
+        { text: updatedOptions?.messageSpec ? renderLegacyMessage(updatedOptions.messageSpec) : text,
+          blocks: this.buildBlocks(sourceId, text, updatedOptions) }, updatedOptions, mapped?.replace);
+    });
   }
 
   async editMessageSpec(
@@ -97,12 +140,13 @@ export class SlackMessageTransport implements BridgeMessageTransport {
   }
 
   async deleteMessage(chatId: string, messageId: string): Promise<boolean> {
-    const ref = this.requireSlackChatRef(chatId);
-    await this.client.chat.delete({
-      channel: ref.channelId,
-      ts: messageId
+    return this.inConversation(chatId, async (sourceId) => {
+      const ref = this.target(sourceId);
+      const mapped = this.continuations?.message(sourceId, messageId);
+      if (mapped?.replace) return false;
+      await this.client.chat.delete({ channel: ref.channelId, ts: mapped?.messageId ?? messageId });
+      return true;
     });
-    return true;
   }
 
   async clearMessageActions(
@@ -111,44 +155,49 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     text?: string,
     contentBlocks?: unknown[]
   ): Promise<boolean> {
-    const ref = this.requireSlackChatRef(chatId);
-    const startedAt = Date.now();
-    const preservedBlocks = contentBlocks?.filter((block): block is KnownBlock =>
-      typeof block === "object" && block !== null && "type" in block && block.type !== "actions"
-    );
-    const hasCallbackBlocks = contentBlocks !== undefined;
-    const blocks: KnownBlock[] = hasCallbackBlocks
-      ? preservedBlocks ?? []
-      : text !== undefined
-        ? this.buildContentBlocks(text)
-        : [];
-    await this.client.chat.update(text !== undefined
-      ? {
-          channel: ref.channelId,
-          ts: messageId,
-          text,
-          blocks
-        }
-      : {
-          channel: ref.channelId,
-          ts: messageId,
-          blocks
-        });
-    logger.info("slack.message.actions_clear", {
-      channelId: ref.channelId,
-      chatId,
-      messageId,
-      preservedText: text !== undefined,
-      contentBlocksRestored: blocks.length,
-      contentBlocksSource: hasCallbackBlocks
-        ? "callback"
+    return this.inConversation(chatId, async (sourceId) => {
+      const ref = this.target(sourceId);
+      const mapped = this.continuations?.message(sourceId, messageId);
+      if (mapped?.replace) return false;
+      messageId = mapped?.messageId ?? messageId;
+      const startedAt = Date.now();
+      const preservedBlocks = contentBlocks?.filter((block): block is KnownBlock =>
+        typeof block === "object" && block !== null && "type" in block && block.type !== "actions"
+      );
+      const hasCallbackBlocks = contentBlocks !== undefined;
+      const blocks: KnownBlock[] = hasCallbackBlocks
+        ? preservedBlocks ?? []
         : text !== undefined
-          ? "rebuild"
-          : "empty",
-      threadTs: ref.threadTs,
-      elapsedMs: Date.now() - startedAt
+          ? this.buildContentBlocks(text)
+          : [];
+      await this.client.chat.update(text !== undefined
+        ? {
+            channel: ref.channelId,
+            ts: messageId,
+            text,
+            blocks
+          }
+        : {
+            channel: ref.channelId,
+            ts: messageId,
+            blocks
+          });
+      logger.info("slack.message.actions_clear", {
+        channelId: ref.channelId,
+        chatId,
+        messageId,
+        preservedText: text !== undefined,
+        contentBlocksRestored: blocks.length,
+        contentBlocksSource: hasCallbackBlocks
+          ? "callback"
+          : text !== undefined
+            ? "rebuild"
+            : "empty",
+        threadTs: ref.threadTs,
+        elapsedMs: Date.now() - startedAt
+      });
+      return true;
     });
-    return true;
   }
 
   async sendTyping(): Promise<void> {
@@ -156,12 +205,13 @@ export class SlackMessageTransport implements BridgeMessageTransport {
   }
 
   async updateConversationSession(chatId: string, messageSpec: MessageSpec): Promise<void> {
+    chatId = this.resolveConversationId(chatId);
     const ref = this.requireSlackChatRef(chatId);
     if (!ref.threadTs) return;
     try {
       await this.editMessageSpec(chatId, ref.threadTs, { ...messageSpec, surface: "session-status", actions: [] });
     } catch (error) {
-      // Deleted parents and user-authored parents are not recreated or replaced.
+      // State-only refreshes never create a continuation; actual content triggers it.
       logger.info("slack.session.parent_update_skipped", { chatId,
         error: error instanceof Error ? error.message : String(error) });
     }

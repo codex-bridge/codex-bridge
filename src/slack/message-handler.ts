@@ -122,7 +122,8 @@ export function createSlackMessageHandler(input: {
       return;
     }
 
-    const chatId = makeChatId(message);
+    const physicalChatId = makeChatId(message);
+    const chatId = transport.resolveConversationId?.(physicalChatId) ?? physicalChatId;
     const text = stripBotMention(message.rawText, getBotUserId());
     if (!text && !message.attachments?.length) return;
 

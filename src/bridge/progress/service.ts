@@ -105,6 +105,7 @@ export class ProgressService {
       event: { ...event, failureReason: normalized.failureReason },
       includeDiffPreview: true
     }));
+    preview.session = { id: session.id, directory: this.deps.getSessionDirectory(session) };
     const text = renderLegacyMessage(preview);
     await this.enqueue(key, async () => {
       const directory = this.deps.getSessionDirectory(session);

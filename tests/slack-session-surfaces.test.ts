@@ -222,6 +222,24 @@ test("binding then paginating a child selector preserves parent status and selec
   assert.equal((await store.getActiveSession(thread))!.id, target.id);
 });
 
+test("continuation roots require the output session to be selected and owned by this conversation", async (t) => {
+  const store = new BridgeStore(":memory:");
+  t.after(() => store.close());
+  const service = new BridgeService(testConfig(":memory:"), store, {} as CodexAppServerClient);
+  const session = await store.upsertDiscoveredSession({ telegramChatId: thread, codexThreadId: "target", pathKey: "/target" });
+  store.claimSession(session.id, thread);
+  await store.selectSession(thread, session.id);
+  const lease = store.getSessionLease(session.id);
+  const spec = await service.renderSlackContinuationRoot(thread, "new-root", session.id);
+  assert.equal(spec?.surface, "session-status");
+  assert.ok(spec?.body.some((part) => part.type === "field" && part.label === "Thread" && part.value === "new-root"));
+  assert.ok(await service.renderSlackContinuationRoot(thread, "new-root", session.codexThreadId));
+  assert.equal(await service.renderSlackContinuationRoot(thread, "new-root", "previous-session"), null);
+  assert.deepEqual(store.getSessionLease(session.id), lease);
+  store.requestSessionHandoff(session.id, "slack:T:C:other", true);
+  assert.equal(await service.renderSlackContinuationRoot(thread, "new-root", session.id), null);
+});
+
 test("failed selection replies separately without replacing a selector", async () => {
   const f = fixture();
   const error = createMessage({ scope: "global", kind: "error", body: [{ type: "text", text: "In use outside Bridge" }] });

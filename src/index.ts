@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   if (bot) {
     service.registerMessageTransport(new TelegramMessageTransport(bot, (text) => service.formatTelegramHtml(text)));
   }
-  const slack = config.slackEnabled ? buildSlackBot(config, service) : null;
+  const slack = config.slackEnabled ? buildSlackBot(config, service, store.slackContinuations) : null;
   const web = config.web ? new WebServer(config.web, service.createWebApi()) : null;
   let slackAttachmentCleanupTimer: NodeJS.Timeout | null = null;
   let webAttachmentCleanupTimer: NodeJS.Timeout | null = null;

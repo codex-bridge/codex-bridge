@@ -62,6 +62,7 @@ import type {
 import { TurnRouteRepository } from "./turn-route-repository.js";
 import { ProgressPhaseMessageRepository } from "./progress-phase-message-repository.js";
 import { WebDirectoryRepository, type WebDirectoryRegistration } from "./web-directory-repository.js";
+import { SlackContinuationRepository } from "./slack-continuation-repository.js";
 export type { WebDirectoryRegistration } from "./web-directory-repository.js";
 
 function now(): number {
@@ -75,6 +76,7 @@ export interface BridgeStoreOptions {
 }
 
 export class BridgeStore {
+  readonly slackContinuations: SlackContinuationRepository;
   private sqlite: InstanceType<typeof Database>;
   private lastMigrationBackupPath: string | null = null;
   private lastMigrationBackupIntegrity: string | null = null;
@@ -109,6 +111,7 @@ export class BridgeStore {
     this.turnRouteRepository = new TurnRouteRepository(this.sqlite);
     this.progressPhaseMessageRepository = new ProgressPhaseMessageRepository(this.sqlite);
     this.webDirectoryRepository = new WebDirectoryRepository(this.sqlite);
+    this.slackContinuations = new SlackContinuationRepository(this.sqlite);
     this.messageRepository = new MessageRepository(
       this.sqlite,
       this.db,

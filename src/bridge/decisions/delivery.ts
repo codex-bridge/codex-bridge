@@ -17,6 +17,7 @@ type DecisionStore = Pick<
   | "getSessionLease"
   | "getSessionBindingById"
   | "listPendingDecisions"
+  | "listOpenDecisions"
   | "updateDecisionMessageTarget"
   | "updateSessionBatchDecisionMessageId"
 >;
@@ -27,6 +28,7 @@ export type DecisionDeliveryDependencies = {
   sessionOperationQueue: Pick<SessionDecisionOperationQueue, "run">;
   isBatchableDecision: (decision: DecisionRecord) => boolean;
   createDecisionMessageSpec: (session: SessionRecord, decision: DecisionRecord, actions: MessageSpec["actions"]) => MessageSpec;
+  createMcpInputPromptSpec: (session: SessionRecord, decision: DecisionRecord) => MessageSpec;
   createBatchDecisionMessageSpec: (session: SessionContext, count: number, actions: MessageSpec["actions"]) => MessageSpec;
   getSessionDirectory: (session: SessionRecord) => string;
   getExecpolicyAmendment: (decision: DecisionRecord) => string[] | null;
@@ -37,9 +39,9 @@ export type DecisionDeliveryDependencies = {
 export class DecisionDeliveryService {
   constructor(private readonly deps: DecisionDeliveryDependencies) {}
 
-  async sendDecisionMessage(session: SessionRecord, decision: DecisionRecord): Promise<void> {
+  async sendDecisionMessage(session: SessionRecord, decision: DecisionRecord, refresh = false): Promise<void> {
     const targetChatId = session.telegramChatId;
-    if (decision.telegramMessageId && decision.telegramChatId === targetChatId) {
+    if (!refresh && decision.telegramMessageId && decision.telegramChatId === targetChatId) {
       logger.info("bridge.decision.delivery_deduped", {
         decisionId: decision.id,
         sessionId: session.id,
@@ -70,6 +72,10 @@ export class DecisionDeliveryService {
           )
         ];
     const messageSpec = this.deps.createDecisionMessageSpec(session, decision, actions);
+    if (refresh && decision.telegramMessageId && decision.telegramChatId === targetChatId) {
+      await this.deps.editMessageSpec(targetChatId, decision.telegramMessageId, messageSpec);
+      return;
+    }
     const sent = await this.deps.sendMessageSpec(
       targetChatId,
       messageSpec,
@@ -82,6 +88,19 @@ export class DecisionDeliveryService {
         String(sent.message_id)
       );
     }
+  }
+
+  async refreshPendingMessages(session: SessionRecord): Promise<void> {
+    for (const decision of await this.deps.store.listOpenDecisions(session.id)) {
+      if (decision.telegramChatId !== session.telegramChatId || !decision.telegramMessageId) continue;
+      if (decision.state === "awaitingInput") {
+        await this.deps.editMessageSpec(session.telegramChatId, decision.telegramMessageId,
+          this.deps.createMcpInputPromptSpec(session, decision));
+      } else {
+        await this.sendDecisionMessage(session, decision, true);
+      }
+    }
+    await this.syncBatchDecisionMessage(session);
   }
 
   private async retireDecisionMessage(session: SessionRecord, decision: DecisionRecord): Promise<void> {
