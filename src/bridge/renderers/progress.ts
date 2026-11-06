@@ -123,12 +123,12 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   }
   const lines = outcome ? [outcome] : [];
   if (record.phaseKind === "run") {
-    const { updates, succeeded, failed } = aggregate.run;
+    const { updates, failed } = aggregate.run;
     // A persisted card already has one successfully sent preview; updates counts later edits.
     const displayedUpdates = updates + 1;
-    // Display counts and runtime reports are independent; do not reconcile the source counters.
-    const unreported = Math.max(0, displayedUpdates - succeeded - failed);
-    const statistics = `Run ×${displayedUpdates} · Unreported ×${unreported} · Reported successes ×${succeeded} · Reported failures ×${failed}`;
+    // Display policy: only explicit failures count as failed; all other displayed runs count as succeeded.
+    const succeeded = Math.max(0, displayedUpdates - failed);
+    const statistics = `Run ×${displayedUpdates} · Succeeded ×${succeeded} · Failed ×${failed}`;
     const runLines = record.state === "step_failed" || record.state === "failed"
       ? [statistics, ...runFailureLines(record.failureReason)]
       : [...(record.state === "completed" ? [] : lines), statistics];

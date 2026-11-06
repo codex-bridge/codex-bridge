@@ -17,7 +17,7 @@ function activity(title: string, lines: string[]) {
 
 test("Telegram renders activity titles and ordered summaries as one footer without dropping content", () => {
   for (const [title, lines] of [
-    ["Run", ["Run ×3 · Unreported ×1 · Reported successes ×1 · Reported failures ×1", "Reason: timeout", "Task continued"]],
+    ["Run", ["Run ×3 · Succeeded ×2 · Failed ×1", "Reason: timeout", "Task continued"]],
     ["Called", ["basic-memory.bm_read ×1 → basic-memory.bm_edit ×1 (failed)", "Error: timeout"]],
     ["Edited", ["README.md (+8 -1)", "docs/next-actions.md (+4 -0)"]]
   ] as const) {
@@ -68,7 +68,7 @@ test("Telegram sends and edits activity footers with the same keyboard and notif
       assert.equal(id, 7); calls.push({ chat, content, options }); return true;
     }
   } } as unknown as Bot;
-  const spec = activity("Run", ["Run ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0"]);
+  const spec = activity("Run", ["Run ×1 · Succeeded ×1 · Failed ×0"]);
   spec.actions = [helpAction()];
   const transport = new TelegramMessageTransport(bot, (text) => text);
   assert.deepEqual(await transport.sendMessageSpec("123", spec, { disable_notification: true }), { message_id: "7" });

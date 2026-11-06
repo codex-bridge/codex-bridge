@@ -52,7 +52,7 @@ test("Slack phase summaries keep titles, ordered details and failures in subdued
   }];
   const cases = [
     { phaseKind: "run" as const, expected: ["Run · /workspace/project",
-      "Run ×3 · Unreported ×1 · Reported successes ×1 · Reported failures ×1",
+      "Run ×3 · Succeeded ×2 · Failed ×1",
       "Reason: timeout", "Task continued"] },
     { phaseKind: "called" as const, expected: ["Called · /workspace/project",
       "basic-memory.bm_read ×1 → basic-memory.bm_edit ×1 (failed)", "Error: timeout"] },
@@ -96,7 +96,7 @@ test("Slack send and edit keep the full summary in Activity fallback text", asyn
   await transport.editMessageSpec("slack:T:C", "1.0001", spec);
   assert.equal(requests.length, 2);
   for (const payload of requests) {
-    assert.equal(payload.text, "Run · /workspace/project\nRun ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0");
+    assert.equal(payload.text, "Run · /workspace/project\nRun ×1 · Succeeded ×1 · Failed ×0");
     assert.equal(contextText(payload.blocks as KnownBlock[]), payload.text);
   }
 });
