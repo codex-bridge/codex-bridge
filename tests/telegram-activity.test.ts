@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GrammyError, type Bot } from "grammy";
 
-import { createMessage } from "../src/bridge/messages/factory.js";
+import { createActivityMessage } from "../src/bridge/messages/factory.js";
 import { helpAction } from "../src/bridge/messages/actions.js";
 import { renderLegacyMessage } from "../src/bridge/messages/legacy-adapter.js";
 import { renderTelegramMessageSpec, renderTelegramMessageSpecChunks } from "../src/telegram/message-renderer.js";
 import { TelegramMessageTransport } from "../src/telegram/transport.js";
 
 function activity(title: string, lines: string[]) {
-  return createMessage({
-    kind: "progress", titleLabel: title, directory: "/workspace/project", presentation: "activity",
+  return createActivityMessage({
+    kind: "progress", titleLabel: title, directory: "/workspace/project",
     body: lines.map((text) => ({ type: "text" as const, text }))
   });
 }

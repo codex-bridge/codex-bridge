@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 
 import type { AppServerProgressFileChange } from "../../codex/client.js";
-import { createEditedMessage, createMessage, createProgressMessage } from "../messages/factory.js";
+import { createActivityMessage, createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageBodyPart, MessageSpec } from "../messages/types.js";
 import { formatSessionMarker } from "../../shared/session-tag.js";
@@ -28,18 +28,28 @@ export function formatProgressMessageLines(input: {
   directory: string;
   event: ProgressRenderEvent;
 }): string[] {
-  return renderLegacyMessage(createProgressMessageSpec(input)).split("\n");
+  return renderLegacyMessage(createProgressHistoryMessageSpec(input)).split("\n");
 }
 
-export function createProgressMessageSpec(input: {
+type ProgressMessageInput = {
   directory: string;
   event: ProgressRenderEvent;
   // Opt in for active cards; history replay keeps file statistics only.
   includeDiffPreview?: boolean;
-}): MessageSpec {
+};
+
+export function createProgressMessageSpec(input: ProgressMessageInput): MessageSpec {
+  return buildProgressMessageSpec(input, createActivityMessage);
+}
+
+export function createProgressHistoryMessageSpec(input: ProgressMessageInput): MessageSpec {
+  return buildProgressMessageSpec(input, createMessage);
+}
+
+function buildProgressMessageSpec(input: ProgressMessageInput, create: typeof createMessage): MessageSpec {
   const session = { id: null, directory: input.directory };
   if (input.event.label === "System") {
-    return createMessage({
+    return create({
       kind: "system",
       titleLabel: "System",
       session,
@@ -49,11 +59,14 @@ export function createProgressMessageSpec(input: {
     });
   }
   if (input.event.changes?.length) {
-    return createFileChangeProgressMessage({
-      changes: input.event.changes,
-      directory: input.directory,
+    return create({
+      kind: "edited",
       session,
-      includeDiffPreview: input.includeDiffPreview
+      body: fileChangeBody({
+        changes: input.event.changes,
+        directory: input.directory,
+        includeDiffPreview: input.includeDiffPreview
+      })
     });
   }
 
@@ -74,10 +87,10 @@ export function createProgressMessageSpec(input: {
       : [`Step failed · ${formatFailureReason(input.event.failureReason)}`];
     body.push(...lines.map((text) => ({ type: "text" as const, text })));
   }
-  return createProgressMessage({
-    directory: input.directory,
-    label: input.event.label,
-    failed: input.event.failed,
+  return create({
+    kind: input.event.failed ? "failed" : "progress",
+    titleLabel: input.event.label,
+    session,
     body
   });
 }
@@ -86,10 +99,9 @@ export function createProgressPhaseSummarySpec(input: {
   directory: string;
   record: ProgressPhaseMessageRecord;
 }): MessageSpec {
-  return createMessage({
+  return createActivityMessage({
     kind: input.record.state === "failed" ? "failed" : "progress",
     titleLabel: phaseTitle(input.record.phaseKind),
-    presentation: "activity",
     session: { id: input.record.sessionId, directory: input.directory },
     body: summaryLines(input.record).map((text) => ({ type: "text" as const, text }))
   });
@@ -190,12 +202,11 @@ function runFailureLines(reason: ProgressFailureReason | null | undefined): stri
   ];
 }
 
-function createFileChangeProgressMessage(input: {
+function fileChangeBody(input: {
   changes: AppServerProgressFileChange[];
   directory: string;
-  session: { id: string | null; directory: string };
   includeDiffPreview?: boolean;
-}): MessageSpec {
+}): MessageBodyPart[] {
   const totals = input.changes.reduce(
     (acc, change) => ({
       added: acc.added + change.added,
@@ -222,7 +233,7 @@ function createFileChangeProgressMessage(input: {
   if (omitted > 0) {
     body.push({ type: "text", text: `... ${omitted} more file${omitted === 1 ? "" : "s"}` });
   }
-  return createEditedMessage({ session: input.session, body });
+  return body;
 }
 
 function formatProgressSubject(event: {

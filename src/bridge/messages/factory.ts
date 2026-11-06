@@ -84,6 +84,10 @@ export function createCodexMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "codex" });
 }
 
+export function createActivityMessage(input: CreateMessageInput): MessageSpec {
+  return createMessage({ ...input, presentation: "activity" });
+}
+
 export function createCalledMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "called" });
 }
@@ -94,20 +98,6 @@ export function createEditedMessage(input: MessageInput): MessageSpec {
 
 export function createWorkingMessage(input: MessageInput): MessageSpec {
   return createMessage({ ...input, kind: "working" });
-}
-
-export function createProgressMessage(input: {
-  directory: string;
-  label: string;
-  failed?: boolean;
-  body?: MessageBodyPart[];
-}): MessageSpec {
-  return createMessage({
-    kind: input.failed ? "failed" : "progress",
-    titleLabel: input.label,
-    session: { id: null, directory: input.directory },
-    body: input.body
-  });
 }
 
 export class BridgeMessageFactory {

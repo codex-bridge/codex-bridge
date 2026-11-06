@@ -123,7 +123,7 @@ test("live phase cards and finalized summaries use Slack blocks that can be upda
   }
 });
 
-test("Edited shows each file's structured diff through native Slack/TG code rendering", () => {
+test("Edited shows each file's structured diff through Slack sections and TG code rendering", () => {
   const event = extractProgressEvent({ method: "item/fileChange/patchUpdated", params: {
     threadId: "thread-1", changes: [
       { path: `${directory}/src/a.ts`, diff: "@@\n-oldA\n+<newA>" },
@@ -141,7 +141,7 @@ test("Edited shows each file's structured diff through native Slack/TG code rend
     { type: "code", text: "@@\n+newB" }
   ]);
   const slack = renderSlackMessageSpec("slack:T:C", spec, null);
-  assert.equal(slack.length, 1);
+  assert.deepEqual(slack.map((block) => block.type), ["context", "section", "context", "section"]);
   assert.match(JSON.stringify(slack), /```/);
   assert.match(JSON.stringify(slack), /oldA/);
   const telegram = renderTelegramMessageSpec(spec);

@@ -105,8 +105,6 @@ export class ProgressService {
       event: { ...event, failureReason: normalized.failureReason },
       includeDiffPreview: true
     }));
-    // Slack cannot convert native Markdown messages to context at finalization.
-    preview.presentation = "activity";
     preview.session = { id: session.id, directory: this.deps.getSessionDirectory(session) };
     const text = renderLegacyMessage(preview);
     await this.enqueue(key, async () => {

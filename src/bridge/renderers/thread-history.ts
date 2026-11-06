@@ -1,5 +1,5 @@
 import type { ThreadHistoryEntry } from "../../codex/thread-history.js";
-import { createProgressMessageSpec } from "./progress.js";
+import { createProgressHistoryMessageSpec } from "./progress.js";
 import { createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
@@ -118,7 +118,7 @@ export function createThreadHistoryEntrySpec(input: {
     return createTranscriptMessageSpec({ directory, role: entry.role, text: entry.text });
   }
   if (entry.kind === "progress") {
-    return createProgressMessageSpec({ directory, event: entry.event });
+    return createProgressHistoryMessageSpec({ directory, event: entry.event });
   }
   if (entry.kind === "compaction") {
     return createMessage({

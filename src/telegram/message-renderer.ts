@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 
 import type { MessageBodyPart, MessageSpec } from "../bridge/messages/types.js";
 import { splitMessageSpecByRenderedLength } from "../bridge/messages/chunks.js";
+import { groupActivityContent, messageBodyPartText } from "../bridge/messages/content.js";
 import { formatCodexTelegramHtml, formatTelegramHtml } from "./text.js";
 
 export const TELEGRAM_RICH_MESSAGE_TEXT_LIMIT = 32_768;
@@ -19,7 +20,7 @@ export function renderTelegramMessageSpec(spec: MessageSpec): {
   const html = [
     activity ? escapeTelegramHtml(spec.title) : `<b>${escapeTelegramHtml(spec.title)}</b>`,
     ...spec.body.map((part) => activity && part.type !== "code"
-      ? escapeTelegramHtml(activityPartText(part))
+      ? escapeTelegramHtml(messageBodyPartText(part))
       : renderHtmlBodyPart(part))
   ].filter(Boolean).join("\n");
   const keyboard = spec.actions.length > 0 ? new InlineKeyboard() : undefined;
@@ -39,27 +40,10 @@ export function renderTelegramMessageSpec(spec: MessageSpec): {
 }
 
 function renderActivityMarkdown(spec: MessageSpec): string {
-  const blocks: string[] = [];
-  let text = spec.title;
-  const flush = () => {
-    if (text) blocks.push(`<footer>${renderRichHtmlText(text)}</footer>`);
-    text = "";
-  };
-  for (const part of spec.body) {
-    if (part.type === "code") {
-      // Footer text is inline-only; keep code blocks outside it.
-      flush();
-      blocks.push(renderRichMarkdownBodyPart(part));
-    } else {
-      text += `${text ? "\n" : ""}${activityPartText(part)}`;
-    }
-  }
-  flush();
-  return blocks.join("\n\n");
-}
-
-function activityPartText(part: MessageBodyPart): string {
-  return part.type === "field" ? `${part.label}: ${part.value}` : part.text;
+  // Footer text is inline-only; keep code blocks outside it.
+  return groupActivityContent(spec).map((part) => part.type === "code"
+    ? renderRichMarkdownBodyPart(part)
+    : `<footer>${renderRichHtmlText(part.text)}</footer>`).join("\n\n");
 }
 
 export function renderTelegramMessageSpecChunks(

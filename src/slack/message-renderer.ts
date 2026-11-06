@@ -2,7 +2,7 @@ import type { KnownBlock } from "@slack/types";
 
 import type { ActionSpec, MessageBodyPart, MessageSpec } from "../bridge/messages/types.js";
 import { splitMessageSpecByRenderedLength } from "../bridge/messages/chunks.js";
-import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
+import { groupActivityContent, messagePlainText } from "../bridge/messages/content.js";
 import { buildSlackButton } from "./buttons.js";
 import { slackSurfaceBlockId } from "./surfaces.js";
 
@@ -31,21 +31,15 @@ export function renderSlackMessageSpecChunks(
     spec,
     maxLength,
     (candidate) => candidate.presentation === "activity"
-      ? renderLegacyMessage(candidate).length
+      ? messagePlainText(candidate).length
       : renderMessageText(candidate).length
   );
 }
 
 function renderActivity(spec: MessageSpec): KnownBlock[] {
   const blocks: KnownBlock[] = [];
-  let text = spec.title;
-  const flush = () => {
-    if (text) blocks.push(...renderContextText(text));
-    text = "";
-  };
-  for (const part of spec.body) {
+  for (const part of groupActivityContent(spec)) {
     if (part.type === "code") {
-      flush();
       // Sections remain editable to context and retain code formatting during file edits.
       // A literal fence in the source cannot be represented safely inside Slack mrkdwn.
       if (part.text.includes("```")) {
@@ -63,10 +57,9 @@ function renderActivity(spec: MessageSpec): KnownBlock[] {
         if (code) blocks.push(codeSection(code));
       }
     } else {
-      text += `${text ? "\n" : ""}${part.type === "field" ? `${part.label}: ${part.value}` : part.text}`;
+      blocks.push(...renderContextText(part.text));
     }
   }
-  flush();
   if (spec.surface && blocks[0]) blocks[0].block_id = slackSurfaceBlockId(spec.surface);
   return blocks;
 }
