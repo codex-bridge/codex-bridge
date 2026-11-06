@@ -11,13 +11,16 @@ export function renderTelegramMessageSpec(spec: MessageSpec): {
   html: string;
   keyboard?: InlineKeyboard;
 } {
-  const markdown = [
+  const activity = spec.presentation === "activity";
+  const markdown = activity ? renderActivityMarkdown(spec) : [
     `<p><b>${escapeTelegramHtml(spec.title)}</b></p>`,
     ...spec.body.map(renderRichMarkdownBodyPart)
   ].filter(Boolean).join("\n\n");
   const html = [
-    `<b>${escapeTelegramHtml(spec.title)}</b>`,
-    ...spec.body.map(renderHtmlBodyPart)
+    activity ? escapeTelegramHtml(spec.title) : `<b>${escapeTelegramHtml(spec.title)}</b>`,
+    ...spec.body.map((part) => activity && part.type !== "code"
+      ? escapeTelegramHtml(activityPartText(part))
+      : renderHtmlBodyPart(part))
   ].filter(Boolean).join("\n");
   const keyboard = spec.actions.length > 0 ? new InlineKeyboard() : undefined;
   for (const [index, action] of spec.actions.entries()) {
@@ -33,6 +36,30 @@ export function renderTelegramMessageSpec(spec: MessageSpec): {
     html,
     ...(keyboard ? { keyboard } : {})
   };
+}
+
+function renderActivityMarkdown(spec: MessageSpec): string {
+  const blocks: string[] = [];
+  let text = spec.title;
+  const flush = () => {
+    if (text) blocks.push(`<footer>${renderRichHtmlText(text)}</footer>`);
+    text = "";
+  };
+  for (const part of spec.body) {
+    if (part.type === "code") {
+      // Footer text is inline-only; keep code blocks outside it.
+      flush();
+      blocks.push(renderRichMarkdownBodyPart(part));
+    } else {
+      text += `${text ? "\n" : ""}${activityPartText(part)}`;
+    }
+  }
+  flush();
+  return blocks.join("\n\n");
+}
+
+function activityPartText(part: MessageBodyPart): string {
+  return part.type === "field" ? `${part.label}: ${part.value}` : part.text;
 }
 
 export function renderTelegramMessageSpecChunks(

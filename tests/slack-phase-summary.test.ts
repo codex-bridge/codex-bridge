@@ -10,7 +10,6 @@ import type { MessageSpec } from "../src/bridge/messages/types.js";
 import type { ProgressPhaseMessageRecord } from "../src/shared/types.js";
 import { renderSlackMessageSpec, renderSlackMessageSpecChunks } from "../src/slack/message-renderer.js";
 import { SlackMessageTransport } from "../src/slack/transport.js";
-import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
 
 function summary(overrides: Partial<ProgressPhaseMessageRecord> = {}): MessageSpec {
   const record: ProgressPhaseMessageRecord = {
@@ -156,9 +155,4 @@ test("Slack activity retains code formatting without creating native Markdown bl
   const fenced = { ...spec, body: [{ type: "code" as const, text: "literal ``` source" }] };
   assert.equal(contextText(renderSlackMessageSpec("slack:T:C", fenced, null)),
     "Run · /workspace/projectliteral ``` source");
-});
-
-test("Telegram phase summary presentation remains unchanged in the Slack-first rollout", () => {
-  assert.equal(renderTelegramMessageSpec(summary()).html,
-    "<b>Run · /workspace/project</b>\nRun ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0");
 });
