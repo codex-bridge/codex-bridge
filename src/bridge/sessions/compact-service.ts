@@ -1,8 +1,7 @@
 import type { AppServerStatusUpdate, CodexAppServerClient } from "../../codex/client.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
-import { createMessage, messageContextForSession } from "../messages/factory.js";
-import { helpAction } from "../messages/actions.js";
+import { createActivityMessage, createMessage, messageContextForSession } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 import type { BridgeMessageOptions } from "../transport.js";
@@ -139,11 +138,10 @@ export class CompactService {
       startedAt: existing?.startedAt ?? Date.now(),
       startedNotified: existing?.startedNotified ?? false
     });
-    const messageSpec = createMessage({
+    const messageSpec = createActivityMessage({
       kind: "compact-completed",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-      body: options?.next ? [{ type: "field", label: "Next", value: options.next }] : [],
-      actions: [helpAction()]
+      body: options?.next ? [{ type: "field", label: "Next", value: options.next }] : []
     });
     await this.deps.sendLongSpec(session.telegramChatId, messageSpec, {
       disable_notification: true
@@ -204,7 +202,7 @@ export class CompactService {
     options?: { reason?: string; next?: string },
     prefix?: string
   ): MessageSpec {
-    return createMessage({
+    return createActivityMessage({
       kind: "compact-started",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       body: [

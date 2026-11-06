@@ -1,6 +1,6 @@
 import type { ThreadHistoryEntry } from "../../codex/thread-history.js";
 import { createProgressHistoryMessageSpec } from "./progress.js";
-import { createMessage } from "../messages/factory.js";
+import { createActivityMessage, createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 
@@ -121,7 +121,7 @@ export function createThreadHistoryEntrySpec(input: {
     return createProgressHistoryMessageSpec({ directory, event: entry.event });
   }
   if (entry.kind === "compaction") {
-    return createMessage({
+    return createActivityMessage({
       kind: "compact-completed",
       session: { id: null, directory }
     });
