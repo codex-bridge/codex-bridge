@@ -2,17 +2,19 @@ import type { KnownBlock } from "@slack/types";
 
 import type { ActionSpec, MessageBodyPart, MessageSpec } from "../bridge/messages/types.js";
 import { splitMessageSpecByRenderedLength } from "../bridge/messages/chunks.js";
+import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
 import { buildSlackButton } from "./buttons.js";
 import { slackSurfaceBlockId } from "./surfaces.js";
 
 export const SLACK_MARKDOWN_BLOCK_TEXT_LIMIT = 12_000;
+const SLACK_CONTEXT_TEXT_LIMIT = 3_000;
 
 export function renderSlackMessageSpec(
   chatId: string,
   spec: MessageSpec,
   callbackSecret: string | null
 ): KnownBlock[] {
-  const blocks: KnownBlock[] = [{
+  const blocks: KnownBlock[] = spec.presentation === "phase-summary" ? renderSummary(spec) : [{
     type: "markdown",
     ...(spec.surface ? { block_id: slackSurfaceBlockId(spec.surface) } : {}),
     text: truncateSlackMarkdown(renderMessageText(spec))
@@ -28,8 +30,27 @@ export function renderSlackMessageSpecChunks(
   return splitMessageSpecByRenderedLength(
     spec,
     maxLength,
-    (candidate) => renderMessageText(candidate).length
+    (candidate) => candidate.presentation === "phase-summary"
+      ? renderLegacyMessage(candidate).length
+      : renderMessageText(candidate).length
   );
+}
+
+function renderSummary(spec: MessageSpec): KnownBlock[] {
+  const characters = Array.from(renderLegacyMessage(spec));
+  const blocks: KnownBlock[] = [];
+  for (let offset = 0; offset < characters.length; offset += SLACK_CONTEXT_TEXT_LIMIT) {
+    blocks.push({
+      type: "context",
+      ...(offset === 0 && spec.surface ? { block_id: slackSurfaceBlockId(spec.surface) } : {}),
+      elements: [{
+        type: "plain_text",
+        text: characters.slice(offset, offset + SLACK_CONTEXT_TEXT_LIMIT).join(""),
+        emoji: false
+      }]
+    });
+  }
+  return blocks;
 }
 
 function renderActions(

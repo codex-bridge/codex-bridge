@@ -70,5 +70,6 @@ export type MessageSpec = {
   actions: ActionSpec[];
   delivery?: DeliverySpec;
   decision?: DecisionContext;
+  presentation?: "phase-summary";
   surface?: "session-selector" | "session-status" | "action-result";
 };
