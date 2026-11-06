@@ -124,9 +124,20 @@ export class SlackMessageTransport implements BridgeMessageTransport {
       const mapped = this.continuations?.message(sourceId, messageId);
       const updatedOptions = options?.messageSpec ? { ...options,
         messageSpec: withCurrentSlackThread(options.messageSpec, ref.threadTs) } : options;
-      return this.delivery.edit(sourceId, ref, mapped?.messageId ?? messageId,
-        { text: updatedOptions?.messageSpec ? renderLegacyMessage(updatedOptions.messageSpec) : text,
-          blocks: this.buildBlocks(sourceId, text, updatedOptions) }, updatedOptions, mapped?.replace);
+      const content = { text: updatedOptions?.messageSpec ? renderLegacyMessage(updatedOptions.messageSpec) : text,
+        blocks: this.buildBlocks(sourceId, text, updatedOptions) };
+      const edit = (blocks: KnownBlock[] | undefined) => this.delivery.edit(sourceId, ref, mapped?.messageId ?? messageId,
+        { ...content, blocks }, updatedOptions, mapped?.replace);
+      try {
+        return await edit(content.blocks);
+      } catch (error) {
+        // Slack rejects converting old native Markdown/rich-text cards to context.
+        // Keep the original message and synchronize its content in its existing format.
+        const code = (error as { data?: { error?: string } } | null)?.data?.error;
+        if (code !== "block_mismatch" || updatedOptions?.messageSpec?.presentation !== "activity") throw error;
+        const legacySpec = { ...updatedOptions.messageSpec, presentation: undefined };
+        return edit(renderSlackMessageSpec(sourceId, legacySpec, this.callbackSecret));
+      }
     });
   }
 

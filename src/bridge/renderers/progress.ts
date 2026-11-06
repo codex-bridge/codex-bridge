@@ -89,7 +89,7 @@ export function createProgressPhaseSummarySpec(input: {
   return createMessage({
     kind: input.record.state === "failed" ? "failed" : "progress",
     titleLabel: phaseTitle(input.record.phaseKind),
-    presentation: "phase-summary",
+    presentation: "activity",
     session: { id: input.record.sessionId, directory: input.directory },
     body: summaryLines(input.record).map((text) => ({ type: "text" as const, text }))
   });

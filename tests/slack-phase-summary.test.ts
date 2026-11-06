@@ -102,6 +102,62 @@ test("Slack send and edit keep the full summary in Activity fallback text", asyn
   }
 });
 
+test("Slack updates old rich-text cards in place after a definite block mismatch", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const client = { chat: {
+    update: async (payload: Record<string, unknown>) => {
+      requests.push(payload);
+      if ((payload.blocks as KnownBlock[])[0]?.type === "context") {
+        throw Object.assign(new Error("block_mismatch"), { data: { error: "block_mismatch" } });
+      }
+      return { ok: true };
+    },
+    postMessage: async () => assert.fail("must not send a replacement"),
+    delete: async () => assert.fail("must not delete the old card")
+  } } as unknown as WebClient;
+  const spec = summary();
+  assert.equal(await new SlackMessageTransport(client).editMessageSpec("slack:T:C", "old-card", spec), true);
+  assert.equal(requests.length, 2);
+  for (const payload of requests) {
+    assert.equal(payload.ts, "old-card");
+    assert.equal(payload.text, renderLegacyMessage(spec));
+  }
+  assert.equal((requests[1]!.blocks as KnownBlock[])[0]?.type, "markdown");
+});
+
+test("Slack does not apply the old-card fallback to unknown failures or normal replies", async () => {
+  for (const code of ["request_timeout", "block_mismatch"]) {
+    let attempts = 0;
+    const error = Object.assign(new Error(code), { data: { error: code } });
+    const client = { chat: { update: async () => { attempts++; throw error; } } } as unknown as WebClient;
+    const spec = code === "block_mismatch" ? { ...summary(), presentation: undefined } : summary();
+    await assert.rejects(new SlackMessageTransport(client).editMessageSpec("slack:T:C", "old-card", spec), error);
+    assert.equal(attempts, 1);
+  }
+});
+
+test("Slack activity retains code formatting without creating native Markdown blocks", () => {
+  const spec = { ...summary(), body: [
+    { type: "text" as const, text: "src/a.ts (+1 -1)" },
+    { type: "code" as const, text: "@@\n-old\n+<new>&" },
+    { type: "text" as const, text: "src/b.ts (+1 -0)" },
+    { type: "code" as const, text: "&".repeat(800) }
+  ] };
+  const blocks = renderSlackMessageSpec("slack:T:C", spec, null);
+  assert.ok(blocks.every((block) => block.type === "context" || block.type === "section"));
+  assert.equal(contextText([blocks[0]!]), "Run · /workspace/project\nsrc/a.ts (+1 -1)");
+  assert.deepEqual(blocks[1], {
+    type: "section", text: { type: "mrkdwn", text: "```\n@@\n-old\n+&lt;new&gt;&amp;\n```", verbatim: true }
+  });
+  assert.equal(contextText([blocks[2]!]), "src/b.ts (+1 -0)");
+  for (const block of blocks) {
+    if (block.type === "section") assert.ok(block.text.text.length <= 3_000);
+  }
+  const fenced = { ...spec, body: [{ type: "code" as const, text: "literal ``` source" }] };
+  assert.equal(contextText(renderSlackMessageSpec("slack:T:C", fenced, null)),
+    "Run · /workspace/projectliteral ``` source");
+});
+
 test("Telegram phase summary presentation remains unchanged in the Slack-first rollout", () => {
   assert.equal(renderTelegramMessageSpec(summary()).html,
     "<b>Run · /workspace/project</b>\nRun ×1 · Unreported ×1 · Reported successes ×0 · Reported failures ×0");

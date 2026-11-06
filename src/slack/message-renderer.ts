@@ -14,7 +14,7 @@ export function renderSlackMessageSpec(
   spec: MessageSpec,
   callbackSecret: string | null
 ): KnownBlock[] {
-  const blocks: KnownBlock[] = spec.presentation === "phase-summary" ? renderSummary(spec) : [{
+  const blocks: KnownBlock[] = spec.presentation === "activity" ? renderActivity(spec) : [{
     type: "markdown",
     ...(spec.surface ? { block_id: slackSurfaceBlockId(spec.surface) } : {}),
     text: truncateSlackMarkdown(renderMessageText(spec))
@@ -30,19 +30,57 @@ export function renderSlackMessageSpecChunks(
   return splitMessageSpecByRenderedLength(
     spec,
     maxLength,
-    (candidate) => candidate.presentation === "phase-summary"
+    (candidate) => candidate.presentation === "activity"
       ? renderLegacyMessage(candidate).length
       : renderMessageText(candidate).length
   );
 }
 
-function renderSummary(spec: MessageSpec): KnownBlock[] {
-  const characters = Array.from(renderLegacyMessage(spec));
+function renderActivity(spec: MessageSpec): KnownBlock[] {
+  const blocks: KnownBlock[] = [];
+  let text = spec.title;
+  const flush = () => {
+    if (text) blocks.push(...renderContextText(text));
+    text = "";
+  };
+  for (const part of spec.body) {
+    if (part.type === "code") {
+      flush();
+      // Sections remain editable to context and retain code formatting during file edits.
+      // A literal fence in the source cannot be represented safely inside Slack mrkdwn.
+      if (part.text.includes("```")) {
+        blocks.push(...renderContextText(part.text));
+      } else {
+        let code = "";
+        for (const character of Array.from(part.text)) {
+          const escaped = escapeSlackText(character);
+          if (code.length + escaped.length > SLACK_CONTEXT_TEXT_LIMIT - 8) {
+            blocks.push(codeSection(code));
+            code = "";
+          }
+          code += escaped;
+        }
+        if (code) blocks.push(codeSection(code));
+      }
+    } else {
+      text += `${text ? "\n" : ""}${part.type === "field" ? `${part.label}: ${part.value}` : part.text}`;
+    }
+  }
+  flush();
+  if (spec.surface && blocks[0]) blocks[0].block_id = slackSurfaceBlockId(spec.surface);
+  return blocks;
+}
+
+function codeSection(code: string): KnownBlock {
+  return { type: "section", text: { type: "mrkdwn", text: `\`\`\`\n${code}\n\`\`\``, verbatim: true } };
+}
+
+function renderContextText(text: string): KnownBlock[] {
+  const characters = Array.from(text);
   const blocks: KnownBlock[] = [];
   for (let offset = 0; offset < characters.length; offset += SLACK_CONTEXT_TEXT_LIMIT) {
     blocks.push({
       type: "context",
-      ...(offset === 0 && spec.surface ? { block_id: slackSurfaceBlockId(spec.surface) } : {}),
       elements: [{
         type: "plain_text",
         text: characters.slice(offset, offset + SLACK_CONTEXT_TEXT_LIMIT).join(""),

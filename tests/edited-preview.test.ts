@@ -100,6 +100,29 @@ async function fixture() {
   return { store, session, service: restart(), restart, sent, edited };
 }
 
+test("live phase cards and finalized summaries use Slack blocks that can be updated in place", async () => {
+  const f = await fixture();
+  try {
+    await f.service.sendProgressMessage(f.session, patchEvent("@@\n-old\n+<new>", "item/started"));
+    await f.service.sendProgressMessage(f.session, patchEvent("@@\n-old\n+<updated>"));
+    await f.service.clearProgressMessageForThread("thread-1", { turnId: "turn-1" });
+    assert.equal(f.sent.length, 1);
+    const preview = renderSlackMessageSpec("slack:T:C", f.sent[0]!, null);
+    assert.equal(preview[0]?.type, "context");
+    assert.ok(preview.some((block) => block.type === "section"));
+    for (const spec of [...f.sent, ...f.edited.map((entry) => entry.spec)]) {
+      assert.ok(renderSlackMessageSpec("slack:T:C", spec, null).every((block) => block.type !== "markdown"));
+    }
+    assert.ok(f.edited.length >= 2);
+    assert.ok(f.edited.every((entry) => entry.id === "1"));
+    const finalized = renderSlackMessageSpec("slack:T:C", f.edited.at(-1)!.spec, null);
+    assert.ok(finalized.every((block) => block.type === "context"));
+  } finally {
+    await f.service.stop();
+    f.store.close();
+  }
+});
+
 test("Edited shows each file's structured diff through native Slack/TG code rendering", () => {
   const event = extractProgressEvent({ method: "item/fileChange/patchUpdated", params: {
     threadId: "thread-1", changes: [
