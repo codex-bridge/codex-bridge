@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
 import { RuntimeController, type RuntimeState } from "./controller.js";
-import { helpAction, messageAction } from "../messages/actions.js";
+import { helpAction } from "../messages/actions.js";
 import { createMessage, messageContextForSession } from "../messages/factory.js";
 import type { MessageSpec, SessionContext } from "../messages/types.js";
 
@@ -114,17 +114,7 @@ export class RuntimeCommandService {
       titleLabel: "Codex",
       ...messageContextForSession(await this.deps.getActiveSessionContext(chatId)),
       body: [{ type: "text", text: body }],
-      actions: this.deps.runtime.isTransitioning()
-        ? [helpAction()]
-        : [
-            messageAction(
-              this.deps.runtime.isConnected() ? "bot-disconnect" : "bot-connect",
-              this.deps.runtime.isConnected() ? "Disconnect" : "Connect",
-              this.deps.runtime.isConnected() ? "quick:bot_disconnect" : "quick:bot_connect",
-              "Bot"
-            ),
-            helpAction()
-          ]
+      actions: [helpAction()]
     });
   }
 }

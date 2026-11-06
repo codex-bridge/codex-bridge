@@ -6,6 +6,7 @@ import { handleTurnAction } from "../src/bridge/interactions/handlers/turns.js";
 import { RuntimeCommandService, type RuntimeCommandDependencies } from "../src/bridge/runtime/commands.js";
 import { RuntimeController } from "../src/bridge/runtime/controller.js";
 import { createMessage } from "../src/bridge/messages/factory.js";
+import { helpAction } from "../src/bridge/messages/actions.js";
 
 function dependencies(overrides: Partial<RuntimeCommandDependencies>): RuntimeCommandDependencies {
   return {
@@ -36,6 +37,7 @@ test("restart resolves the initiating conversation before requesting a restart",
     assert.deepEqual(calls, ["slack:team:channel:thread", "restart"]);
     assert.equal(reply.title, session ? "Codex · /workspace/project" : "Codex");
     assert.deepEqual(reply.body, [{ type: "text", text: "Restart requested.\nThe bot should be back in a few seconds." }]);
+    assert.deepEqual(reply.actions, [helpAction()]);
   }
 });
 
@@ -44,6 +46,23 @@ test("restart does not schedule a restart when context lookup fails", async () =
     getActiveSessionContext: async () => { throw new Error("lookup failed"); }
   }));
   await assert.rejects(service.restart("chat-1"), /lookup failed/);
+});
+
+test("runtime command replies retain only Help for connected and disconnected states", async () => {
+  const service = new RuntimeCommandService(dependencies({
+    codexClient: {
+      connect: async () => {}, close: async () => {}
+    } as RuntimeCommandDependencies["codexClient"],
+    requestRestart: () => {}
+  }));
+  const replies = [
+    await service.disconnect("chat"),
+    await service.connect("chat"),
+    await service.connect("chat"),
+    await service.restart("chat"),
+    await service.disconnect("chat")
+  ];
+  for (const reply of replies) assert.deepEqual(reply.actions, [helpAction()]);
 });
 
 test("runtime transition replies preserve the initiating session directory", async () => {
@@ -57,8 +76,10 @@ test("runtime transition replies preserve the initiating session directory", asy
       return { id: "session-1", directory: "/workspace/project" };
     }
   }));
-  assert.equal((await service.connect("chat-1")).title, "Codex · /workspace/project");
-  assert.equal((await service.disconnect("chat-1")).title, "Codex · /workspace/project");
+  for (const reply of [await service.connect("chat-1"), await service.disconnect("chat-1")]) {
+    assert.equal(reply.title, "Codex · /workspace/project");
+    assert.deepEqual(reply.actions, [helpAction()]);
+  }
   assert.deepEqual(calls, ["chat-1", "chat-1"]);
 });
 
