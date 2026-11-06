@@ -37,8 +37,9 @@ export function renderSlackMessageSpecChunks(
 }
 
 function renderActivity(spec: MessageSpec): KnownBlock[] {
-  const blocks: KnownBlock[] = [];
-  for (const part of groupActivityContent(spec)) {
+  // Keep the title separate: desktop Slack collapses newlines within context text.
+  const blocks: KnownBlock[] = renderContextText(spec.title);
+  for (const part of groupActivityContent({ title: "", body: spec.body })) {
     if (part.type === "code") {
       // Sections remain editable to context and retain code formatting during file edits.
       // A literal fence in the source cannot be represented safely inside Slack mrkdwn.

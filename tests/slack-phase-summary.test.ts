@@ -37,6 +37,10 @@ function contextText(blocks: KnownBlock[]): string {
   }).join("");
 }
 
+function activityText(blocks: KnownBlock[]): string {
+  return [contextText(blocks.slice(0, 1)), ...(blocks.length > 1 ? [contextText(blocks.slice(1))] : [])].join("\n");
+}
+
 test("Slack phase summaries keep titles, ordered details and failures in subdued context", () => {
   const aggregate = emptyPhaseAggregate();
   aggregate.run = { updates: 2, succeeded: 1, failed: 1 };
@@ -62,7 +66,11 @@ test("Slack phase summaries keep titles, ordered details and failures in subdued
   for (const { phaseKind, expected } of cases) {
     const spec = summary({ aggregate, phaseKind,
       state: phaseKind === "edited" ? "phase_complete" : "step_failed", failureReason: "timeout" });
-    const rendered = contextText(renderSlackMessageSpec("slack:T:C", spec, null));
+    const blocks = renderSlackMessageSpec("slack:T:C", spec, null);
+    assert.equal(blocks.length, 2);
+    assert.equal(contextText([blocks[0]!]), expected[0]);
+    assert.equal(contextText([blocks[1]!]), expected.slice(1).join("\n"));
+    const rendered = activityText(blocks);
     assert.equal(rendered, expected.join("\n"));
     assert.equal(renderLegacyMessage(spec), rendered);
   }
@@ -72,14 +80,14 @@ test("Slack context preserves literal punctuation, newlines and Unicode within t
   const spec = { ...summary(), title: "Edited · /workspace/<project>&_*",
     body: [{ type: "text" as const, text: "file_*<&>.md (+8 -1)\n" + "🧪".repeat(6_500) }] };
   const blocks = renderSlackMessageSpec("slack:T:C", spec, null);
-  assert.equal(blocks.length, 3);
-  assert.equal(contextText(blocks), renderLegacyMessage(spec));
+  assert.equal(blocks.length, 4);
+  assert.equal(activityText(blocks), renderLegacyMessage(spec));
 
   const chunks = renderSlackMessageSpecChunks({ ...spec,
     body: [{ type: "text", text: "line_*<&>\n".repeat(2_000) }] });
   assert.ok(chunks.length > 1);
   for (const chunk of chunks) {
-    assert.equal(contextText(renderSlackMessageSpec("slack:T:C", chunk, null)), renderLegacyMessage(chunk));
+    assert.equal(activityText(renderSlackMessageSpec("slack:T:C", chunk, null)), renderLegacyMessage(chunk));
   }
 });
 
@@ -97,7 +105,8 @@ test("Slack send and edit keep the full summary in Activity fallback text", asyn
   assert.equal(requests.length, 2);
   for (const payload of requests) {
     assert.equal(payload.text, "Run · /workspace/project\nRun ×1 · Succeeded ×1 · Failed ×0");
-    assert.equal(contextText(payload.blocks as KnownBlock[]), payload.text);
+    assert.equal((payload.blocks as KnownBlock[]).length, 2);
+    assert.equal(activityText(payload.blocks as KnownBlock[]), payload.text);
   }
 });
 
@@ -144,15 +153,16 @@ test("Slack activity retains code formatting without creating native Markdown bl
   ] };
   const blocks = renderSlackMessageSpec("slack:T:C", spec, null);
   assert.ok(blocks.every((block) => block.type === "context" || block.type === "section"));
-  assert.equal(contextText([blocks[0]!]), "Run · /workspace/project\nsrc/a.ts (+1 -1)");
-  assert.deepEqual(blocks[1], {
+  assert.equal(contextText([blocks[0]!]), "Run · /workspace/project");
+  assert.equal(contextText([blocks[1]!]), "src/a.ts (+1 -1)");
+  assert.deepEqual(blocks[2], {
     type: "section", text: { type: "mrkdwn", text: "```\n@@\n-old\n+&lt;new&gt;&amp;\n```", verbatim: true }
   });
-  assert.equal(contextText([blocks[2]!]), "src/b.ts (+1 -0)");
+  assert.equal(contextText([blocks[3]!]), "src/b.ts (+1 -0)");
   for (const block of blocks) {
     if (block.type === "section") assert.ok(block.text.text.length <= 3_000);
   }
   const fenced = { ...spec, body: [{ type: "code" as const, text: "literal ``` source" }] };
-  assert.equal(contextText(renderSlackMessageSpec("slack:T:C", fenced, null)),
-    "Run · /workspace/projectliteral ``` source");
+  assert.equal(activityText(renderSlackMessageSpec("slack:T:C", fenced, null)),
+    "Run · /workspace/project\nliteral ``` source");
 });
