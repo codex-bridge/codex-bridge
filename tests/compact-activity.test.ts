@@ -42,10 +42,10 @@ function assertActivity(spec: MessageSpec, expected: string[]) {
   assert.equal(spec.presentation, "activity");
   assert.deepEqual(spec.actions, []);
   const blocks = renderSlackMessageSpec("slack:T:C", spec, null);
-  const groups = [expected[0], ...(expected.length > 1 ? [expected.slice(1).join("\n")] : [])];
-  assert.deepEqual(blocks, groups.map((text) => ({
+  const text = expected.length > 1 ? `${expected[0]} ·\n${expected.slice(1).join("\n")}` : expected[0];
+  assert.deepEqual(blocks, [{
     type: "context", elements: [{ type: "plain_text", text, emoji: false }]
-  })));
+  }]);
   const telegram = renderTelegramMessageSpec(spec);
   assert.equal(telegram.markdown, `<footer>${expected.join("<br>")}</footer>`);
   assert.equal(telegram.html, expected.join("\n"));

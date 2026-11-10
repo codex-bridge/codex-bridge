@@ -31,15 +31,19 @@ export function renderSlackMessageSpecChunks(
     spec,
     maxLength,
     (candidate) => candidate.presentation === "activity"
-      ? messagePlainText(candidate).length
+      ? messagePlainText({ ...candidate, title: activityTitle(candidate) }).length
       : renderMessageText(candidate).length
   );
 }
 
+function activityTitle(spec: MessageSpec): string {
+  return spec.body.length > 0 ? `${spec.title} ·` : spec.title;
+}
+
 function renderActivity(spec: MessageSpec): KnownBlock[] {
-  // Keep the title separate: desktop Slack collapses newlines within context text.
-  const blocks: KnownBlock[] = renderContextText(spec.title);
-  for (const part of groupActivityContent({ title: "", body: spec.body })) {
+  // The separator remains visible when desktop Slack collapses context newlines.
+  const blocks: KnownBlock[] = [];
+  for (const part of groupActivityContent({ title: activityTitle(spec), body: spec.body })) {
     if (part.type === "code") {
       // Sections remain editable to context and retain code formatting during file edits.
       // A literal fence in the source cannot be represented safely inside Slack mrkdwn.
