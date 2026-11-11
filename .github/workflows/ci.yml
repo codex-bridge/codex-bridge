@@ -24,7 +24,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.0
+          node-version-file: package.json
 
       - name: Enable Corepack
         run: corepack enable

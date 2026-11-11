@@ -93,6 +93,23 @@ when logs show a sustained network problem.
 `ecosystem.config.cjs` starts one Bridge runtime, loads `.env.bridge`, writes the
 default database under `workspaces/`, and stores logs under `workspaces/logs/`.
 
+It resolves the exact `volta.node` pin in `package.json` using `volta which node`
+from the project directory, verifies the executable version, and puts its
+directory first in the application's PATH. This also fixes the environment
+inherited by newly launched Codex processes; changing Volta's global default
+alone does not replace a running Bridge or PM2 daemon. This step does not install
+Node. Install the pinned version before restarting. Without Volta, the Node
+loading the PM2 config must already match the pin, otherwise startup fails rather
+than silently using an older runtime.
+
+After changing the pin, first run the project checks and load `better-sqlite3`
+against an in-memory database with the selected Node. Use `native:rebuild` only
+if the native ABI check fails. Restart only `codex-bridge` through the ecosystem
+config, then save PM2 state; a plain process-name restart can reuse old interpreter
+and environment values. Restarting Bridge interrupts its current sessions, so
+finish active work first. The PM2 daemon's own Node is a separate migration:
+`pm2 update` can restart other applications and must not be used implicitly here.
+
 ```bash
 corepack yarn pm2:start
 corepack yarn pm2:status

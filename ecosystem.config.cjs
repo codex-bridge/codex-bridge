@@ -1,10 +1,13 @@
+const { resolveNodeRuntime } = require("./scripts/resolve-node-runtime.cjs");
+const runtime = resolveNodeRuntime(__dirname);
+
 module.exports = {
   apps: [
     {
       name: "codex-bridge",
       cwd: __dirname,
       script: "src/index.ts",
-      interpreter: "node",
+      interpreter: runtime.interpreter,
       interpreter_args: "--import tsx",
       autorestart: true,
       restart_delay: 3000,
@@ -13,6 +16,7 @@ module.exports = {
       watch: false,
       time: true,
       env: {
+        ...runtime.env,
         DOTENV_CONFIG_PATH: ".env.bridge",
         BRIDGE_LOG_INSTANCE: "main",
         BRIDGE_DB_FILE: "./workspaces/bridge.sqlite",
