@@ -13,6 +13,14 @@ These scripts verify the local Codex app-server protocol and Bridge compatibilit
 - `probe-method-diff.ts`: initializes app-server and checks the protocol method registry and runtime responses.
 - `probe-thread-timeline.ts`: reads the timeline for a specific thread; requires `THREAD_ID`.
 
+## Protocol evidence baseline
+
+The registry and generated evidence currently target Codex CLI **0.167.1**, including experimental bindings: 183 client requests, 11 server requests, and 88 notifications. A listed method is not proof that Bridge integrates it or that a real invocation succeeds. Live evidence currently covers only `server/diagnostics`, `configRequirements/read`, and `modelProvider/capabilities/read` response validation.
+
+Run `yarn protocol:evidence:refresh --live` with that exact CLI version to regenerate bindings, enumerate requests using an independent app-server, validate those three read-only responses, and refresh production references. This does not send a model turn or certify turn, approval, or session-resume behavior. Old-version live verification is discarded when the baseline changes. Use `yarn check:protocol-evidence` to check version and source-reference consistency.
+
+The 0.167.1 inventory registers new methods without calling them. In particular, `thread/guardianReview` subscribes the connection and keeps the thread loaded until unsubscribe or disconnect; it is not a side-effect-free status read. `thread/sample` starts model sampling. `thread/section/changed` describes Codex section membership, not a working-directory change. The new `requiredHumanApproval` capability is not enabled by this baseline update; Bridge approval defaults and text/image attachment support stay unchanged.
+
 ## Guidelines
 
 When adding a probe, document whether it starts app-server, sends a turn, or writes to a database or temporary directory. Destructive behavior must require an explicit environment variable or argument. Production code should import explicit modules under `src/` rather than a root-level compatibility shim.
