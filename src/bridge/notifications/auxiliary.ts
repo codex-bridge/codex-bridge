@@ -6,7 +6,7 @@ import type {
 import type { AppServerModelRuntimeEvent } from "../../codex/notification-events.js";
 import { createMessage } from "../messages/factory.js";
 import { helpAction } from "../messages/actions.js";
-import type { SessionRecord } from "../../shared/types.js";
+import type { DecisionRecord, SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
 import type { RateLimitNotifier } from "./rate-limit-notifier.js";
 import type { TokenUsageTracker } from "../status/token-usage.js";
@@ -25,6 +25,8 @@ export type NotificationAuxiliaryDependencies = {
   setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
   getSessionDirectory: (session: SessionRecord) => string;
   sendLongSpec: (chatId: string, messageSpec: ReturnType<typeof createMessage>) => Promise<void>;
+  clearDecisionMessageActions: (decision: DecisionRecord) => Promise<void>;
+  syncBatchDecisionMessageForSessionId: (sessionId: string) => Promise<void>;
 };
 
 export class NotificationAuxiliaryService {
@@ -80,7 +82,9 @@ export class NotificationAuxiliaryService {
       }
     }
     if (decision?.state === "pending" || decision?.state === "awaitingInput") {
-      await this.deps.store.resolveDecision(decision.id, "stale");
+      const expired = await this.deps.store.resolveDecision(decision.id, "stale");
+      await this.deps.clearDecisionMessageActions(expired ?? { ...decision, state: "stale" });
+      await this.deps.syncBatchDecisionMessageForSessionId(decision.sessionId);
     }
   }
 }

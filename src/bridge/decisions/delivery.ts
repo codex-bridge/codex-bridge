@@ -1,4 +1,4 @@
-import type { DecisionRecord, SessionRecord } from "../../shared/types.js";
+import type { DecisionAction, DecisionRecord, SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import type { BridgeMessageOptions, BridgeMessageTransport, BridgeSentMessage } from "../transport.js";
 import { logger } from "../../logging/logger.js";
@@ -8,6 +8,7 @@ import type { MessageSpec, SessionContext } from "../messages/types.js";
 import type { SessionDecisionOperationQueue } from "./session-operation-queue.js";
 import { canDeliverSession } from "../notifications/delivery-target.js";
 import { createBatchDecisionCallback } from "./action-callbacks.js";
+import { describeDecision } from "./formatters.js";
 
 type DecisionStore = Pick<
   BridgeStore,
@@ -55,22 +56,19 @@ export class DecisionDeliveryService {
       await this.retireDecisionMessage(session, decision);
     }
 
-    const actions = decision.kind === "mcpServer/elicitation/request"
-      ? actionRow(
-          messageAction("accept", "Accept", `decision:${decision.id}:a`),
-          messageAction("decline", "Decline", `decision:${decision.id}:d`),
-          messageAction("cancel", "Cancel", `decision:${decision.id}:c`)
-        )
-      : [
-          ...actionRow(
-            { ...messageAction("approve", "Approve Once", `decision:${decision.id}:a`), style: "primary" as const },
-            { ...messageAction("allow", this.deps.getExecpolicyAmendment(decision) ? "Allow Command" : "Allow Session", `decision:${decision.id}:s`), style: "primary" as const }
-          ),
-          ...actionRow(
-            messageAction("decline", "Decline", `decision:${decision.id}:d`),
-            { ...messageAction("cancel", "Cancel", `decision:${decision.id}:c`), style: "danger" as const }
-          )
-        ];
+    const available = describeDecision(decision).availableActions;
+    const mcp = decision.kind === "mcpServer/elicitation/request";
+    const buttons: Record<Exclude<DecisionAction, "acceptWithExecpolicyAmendment">, MessageSpec["actions"][number]> = {
+      accept: { ...messageAction(mcp ? "accept" : "approve", mcp ? "Accept" : "Approve Once", `decision:${decision.id}:a`), ...(!mcp ? { style: "primary" as const } : {}) },
+      acceptForSession: { ...messageAction("allow", this.deps.getExecpolicyAmendment(decision) ? "Allow Command" : "Allow Session", `decision:${decision.id}:s`), style: "primary" },
+      decline: messageAction("decline", "Decline", `decision:${decision.id}:d`),
+      cancel: { ...messageAction("cancel", "Cancel", `decision:${decision.id}:c`), ...(!mcp ? { style: "danger" as const } : {}) }
+    };
+    const selected = available.filter((action): action is keyof typeof buttons => action in buttons);
+    const actions = mcp ? actionRow(...selected.map((action) => buttons[action])) : [
+      ...actionRow(...selected.filter((action) => action === "accept" || action === "acceptForSession").map((action) => buttons[action])),
+      ...actionRow(...selected.filter((action) => action === "decline" || action === "cancel").map((action) => buttons[action]))
+    ];
     const messageSpec = this.deps.createDecisionMessageSpec(session, decision, actions);
     if (refresh && decision.telegramMessageId && decision.telegramChatId === targetChatId) {
       await this.deps.editMessageSpec(targetChatId, decision.telegramMessageId, messageSpec);
@@ -155,12 +153,14 @@ export class DecisionDeliveryService {
         await this.clearBatchDecisionMessage(latestSession);
         return;
       }
-      const actions = actionRow(
-        messageAction("approve-all", "Approve All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "accept")),
-        messageAction("decline-all", "Decline All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "decline")),
-        messageAction("cancel-all", "Cancel All", createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, "cancel"))
-      );
+      const batchActions = [
+        ["accept", "approve-all", "Approve All"], ["decline", "decline-all", "Decline All"], ["cancel", "cancel-all", "Cancel All"]
+      ] as const;
+      const actions = actionRow(...batchActions
+        .filter(([action]) => batchable.every((decision) => describeDecision(decision).availableActions.includes(action)))
+        .map(([action, id, label]) => messageAction(id, label, createBatchDecisionCallback(latestSession.id, lease?.version ?? 0, action))));
       await this.clearBatchDecisionMessage(latestSession);
+      if (!actions.length) return;
       const messageSpec = this.deps.createBatchDecisionMessageSpec(
         { id: latestSession.id, directory: this.deps.getSessionDirectory(latestSession) }, batchable.length, actions
       );

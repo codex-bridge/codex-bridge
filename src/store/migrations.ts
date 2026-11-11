@@ -23,7 +23,8 @@ export type SchemaMigrationVersion =
   | "014_progress_phase_aggregate"
   | "015_progress_phase_lifecycle"
   | "016_web_directories"
-  | "017_slack_continuations";
+  | "017_slack_continuations"
+  | "018_decision_approval_constraints";
 
 export const SCHEMA_MIGRATIONS: readonly SchemaMigrationVersion[] = [
   "001_current_schema",
@@ -42,7 +43,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationVersion[] = [
   "014_progress_phase_aggregate",
   "015_progress_phase_lifecycle",
   "016_web_directories",
-  "017_slack_continuations"
+  "017_slack_continuations",
+  "018_decision_approval_constraints"
 ];
 
 export interface DatabaseMigrationPlan {
@@ -277,6 +279,12 @@ export function migrate(sqlite: SqliteDatabase): void {
           message_id TEXT NOT NULL,
           PRIMARY KEY (source_id, message_id)
         );
+      `);
+    } },
+    { version: "018_decision_approval_constraints", run: () => {
+      sqlite.exec(`
+        ALTER TABLE decisions ADD COLUMN command_approval_kind TEXT;
+        ALTER TABLE decisions ADD COLUMN available_decisions_json TEXT;
       `);
     } }
   ];

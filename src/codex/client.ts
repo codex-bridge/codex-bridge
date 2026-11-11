@@ -4,6 +4,7 @@ import {
   buildApprovalSummary,
   buildApprovalTitle,
   extractRequestedFieldNames,
+  extractAvailableDecisions,
   mcpRequestRequiresUserInput
 } from "./extractors/approval.js";
 import { asRecord, firstString } from "./protocol-utils.js";
@@ -55,6 +56,7 @@ import { CodexRuntimeCapabilitiesApi, type RuntimeCapabilities } from "./runtime
 import type { AppConfig } from "../config/index.js";
 import { logger } from "../logging/logger.js";
 import type { DecisionAction } from "../shared/types.js";
+import { getApprovalPolicy, type ApprovalConstraints } from "../shared/approval-policy.js";
 
 function extractRequestedPermissions(content?: Record<string, unknown> | null): Record<string, unknown> {
   const permissions = asRecord(content?.permissions);
@@ -67,7 +69,7 @@ function extractRequestedPermissions(content?: Record<string, unknown> | null): 
   };
 }
 
-export interface AppServerApprovalRequest {
+export interface AppServerApprovalRequest extends ApprovalConstraints {
   requestId: string;
   threadId: string;
   turnId: string | null;
@@ -331,7 +333,7 @@ export class CodexAppServerClient {
   private runtimeInfo: AppServerRuntimeInfo | null = null;
   private notificationListeners = new Set<(notification: AppServerNotification) => void>();
   private approvalListeners = new Set<(request: AppServerApprovalRequest) => void>();
-  private approvalTokens = new Map<string, { id: JsonRpcId; method: string }>();
+  private approvalTokens = new Map<string, { id: JsonRpcId; method: string } & ApprovalConstraints>();
   private approvalIds = new Map<JsonRpcId, string>();
   private readonly threadRuntimeState = new ThreadRuntimeState();
   private catalogApi: CodexCatalogApi | null = null;
@@ -354,7 +356,8 @@ export class CodexAppServerClient {
       onNotification: (notification) => this.handleNotification(notification),
       onServerRequest: (request) => this.handleServerRequest(request),
       readEnvironment: readCodexEnvironment,
-      transport: config.codexTransport
+      transport: config.codexTransport,
+      supportsHumanApproval: () => this.approvalListeners.size > 0
     });
     this.authReconnect = new AuthReconnectCoordinator({
       authFilePath: this.authFilePath,
@@ -814,6 +817,9 @@ export class CodexAppServerClient {
     if (!approval || approval.method !== method || !this.connection.isInitialized()) {
       throw new Error("This approval is no longer active on the original connection.");
     }
+    if (!getApprovalPolicy(approval.method, approval).actions.includes(action)) {
+      throw new Error("This action is unavailable for this request.");
+    }
     const result =
       method === "mcpServer/elicitation/request"
         ? action === "cancel"
@@ -960,6 +966,9 @@ export class CodexAppServerClient {
         method: request.method as AppServerApprovalRequest["method"],
         title: buildApprovalTitle(request.method, params),
         summary: buildApprovalSummary(request.method, params),
+        commandApprovalKind: request.method === "item/commandExecution/requestApproval"
+          ? firstString(params.kind) ?? "command" : null,
+        availableDecisions: extractAvailableDecisions(params.availableDecisions),
         requestedFields:
           request.method === "mcpServer/elicitation/request"
             ? extractRequestedFieldNames(params)
@@ -976,7 +985,8 @@ export class CodexAppServerClient {
 
       const previous = this.approvalIds.get(request.id);
       if (previous) return;
-      this.approvalTokens.set(approval.requestId, { id: request.id, method: request.method });
+      this.approvalTokens.set(approval.requestId, { id: request.id, method: request.method,
+        commandApprovalKind: approval.commandApprovalKind, availableDecisions: approval.availableDecisions });
       this.approvalIds.set(request.id, approval.requestId);
       logger.info("codex.approval.request", {
         requestId: approval.requestId,

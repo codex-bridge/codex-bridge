@@ -3,6 +3,17 @@ import type { DecisionAction, DecisionRecord, SessionRecord } from "../../shared
 import { createMessage } from "../messages/factory.js";
 import type { ActionSpec, DecisionContext, MessageSpec, SessionContext } from "../messages/types.js";
 import { pickDirectory } from "../sessions/menu-formatters.js";
+import { getApprovalPolicy } from "../../shared/approval-policy.js";
+
+export function decisionApprovalPolicy(decision: DecisionRecord) {
+  // Older persisted cards encoded server decisions in their display summary.
+  const declared = decision.summary?.split("\n").find((line) => line.startsWith("availableDecisions: "));
+  return getApprovalPolicy(decision.kind, {
+    commandApprovalKind: decision.commandApprovalKind,
+    availableDecisions: decision.availableDecisions !== undefined ? decision.availableDecisions : (declared
+      ? declared.slice("availableDecisions: ".length).split(",").map((value) => value.trim()) : null)
+  });
+}
 
 export type ParsedDecisionSummary = {
   command: string | null;
@@ -51,7 +62,7 @@ export function createDecisionMessageSpec(
   return { ...createMessage({
     kind: "decision",
     titleLabel: decisionTerminalLabel(decision) ?? (isCommandApproval
-      ? "Command Approval Required"
+      ? decisionApprovalPolicy(decision).requiresHumanApproval ? "Human Approval Required" : "Command Approval Required"
       : isPermissionsApproval
         ? "Additional Permissions Required"
         : "Pending Decision"),
@@ -78,16 +89,13 @@ export function createDecisionMessageSpec(
 export function describeDecision(decision: DecisionRecord): DecisionContext {
   const open = decision.state === "pending" || decision.state === "awaitingInput";
   const mcp = decision.kind === "mcpServer/elicitation/request";
-  const supported = mcp || ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].includes(decision.kind ?? "");
-  let availableActions: DecisionAction[] = !open || !supported ? [] : decision.state === "awaitingInput"
-    ? (mcp ? ["decline", "cancel"] : []) : mcp ? ["accept", "decline", "cancel"]
-      : ["accept", "acceptForSession", "decline", "cancel"];
-  const declared = decision.summary?.split("\n").find((line) => line.startsWith("availableDecisions: "));
-  if (declared && !mcp) {
-    const supportedActions = declared.slice("availableDecisions: ".length).split(",").map((value) => value.trim());
-    availableActions = availableActions.filter((action) => supportedActions.includes(action) ||
-      (action === "acceptForSession" && !!getExecpolicyAmendment(decision) && supportedActions.includes("acceptWithExecpolicyAmendment")));
-  }
+  const policy = decisionApprovalPolicy(decision);
+  const availableActions: DecisionAction[] = !open ? [] : (["accept", "acceptForSession", "decline", "cancel"] as const)
+    .filter((action) => {
+      if (decision.state === "awaitingInput" && (!mcp || action === "accept" || action === "acceptForSession")) return false;
+      const effective = action === "acceptForSession" && getExecpolicyAmendment(decision) ? "acceptWithExecpolicyAmendment" : action;
+      return policy.actions.includes(effective);
+    });
   return { id: decision.id, state: decision.state, requiresUserInput: decision.requiresUserInput,
     requestedFields: mcp && decision.requiresUserInput ? getDecisionRequestedFields(decision) : [], availableActions,
     inputAllowed: mcp && decision.requiresUserInput && decision.state === "awaitingInput" };
@@ -271,8 +279,10 @@ export function buildAwaitingMcpPrompt(decision: DecisionRecord): string {
     : "Reply with a JSON object for the MCP response.";
 }
 
-export function isBatchableDecision(decision: DecisionRecord): boolean {
-  return decision.state === "pending" && !decision.requiresUserInput;
+export function isBatchableDecision(decision: DecisionRecord, action?: DecisionAction): boolean {
+  const policy = decisionApprovalPolicy(decision);
+  return decision.state === "pending" && !decision.requiresUserInput && policy.batchable &&
+    (action === undefined || policy.actions.includes(action));
 }
 
 export function describeBatchAction(

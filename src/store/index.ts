@@ -552,15 +552,7 @@ export class BridgeStore {
     return this.messageRepository.listLatestTimes(sessionIds);
   }
 
-  async createOrReplacePendingDecision(input: {
-    sessionId: string;
-    telegramChatId: string;
-    approvalId: string;
-    kind: string | null;
-    title: string;
-    summary: string | null;
-    requiresUserInput: boolean;
-  }): Promise<DecisionRecord> {
+  async createOrReplacePendingDecision(input: Parameters<DecisionRepository["createOrReplacePending"]>[0]): Promise<DecisionRecord> {
     return this.decisionRepository.createOrReplacePending(input);
   }
 

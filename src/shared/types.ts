@@ -145,6 +145,8 @@ export interface DecisionRecord {
   telegramChatId: string;
   approvalId: string;
   kind: string | null;
+  commandApprovalKind?: string | null;
+  availableDecisions?: string[] | null;
   title: string;
   summary: string | null;
   requiresUserInput: boolean;

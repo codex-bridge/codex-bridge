@@ -73,6 +73,20 @@ test("Web restores all pending and awaiting-input cards chronologically without 
   assert.equal(await f.store.getActiveSession("web:local"), null);
 });
 
+test("Web human approval exposes only one-time actions and rejects persistent decisions", async (t) => {
+  const f = await fixture(t);
+  const d = await f.create({ commandApprovalKind: "humanCommand", availableDecisions: null });
+  const snapshot = await f.api.read("thread", undefined, () => {});
+  assert.equal(snapshot.snapshot.decisions[0]!.title, "Human Approval Required · /work");
+  assert.deepEqual(snapshot.snapshot.decisions[0]!.decision!.availableActions, ["accept", "decline", "cancel"]);
+  for (const action of ["acceptForSession", "acceptWithExecpolicyAmendment"] as const) {
+    await assert.rejects(f.api.act({ threadId: "thread", decisionId: d.id, action }, () => {}), new WebDecisionError("invalid_action"));
+  }
+  assert.deepEqual(f.answers, []);
+  assert.equal((await f.api.act({ threadId: "thread", decisionId: d.id, action: "accept" }, () => {})).state, "approved");
+  assert.equal(f.answers.length, 1);
+});
+
 test("MCP accept waits without answering; valid JSON submission edits the same card to approved", async (t) => {
   const f = await fixture(t);
   const d = await f.create({ kind: "mcpServer/elicitation/request", requiresUserInput: true, summary: "fields: value" });

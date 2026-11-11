@@ -568,6 +568,8 @@ export class BridgeService {
     });
     this.notificationAuxiliaryService = new NotificationAuxiliaryService({
       store,
+      clearDecisionMessageActions: (decision) => this.decisionDelivery.clearDecisionMessageActions(decision),
+      syncBatchDecisionMessageForSessionId: (sessionId) => this.decisionDelivery.syncBatchDecisionMessageForSessionId(sessionId),
       statusRuntimeState: this.statusRuntimeState,
       mcpStartupStatusByName: state.mcpStartupStatusByName,
       modelRuntimeEventByThread: state.modelRuntimeEventByThread,

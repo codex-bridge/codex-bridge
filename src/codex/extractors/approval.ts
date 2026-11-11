@@ -1,5 +1,12 @@
 import { asRecord, firstString } from "../protocol-utils.js";
 
+export function extractAvailableDecisions(value: unknown): string[] | null {
+  if (value == null) return null;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((decision) => typeof decision === "string" ? [decision]
+    : Object.keys(asRecord(decision) ?? {}));
+}
+
 function extractFilesystemPathLike(value: unknown, seen = new Set<unknown>()): string | null {
   if (typeof value === "string" && value.trim()) {
     const trimmed = value.trim();

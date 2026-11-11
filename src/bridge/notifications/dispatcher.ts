@@ -1,4 +1,5 @@
 import type { AppServerNotification } from "../../codex/client.js";
+import { extractNotificationThreadId } from "../../codex/extractors/events.js";
 import {
   extractCompletedAgentMessage,
   extractErrorEvent,
@@ -188,6 +189,7 @@ export class NotificationDispatcher {
       extractErrorEvent(notification)?.threadId ??
       extractProgressEvent(notification)?.threadId ??
       extractCompletedAgentMessage(notification)?.threadId ??
+      extractNotificationThreadId(notification) ??
       "global"
     );
   }

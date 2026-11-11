@@ -72,7 +72,7 @@ export class DecisionCommandService {
     if (guard && (!decisionSession || decisionSession.codexArchivedAt !== null || decisionSession.codexThreadId !== guard.threadId)) {
       return { ok: false, message: "This request's session changed. Refresh its state." };
     }
-    if (guard && !describeDecision(decision).availableActions.includes(action)) return { ok: false, message: "This action is unavailable for this request." };
+    if (!describeDecision(decision).availableActions.includes(action)) return { ok: false, message: "This action is unavailable for this request." };
     if (!guard && decisionSession) {
       const ownershipPrompt = await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(
         decisionSession,
@@ -235,7 +235,7 @@ export class DecisionCommandService {
     }
 
     const batchable = (await this.deps.store.listPendingDecisions(session.id))
-      .filter((decision) => isBatchableDecision(decision))
+      .filter((decision) => isBatchableDecision(decision, action))
       .sort((left, right) => left.createdAt - right.createdAt);
     if (batchable.length === 0) {
       await this.deps.decisionDelivery.syncBatchDecisionMessage(session);

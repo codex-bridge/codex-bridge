@@ -545,7 +545,8 @@
     ],
     "item/commandExecution/requestApproval": [
       "src/bridge/decisions/formatters.ts",
-      "src/codex/client.ts"
+      "src/codex/client.ts",
+      "src/shared/approval-policy.ts"
     ],
     "item/completed": [
       "src/codex/extractors/events.ts",
@@ -560,12 +561,14 @@
     "item/fileChange/requestApproval": [
       "src/bridge/decisions/formatters.ts",
       "src/codex/client.ts",
-      "src/codex/extractors/approval.ts"
+      "src/codex/extractors/approval.ts",
+      "src/shared/approval-policy.ts"
     ],
     "item/permissions/requestApproval": [
       "src/bridge/decisions/formatters.ts",
       "src/codex/client.ts",
-      "src/codex/extractors/approval.ts"
+      "src/codex/extractors/approval.ts",
+      "src/shared/approval-policy.ts"
     ],
     "item/reasoning/summaryPartAdded": [
       "src/codex/extractors/events.ts",
@@ -588,7 +591,8 @@
       "src/bridge/notifications/auxiliary.ts",
       "src/bridge/sessions/transcript.ts",
       "src/codex/client.ts",
-      "src/codex/extractors/approval.ts"
+      "src/codex/extractors/approval.ts",
+      "src/shared/approval-policy.ts"
     ],
     "mcpServer/oauthLogin/completed": [
       "src/codex/notification-events.ts"

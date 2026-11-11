@@ -48,6 +48,17 @@ test("old approval cannot answer a reused RPC id on a new connection", async () 
   assert.deepEqual(sent, [{ id: 1, result: { decision: "decline" } }]);
 });
 
+test("a failed response consumes its human token and is never retried", async () => {
+  const { client, tokens } = fixture();
+  tokens.set("human", { id: "rpc-human", method, ...{ commandApprovalKind: "humanCommand" } });
+  let writes = 0;
+  const connection = (client as unknown as { connection: { sendResponse: () => Promise<void> } }).connection;
+  connection.sendResponse = async () => { writes++; throw new Error("write outcome unknown"); };
+  await assert.rejects(client.resolveApproval("human", "accept", method), /write outcome unknown/);
+  await assert.rejects(client.resolveApproval("human", "accept", method), /original connection/);
+  assert.equal(writes, 1);
+});
+
 test("permission approval grants only the requested profile with the selected scope", async () => {
   const { client, sent, tokens } = fixture();
   const permissionMethod = "item/permissions/requestApproval";

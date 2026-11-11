@@ -125,6 +125,8 @@ export class NotificationApprovalService {
       telegramChatId: session.telegramChatId,
       approvalId: request.requestId,
       kind: request.method,
+      commandApprovalKind: request.commandApprovalKind,
+      availableDecisions: request.availableDecisions,
       title: child ? `${child.name}: ${request.title}` : request.title,
       summary: request.summary,
       requiresUserInput: request.requiresUserInput

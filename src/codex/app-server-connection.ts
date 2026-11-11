@@ -54,6 +54,7 @@ export type AppServerConnectionDependencies = {
   onServerRequest: (request: AppServerServerRequest) => void;
   readEnvironment: () => Promise<Record<string, string>>;
   transport: "stdio" | "websocket";
+  supportsHumanApproval?: () => boolean;
 };
 
 type PendingRequest = {
@@ -67,6 +68,7 @@ export class AppServerConnection {
   private initialized = false;
   private nextId = 1;
   private readonly pending = new Map<JsonRpcId, PendingRequest>();
+  private readonly earlyMessages: Array<AppServerServerRequest | JsonRpcNotification> = [];
   private proc: ChildProcessByStdio<Writable, Readable, null> | null = null;
   private rl: readline.Interface | null = null;
 
@@ -121,6 +123,7 @@ export class AppServerConnection {
       }
       this.rejectPending(new Error(`Codex App Server exited (code=${code}, signal=${signal})`));
       this.initialized = false;
+      this.earlyMessages.length = 0;
       this.proc = null;
       this.rl?.close();
       this.rl = null;
@@ -142,6 +145,7 @@ export class AppServerConnection {
     this.proc = null;
     this.rl = null;
     this.initialized = false;
+    this.earlyMessages.length = 0;
     this.deps.onDisconnected({ expected: true });
   }
 
@@ -212,6 +216,7 @@ export class AppServerConnection {
       },
       capabilities: {
         experimentalApi: true,
+        ...(this.deps.supportsHumanApproval?.() ? { requiredHumanApproval: true } : {}),
         requestAttestation: false,
         optOutNotificationMethods: ["item/agentMessage/delta"]
       }
@@ -219,6 +224,7 @@ export class AppServerConnection {
     this.deps.onInitialized(result);
     await this.send({ method: "initialized", params: {} });
     this.initialized = true;
+    for (const message of this.earlyMessages.splice(0)) this.dispatchInbound(message);
     logger.info("codex.initialize.completed");
   }
 
@@ -252,7 +258,15 @@ export class AppServerConnection {
       }
       return;
     }
-    if ("id" in message && "method" in message) {
+    if (!this.initialized) {
+      this.earlyMessages.push(message);
+      return;
+    }
+    this.dispatchInbound(message);
+  }
+
+  private dispatchInbound(message: AppServerServerRequest | JsonRpcNotification): void {
+    if ("id" in message) {
       this.deps.onServerRequest(message);
       return;
     }

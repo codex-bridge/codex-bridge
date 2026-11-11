@@ -39,10 +39,11 @@ export class RuntimeCommandService {
     await this.deps.ensureSeedChats(seedChatIds);
     this.transition("connecting");
     try {
-      await this.deps.codexClient.connect();
       this.deps.attachCodexListeners();
+      await this.deps.codexClient.connect();
       this.transition("connected");
     } catch (error) {
+      this.deps.detachCodexListeners();
       this.transition("failed");
       throw error;
     }
@@ -89,10 +90,11 @@ export class RuntimeCommandService {
 
     this.transition("connecting");
     try {
-      await this.deps.codexClient.connect();
       this.deps.attachCodexListeners();
+      await this.deps.codexClient.connect();
       this.transition("connected");
     } catch (error) {
+      this.deps.detachCodexListeners();
       this.transition("failed");
       throw error;
     }

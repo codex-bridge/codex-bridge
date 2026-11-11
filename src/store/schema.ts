@@ -45,6 +45,8 @@ export const decisionsTable = sqliteTable("decisions", {
   telegramChatId: text("telegram_chat_id").notNull(),
   approvalId: text("approval_id").notNull(),
   kind: text("kind"),
+  commandApprovalKind: text("command_approval_kind"),
+  availableDecisionsJson: text("available_decisions_json"),
   title: text("title").notNull(),
   summary: text("summary"),
   requiresUserInput: integer("requires_user_input").notNull(),

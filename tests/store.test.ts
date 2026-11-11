@@ -7,6 +7,34 @@ import test from "node:test";
 import Database from "better-sqlite3";
 
 import { BridgeStore } from "../src/store/index.js";
+import { migrate, SCHEMA_MIGRATIONS } from "../src/store/migrations.js";
+
+const legacyDecisionsSchema = `CREATE TABLE decisions (
+  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, telegram_chat_id TEXT NOT NULL,
+  approval_id TEXT NOT NULL, kind TEXT, title TEXT NOT NULL, summary TEXT,
+  requires_user_input INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL,
+  telegram_message_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);`;
+
+test("approval-constraint migration preserves old rows and is idempotent", () => {
+  const sqlite = new Database(":memory:");
+  try {
+    sqlite.exec(legacyDecisionsSchema);
+    sqlite.exec("CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    for (const version of SCHEMA_MIGRATIONS.filter((v) => v !== "018_decision_approval_constraints")) {
+      sqlite.prepare("INSERT INTO schema_migrations VALUES (?, 1)").run(version);
+    }
+    sqlite.exec(`INSERT INTO decisions (id,session_id,telegram_chat_id,approval_id,kind,title,summary,state,created_at,updated_at)
+      VALUES ('old','session','chat','opaque','item/commandExecution/requestApproval','old command','availableDecisions: decline','pending',1,1)`);
+    migrate(sqlite);
+    migrate(sqlite);
+    assert.deepEqual(sqlite.prepare("SELECT id,title,summary,state,command_approval_kind,available_decisions_json FROM decisions").get(), {
+      id: "old", title: "old command", summary: "availableDecisions: decline", state: "pending",
+      command_approval_kind: null, available_decisions_json: null
+    });
+    assert.equal(sqlite.pragma("integrity_check", { simple: true }), "ok");
+  } finally { sqlite.close(); }
+});
 
 test("persists session bindings and detects Telegram message duplicates", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-test-"));
@@ -252,7 +280,7 @@ test("stores each Codex thread as its own session without a section table", asyn
       "014_progress_phase_aggregate",
       "015_progress_phase_lifecycle",
       "016_web_directories",
-      "017_slack_continuations"
+      "017_slack_continuations", "018_decision_approval_constraints"
     ]);
   } finally {
     store.close();
@@ -267,6 +295,7 @@ test("removes legacy session Codex configuration during migration", async () => 
 
   try {
     const sqlite = new Database(databasePath);
+    sqlite.exec(legacyDecisionsSchema);
     sqlite.exec(`
       CREATE TABLE schema_migrations (
         version TEXT PRIMARY KEY,
@@ -422,7 +451,7 @@ test("reports pending destructive migration without changing a database", async 
           "004_session_service_tier",
           "005_queued_submissions"
         ],
-        pendingMigrations: ["006_remove_session_codex_config", "007_codex_archive_state", "008_remove_runtime_state", "009_remove_sections", "010_shared_session_bindings", "011_durable_turn_routes", "012_session_discovery_state", "013_durable_progress_phase_messages", "014_progress_phase_aggregate", "015_progress_phase_lifecycle", "016_web_directories", "017_slack_continuations"],
+        pendingMigrations: ["006_remove_session_codex_config", "007_codex_archive_state", "008_remove_runtime_state", "009_remove_sections", "010_shared_session_bindings", "011_durable_turn_routes", "012_session_discovery_state", "013_durable_progress_phase_messages", "014_progress_phase_aggregate", "015_progress_phase_lifecycle", "016_web_directories", "017_slack_continuations", "018_decision_approval_constraints"],
         destructiveMigrations: ["006_remove_session_codex_config", "010_shared_session_bindings"],
         backupRequired: true
       });
@@ -438,6 +467,7 @@ test("removes persisted runtime connection state with a migration backup", async
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-runtime-state-migration-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const sqlite = new Database(databasePath);
+  sqlite.exec(legacyDecisionsSchema);
   sqlite.exec(`
     CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
     INSERT INTO schema_migrations (version, applied_at) VALUES
@@ -591,7 +621,7 @@ test("resets bridge state without dropping the current schema", async () => {
       "014_progress_phase_aggregate",
       "015_progress_phase_lifecycle",
       "016_web_directories",
-      "017_slack_continuations"
+      "017_slack_continuations", "018_decision_approval_constraints"
     ]);
     assert.deepEqual(await store.listSessionsForPolling(), []);
   } finally {

@@ -26,6 +26,31 @@ function dependencies(overrides: Partial<RuntimeCommandDependencies>): RuntimeCo
   };
 }
 
+test("bootstrap and manual connect register request listeners before initializing Codex", async () => {
+  for (const mode of ["bootstrap", "manual"] as const) {
+    const events: string[] = [];
+    const service = new RuntimeCommandService(dependencies({
+      attachCodexListeners: () => { events.push("listen"); },
+      codexClient: { connect: async () => { events.push("initialize"); } } as RuntimeCommandDependencies["codexClient"]
+    }));
+    if (mode === "bootstrap") await service.bootstrap(); else await service.connect("chat");
+    assert.deepEqual(events, ["listen", "initialize"]);
+  }
+});
+
+test("failed initialization detaches early request listeners", async () => {
+  for (const mode of ["bootstrap", "manual"] as const) {
+    const events: string[] = [];
+    const service = new RuntimeCommandService(dependencies({
+      attachCodexListeners: () => { events.push("listen"); },
+      detachCodexListeners: () => { events.push("detach"); },
+      codexClient: { connect: async () => { throw new Error("init failed"); } } as RuntimeCommandDependencies["codexClient"]
+    }));
+    await assert.rejects(mode === "bootstrap" ? service.bootstrap() : service.connect("chat"), /init failed/);
+    assert.deepEqual(events, ["listen", "detach"]);
+  }
+});
+
 test("restart resolves the initiating conversation before requesting a restart", async () => {
   for (const session of [{ id: "session-1", directory: "/workspace/project" }, undefined]) {
     const calls: string[] = [];

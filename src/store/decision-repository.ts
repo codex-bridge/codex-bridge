@@ -24,22 +24,18 @@ const RESOLVED_DECISION_STATES = [
   "stale"
 ] as const;
 
-function asDecisionRecord(row: {
-  id: string;
-  sessionId: string;
-  telegramChatId: string;
-  approvalId: string;
-  kind: string | null;
-  title: string;
-  summary: string | null;
-  requiresUserInput: number;
-  state: string;
-  telegramMessageId: string | null;
-  createdAt: number;
-  updatedAt: number;
-}): DecisionRecord {
+function asDecisionRecord(row: typeof decisionsTable.$inferSelect): DecisionRecord {
+  const { availableDecisionsJson, ...record } = row;
+  let availableDecisions: string[] | null | undefined;
+  if (availableDecisionsJson !== null) {
+    try {
+      const parsed: unknown = JSON.parse(availableDecisionsJson);
+      availableDecisions = parsed === null ? null : Array.isArray(parsed) && parsed.every((value) => typeof value === "string") ? parsed : [];
+    } catch { availableDecisions = []; }
+  }
   return {
-    ...row,
+    ...record,
+    availableDecisions,
     requiresUserInput: Boolean(row.requiresUserInput),
     state: row.state as DecisionRecord["state"]
   };
@@ -56,6 +52,8 @@ export class DecisionRepository {
     telegramChatId: string;
     approvalId: string;
     kind: string | null;
+    commandApprovalKind?: string | null;
+    availableDecisions?: readonly string[] | null;
     title: string;
     summary: string | null;
     requiresUserInput: boolean;
@@ -73,6 +71,8 @@ export class DecisionRepository {
           sessionId: input.sessionId,
           telegramChatId: input.telegramChatId,
           kind: input.kind,
+          commandApprovalKind: input.commandApprovalKind ?? null,
+          availableDecisionsJson: input.availableDecisions === undefined ? null : JSON.stringify(input.availableDecisions),
           title: input.title,
           summary: input.summary,
           requiresUserInput: input.requiresUserInput ? 1 : 0,
@@ -90,6 +90,8 @@ export class DecisionRepository {
       telegramChatId: input.telegramChatId,
       approvalId: input.approvalId,
       kind: input.kind,
+      commandApprovalKind: input.commandApprovalKind ?? null,
+      availableDecisionsJson: input.availableDecisions === undefined ? null : JSON.stringify(input.availableDecisions),
       title: input.title,
       summary: input.summary,
       requiresUserInput: input.requiresUserInput ? 1 : 0,
@@ -200,7 +202,9 @@ export class DecisionRepository {
     await this.db
       .update(decisionsTable)
       .set({ state, updatedAt: now() })
-      .where(eq(decisionsTable.id, decisionId))
+      // Expiry must not overwrite a concurrently recorded human decision.
+      .where(and(eq(decisionsTable.id, decisionId), state === "stale"
+        ? inArray(decisionsTable.state, ["pending", "awaitingInput"]) : undefined))
       .run();
 
     await this.pruneResolvedForSession(decision.sessionId);
