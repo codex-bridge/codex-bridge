@@ -243,7 +243,7 @@ test("a failed previous-thread unsubscribe keeps its lease without undoing the n
   }
 });
 
-test("runtime status keeps the active session directory and exposes the opposite action", async () => {
+test("runtime status keeps the active session directory and exposes only Help", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-runtime-status-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
@@ -262,7 +262,7 @@ test("runtime status keeps the active session directory and exposes the opposite
     const message = await service.disconnectBotRuntimeMessage(chatId);
 
     assert.equal(message.title, "Codex · /workspace/runtime");
-    assert.deepEqual(message.actions.map((action) => action.id), ["bot-connect", "help"]);
+    assert.deepEqual(message.actions.map((action) => action.id), ["help"]);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -291,7 +291,7 @@ test("runtime transition status exposes only Help", async () => {
   }
 });
 
-test("unexpected Codex connection loss exposes the connect state", async () => {
+test("unexpected Codex connection loss preserves the failed state and exposes only Help", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-runtime-loss-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
@@ -312,7 +312,7 @@ test("unexpected Codex connection loss exposes the connect state", async () => {
 
     assert.equal((service as unknown as { runtimeState: string }).runtimeState, "failed");
     const message = await service.disconnectBotRuntimeMessage("chat-1");
-    assert.deepEqual(message.actions.map((action) => action.id), ["bot-connect", "help"]);
+    assert.deepEqual(message.actions.map((action) => action.id), ["help"]);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
