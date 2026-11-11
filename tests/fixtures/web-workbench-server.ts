@@ -10,11 +10,14 @@ import { WebDirectoryRegistry } from "../../src/bridge/sessions/directory-regist
 
 const store = new BridgeStore(":memory:");
 await store.ensureChat("web:local");
+for (let index = 0; index < Number(process.env.WEB_FIXTURE_CATALOG_SIZE ?? 0); index++) {
+  store.registerWebDirectory(`/fixture/project-${String(index).padStart(3, "0")}`);
+}
 const sessions = await Promise.all(["demo-a", "demo-b"].map((threadId) => store.upsertDiscoveredSession({
   telegramChatId: "web:local", codexThreadId: threadId, pathKey: "/fixture/workbench" })));
 store.claimSession(sessions[1]!.id, "slack:fixture");
 const binding = new SessionBindingService({ store, inFlightTurnIdByThread: new Map([["demo-b", "running-fixture-turn"]]),
-  getSessionDirectory: () => "/fixture/workbench", notify: async () => {} });
+  getSessionDirectory: (session) => session.currentCwd ?? session.pathKey, notify: async () => {} });
 const access = new SessionAccessService(store);
 const directories = new WebDirectoryRegistry(store);
 const listeners = new Set<(delivery: WebMessageDelivery) => void>();
@@ -29,14 +32,26 @@ function publish(threadId: string, messageId: string, message: MessageSpec, oper
 const history = new Map(sessions.map((session) => [session.codexThreadId, Array.from({ length: 5 }, (_, i) => ({
   role: i % 2 ? "user" as const : "assistant" as const, text: `Recent message ${i + 1}` }))]));
 const api: WebBridgeApi = {
-  listCatalog: async () => ({ directories: [...new Set(["/fixture/workbench", ...store.listWebDirectories()])].sort(), sessions: sessions.map((session, index) => {
+  listCatalog: async () => ({ directories: [...new Set([...sessions.map((session) => session.pathKey), ...store.listWebDirectories()])].sort(), sessions: sessions.map((session, index) => {
     const lease = store.getSessionLease(session.id);
     const source = (id: string | null) => id ? store.getSessionBindingById(id)?.sourceId ?? null : null;
-    return { threadId: session.codexThreadId, sessionId: session.id, name: index ? "Pending handoff demo" : "Conversation demo",
-      directory: "/fixture/workbench", archived: false, provider: "fixture", updatedAt: 0, connection: "unknown" as const,
+    return { threadId: session.codexThreadId, sessionId: session.id,
+      name: index < 2 ? index ? "Pending handoff demo" : "Conversation demo" : session.displayName,
+      directory: session.currentCwd ?? session.pathKey, archived: false, provider: "fixture", updatedAt: 0, connection: "unknown" as const,
       ownership: lease ? { state: lease.state, ownerSourceId: source(lease.ownerBindingId), pendingSourceId: source(lease.pendingBindingId), version: lease.version } : null };
   }) }),
   registerDirectory: (path, check) => directories.register(path, check),
+  createSession: async (directory, _requestId, check) => {
+    check();
+    const session = await store.upsertDiscoveredSession({
+      telegramChatId: "web:local", codexThreadId: `created-${sequence++}`, pathKey: directory, displayName: "New session"
+    });
+    sessions.push(session);
+    history.set(session.codexThreadId, []);
+    const result = await binding.request("web:local", session.id, undefined, check, { select: false });
+    if (!result.outcome?.owned) throw new Error("Fixture session ownership failed.");
+    return { threadId: session.codexThreadId, sessionId: session.id, leaseVersion: result.outcome.lease.version };
+  },
   requestBinding: async (threadId, version, check) => binding.request("web:local", sessions.find((item) => item.codexThreadId === threadId)!.id, version, check),
   cancelBinding: async (threadId, version, check) => binding.cancel("web:local", sessions.find((item) => item.codexThreadId === threadId)!.id, version, check),
   subscribeBinding: (listener) => binding.subscribe(listener),
@@ -84,7 +99,8 @@ const api: WebBridgeApi = {
   }
 };
 const fixtureHost = process.env.WEB_FIXTURE_HOST?.trim() || "127.0.0.1";
-const server = new WebServer({ host: fixtureHost, port: 0 }, api);
+const server = new WebServer({ host: fixtureHost, port: Number(process.env.WEB_FIXTURE_PORT ?? 0),
+  staticRoot: process.env.WEB_FIXTURE_STATIC_ROOT }, api);
 const address = await server.start();
 console.log(`Isolated workbench fixture: http://${fixtureHost}:${address.port}`);
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => { void server.stop().finally(() => { store.close(); process.exit(0); }); });

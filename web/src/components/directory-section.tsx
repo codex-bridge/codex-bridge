@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { directoryLabel } from "../lib/directory-label";
 import { PlusIcon } from "./icons";
 import { Button } from "./ui/button";
@@ -10,13 +10,16 @@ export type DirectorySectionProps = {
   onToggle: () => void;
   onCreate?: () => void;
   createDisabled: boolean;
+  elementRef?: Ref<HTMLDivElement>;
+  located?: boolean;
   children: ReactNode;
 };
 
-export function DirectorySection({ directory, open, expanded, onToggle, onCreate, createDisabled, children }: DirectorySectionProps) {
+export function DirectorySection({ directory, open, expanded, onToggle, onCreate, createDisabled, elementRef, located, children }: DirectorySectionProps) {
   const label = directoryLabel(directory);
-  return <section className="directory" data-open={open ? "true" : "false"} data-expanded={expanded ? "true" : "false"}>
-    <div className="directory-heading">
+  return <section className="directory" data-located={located || undefined}
+    data-open={open ? "true" : "false"} data-expanded={expanded ? "true" : "false"}>
+    <div className="directory-heading" ref={elementRef}>
       <button type="button" className="directory-toggle" title={directory} aria-expanded={expanded}
         aria-label={`${expanded ? "Collapse" : "Expand"} directory ${directory}`} onClick={onToggle}>
         <span className="directory-chevron" aria-hidden="true">{expanded ? "▾" : "▸"}</span>

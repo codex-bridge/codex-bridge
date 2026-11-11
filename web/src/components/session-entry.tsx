@@ -3,12 +3,13 @@ import { Button } from "./ui/button";
 import { DismissiblePopover } from "./dismissible-popover";
 import { isOwned, type SessionEntry as SessionEntryData } from "../lib/protocol";
 
-export function SessionEntry({ session, selected, busy, connected, elementRef, onSelect, onRename, onArchive, onRestore, onRelease }: {
+export function SessionEntry({ session, selected, busy, connected, elementRef, located, onSelect, onRename, onArchive, onRestore, onRelease }: {
   session: SessionEntryData;
   selected: boolean;
   busy: boolean;
   connected: boolean;
   elementRef?: Ref<HTMLDivElement>;
+  located?: boolean;
   onSelect: () => void;
   onRename: () => void;
   onArchive: () => void;
@@ -17,7 +18,7 @@ export function SessionEntry({ session, selected, busy, connected, elementRef, o
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
-  return <div className="session-entry" ref={elementRef}>
+  return <div className="session-entry" ref={elementRef} data-located={located || undefined}>
     <button className="session-row" aria-current={selected ? "true" : undefined} onClick={onSelect}>
       <span className="session-name-line">
         {session.connection === "active" && <span className="session-active-dot" role="img"

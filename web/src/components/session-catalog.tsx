@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { InfoHint } from "./info-hint";
 import { SessionEntry } from "./session-entry";
@@ -25,6 +25,8 @@ export type SessionCatalogProps = {
   directoryFeedback: WorkbenchFeedback | null;
 };
 
+type CatalogLocation = { directory: string; threadId?: string };
+
 export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, catalogFresh, catalogError,
   connection, serviceConnection, notificationControl, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
   const [filter, setFilter] = useState("");
@@ -33,11 +35,19 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
   const [directoryDialogOpen, setDirectoryDialogOpen] = useState(false);
   const [sessionDialog, setSessionDialog] = useState<SessionDialog | null>(null);
   const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(() => new Set());
-  const selectedSession = useRef<HTMLDivElement>(null);
-  const locateRequested = useRef(false);
+  const [locateTarget, setLocateTarget] = useState<CatalogLocation | null>(null);
+  const [highlighted, setHighlighted] = useState<CatalogLocation | null>(null);
+  const locateElement = useRef<HTMLElement | null>(null);
+  const setLocateElement = useCallback((element: HTMLElement | null) => { locateElement.current = element; }, []);
   const currentDirectory = selectedEntry?.directory;
   const selectedThreadId = selectedEntry?.threadId;
   const selectedArchived = selectedEntry?.archived;
+
+  const locate = (target: CatalogLocation) => {
+    setLocateTarget(target); setHighlighted(null);
+    setCatalogMode("active"); setFilter(""); setCatalogOpen(true);
+    setExpandedDirectories((current) => new Set(current).add(target.directory));
+  };
 
   useEffect(() => {
     if (!selectedThreadId || !currentDirectory || selectedArchived === undefined) return;
@@ -51,13 +61,20 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
     return () => window.removeEventListener("keydown", close);
   }, [catalogOpen]);
   useEffect(() => {
-    if (!locateRequested.current) return;
+    if (!locateTarget || directoryDialogOpen || sessionDialog) return;
     const frame = window.requestAnimationFrame(() => {
-      selectedSession.current?.scrollIntoView({ block: "center" });
-      locateRequested.current = false;
+      if (!locateElement.current) return;
+      locateElement.current.scrollIntoView({ block: "center" });
+      setHighlighted(locateTarget);
+      setLocateTarget(null);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [catalogOpen, catalogMode, filter, expandedDirectories]);
+  }, [locateTarget, catalog, catalogOpen, catalogMode, filter, expandedDirectories, directoryDialogOpen, sessionDialog]);
+  useEffect(() => {
+    if (!highlighted) return;
+    const timer = window.setTimeout(() => setHighlighted(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [highlighted]);
 
   const groups = catalog ? buildCatalogGroups(catalog, { mode: catalogMode, query: filter }) : [];
   const visibleCount = groups.reduce((count, group) => count + group.sessions.length, 0);
@@ -98,8 +115,7 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
           <Button className="catalog-action" variant="ghost" aria-label="Locate current session" title="Locate current session"
             disabled={!selectedEntry || selectedEntry.archived} onClick={() => {
               if (!selectedEntry || selectedEntry.archived) return;
-              locateRequested.current = true; setCatalogMode("active"); setFilter(""); setCatalogOpen(true);
-              setExpandedDirectories((current) => new Set(current).add(selectedEntry.directory));
+              locate({ directory: selectedEntry.directory, threadId: selectedEntry.threadId });
             }}><LocateIcon /></Button>
           {catalogMode === "active" && <Button className="catalog-action" variant="ghost" aria-label="Add directory" title="Add directory"
             disabled={connection !== "connected" || busy} onClick={() => setDirectoryDialogOpen(true)}><PlusIcon /></Button>}
@@ -124,6 +140,8 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
               {catalogMode === "active" && open && (index === 0 || !groups[index - 1]?.open) && <p className="directory-group-label">Open projects</p>}
               {catalogMode === "active" && hasOpenDirectory && !open && groups[index - 1]?.open && <p className="directory-group-label">Other directories</p>}
               <DirectorySection directory={directory} open={open} expanded={expanded}
+                elementRef={locateTarget?.directory === directory && !locateTarget.threadId ? setLocateElement : undefined}
+                located={highlighted?.directory === directory && !highlighted.threadId}
                 createDisabled={connection !== "connected" || !catalogFresh || busy}
                 onCreate={catalogMode === "active" ? () => setSessionDialog({ kind: "create", directory }) : undefined}
                 onToggle={() => setExpandedDirectories((current) => {
@@ -133,7 +151,8 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
                   {!sessions.length && <p className="directory-empty muted">No sessions</p>}
                   {sessions.map((session) => <SessionEntry key={session.threadId} session={session}
                     selected={session.threadId === selected} busy={busy}
-                    elementRef={session.threadId === selected ? selectedSession : undefined}
+                    elementRef={locateTarget?.threadId === session.threadId ? setLocateElement : undefined}
+                    located={highlighted?.threadId === session.threadId}
                     connected={connection === "connected" && catalogFresh}
                     onSelect={() => { actions.select(session.threadId); setCatalogOpen(false); }}
                     onRename={() => setSessionDialog({ kind: "rename", session })}
@@ -149,13 +168,18 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
     </aside>
     {directoryDialogOpen && <AddDirectoryDialog onAddDirectory={actions.addDirectory} busy={busy} operation={operation}
       feedback={directoryFeedback} onClose={() => setDirectoryDialogOpen(false)} onAdded={(directory) => {
-        setExpandedDirectories((current) => new Set(current).add(directory));
-        setDirectoryDialogOpen(false); setCatalogOpen(true);
+        setDirectoryDialogOpen(false); locate({ directory });
       }} />}
     {sessionDialog && <SessionManagementDialog key={sessionDialog.kind === "create" ? `create:${sessionDialog.directory}` : `${sessionDialog.kind}:${sessionDialog.session.threadId}`}
       busy={busy} operation={operation} dialog={sessionDialog} onClose={() => setSessionDialog(null)}
-      onConfirm={async (name) => sessionDialog.kind === "create"
-        ? !!(await actions.createSession(sessionDialog.directory))
-        : actions.manageSession(sessionDialog.session, sessionDialog.kind, sessionDialog.kind === "rename" ? name : undefined)} />}
+      onConfirm={async (name) => {
+        if (sessionDialog.kind !== "create") {
+          return actions.manageSession(sessionDialog.session, sessionDialog.kind, sessionDialog.kind === "rename" ? name : undefined);
+        }
+        const threadId = await actions.createSession(sessionDialog.directory);
+        if (!threadId) return false;
+        locate({ directory: sessionDialog.directory, threadId });
+        return true;
+      }} />}
   </>;
 });
