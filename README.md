@@ -45,10 +45,11 @@ Codex App Server schemas are version-specific. The Bridge baseline verified on
 | Component | Supported range | Verified version |
 | --- | --- | --- |
 | Codex CLI | `>=0.158.0 <0.164.0` | `0.163.0` |
-| Node.js | `>=22.23.4 <23` | `22.23.4` |
+| Node.js | `>=22.23.5 <23` | `22.23.5` |
 | Yarn | `4.8.x` | `4.8.1` |
 
-The Node security baseline was raised to `22.23.4` on 2026-11-11; the Codex
+The Node security baseline was raised to `22.23.5` on 2026-11-12 after the
+[November security release](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases); the Codex
 protocol baseline above is unchanged. Local commands and CI take the Node pin
 from `package.json`. PM2 resolves and verifies that interpreter explicitly and
 prepends its directory to the child-process PATH, rather than inheriting an old

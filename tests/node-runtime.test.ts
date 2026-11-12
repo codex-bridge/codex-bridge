@@ -20,7 +20,7 @@ const { resolveNodeRuntime } = require("../scripts/resolve-node-runtime.cjs") as
   };
 };
 
-function fixture(t: test.TestContext, version = "22.23.4") {
+function fixture(t: test.TestContext, version = "22.23.5") {
   const directory = mkdtempSync(path.join(tmpdir(), "bridge-node-runtime-"));
   writeFileSync(path.join(directory, "package.json"), JSON.stringify({ volta: { node: version } }));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -37,7 +37,7 @@ test("PM2 resolves the project pin and puts its Node before inherited old Node",
     run(command, args, options) {
       assert.equal(options.cwd, directory);
       calls.push([command, ...args]);
-      return args[0] === "which" ? "/safe/node/bin/node\n" : "v22.23.4\n";
+      return args[0] === "which" ? "/safe/node/bin/node\n" : "v22.23.5\n";
     }
   });
   assert.equal(runtime.interpreter, "/safe/node/bin/node");
@@ -48,16 +48,16 @@ test("PM2 resolves the project pin and puts its Node before inherited old Node",
 test("an unavailable Volta never silently falls back to the old daemon Node", (t) => {
   assert.throws(() => resolveNodeRuntime(fixture(t), {
     env: {}, currentVersion: "22.22.0", run() { throw new Error("missing"); }
-  }), /Cannot resolve Node 22\.23\.4/);
+  }), /Cannot resolve Node 22\.23\.5/);
 });
 
 test("without Volta an exact matching launcher remains supported", (t) => {
   const runtime = resolveNodeRuntime(fixture(t), {
     env: { PATH: "/usr/bin" }, platform: "linux",
-    currentVersion: "22.23.4", currentExecPath: "/safe/bin/node",
+    currentVersion: "22.23.5", currentExecPath: "/safe/bin/node",
     run(_command, args) {
       if (args[0] === "which") throw new Error("missing");
-      return "v22.23.4\n";
+      return "v22.23.5\n";
     }
   });
   assert.equal(runtime.interpreter, "/safe/bin/node");
@@ -88,9 +88,15 @@ test("Windows resolves volta.exe and preserves the Path key and separator", (t) 
         assert.equal(command, "C:\\Volta\\bin\\volta.exe");
         return "C:\\safe\\node.exe\r\n";
       }
-      return "v22.23.4\r\n";
+      return "v22.23.5\r\n";
     }
   });
   assert.equal(runtime.env.Path, "C:\\safe;C:\\old;C:\\Windows");
   assert.equal(runtime.env.PATH, undefined);
+});
+
+test("the previous security patch is rejected for the new project pin", (t) => {
+  assert.throws(() => resolveNodeRuntime(fixture(t), {
+    env: {}, currentVersion: "22.23.4", run() { throw new Error("missing"); }
+  }), /Cannot resolve Node 22\.23\.5/);
 });
