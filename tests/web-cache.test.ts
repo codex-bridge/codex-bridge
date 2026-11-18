@@ -30,7 +30,7 @@ test("expired/malformed/disabled cache is optional and pruned, with a total byte
   const s = storage(), cache = new LocalTimelineCache(s, () => now);
   cache.save("a", "s", [item("hello")]); now += 8 * 24 * 60 * 60 * 1000;
   assert.deepEqual(cache.load("a", "s"), []); assert.equal([...s.data.values()][0], "[]");
-  s.setItem("codex-bridge:timeline:v2", "invalid json");
+  s.setItem("codex-bridge:timeline:v3", "invalid json");
   assert.deepEqual(cache.load("a", "s"), []);
   const broken = new LocalTimelineCache({ getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("quota"); }, removeItem: () => {} });
   assert.doesNotThrow(() => broken.save("a", "s", [item("hello")])); assert.deepEqual(broken.load("a", "s"), []);
@@ -48,16 +48,33 @@ test("cache history requires contiguous overlap; repeated go and unanchored stat
   assert.deepEqual(restoreHistory(items, { ...history, messages: [{ role: "assistant", text: "unrelated" }] }).map((entry) => dialogueText(entry.message)), ["unrelated", "Runs ×2"]);
 });
 
-test("ambiguous v1 cache is preserved but cannot contaminate current history restoration", () => {
+for (const version of [1, 2]) test(`legacy v${version} cache is preserved but cannot contaminate current history restoration`, () => {
   const s = storage(), cache = new LocalTimelineCache(s);
   const legacy = JSON.stringify([{ threadId: "a", sessionId: "s", savedAt: Date.now(),
     items: [item("Working · Done · 9s"), item("reply")] }]);
-  s.setItem("codex-bridge:timeline:v1", legacy);
+  s.setItem(`codex-bridge:timeline:v${version}`, legacy);
   assert.deepEqual(cache.load("a", "s"), []);
   const history = { threadId: "a", sessionId: "s", leaseVersion: 1,
     messages: [{ role: "assistant" as const, text: "reply" }] };
   const restored = restoreHistory(cache.load("a", "s"), history);
   cache.save("a", "s", restored);
   assert.deepEqual(cache.load("a", "s").map(entry => dialogueText(entry.message)), ["reply"]);
-  assert.equal(s.getItem("codex-bridge:timeline:v1"), legacy);
+  assert.equal(s.getItem(`codex-bridge:timeline:v${version}`), legacy);
+});
+
+test("cache never persists restricted raw bodies and validates stored display metadata on load", () => {
+  const s = storage(), cache = new LocalTimelineCache(s);
+  const restricted = { ...item("private-original"), id: "platform-id", message: { ...item("private-original").message,
+    sourceItemId: "native", assistantDisplay: { version: 9, mode: "show" } } } as unknown as TimelineItem;
+  cache.save("a", "s", [restricted]);
+  assert.equal(s.getItem("codex-bridge:timeline:v3")!.includes("private-original"), false);
+  const restored = cache.load("a", "s")[0]!;
+  assert.equal(dialogueText(restored.message).includes("private-original"), false);
+  assert.equal(restored.message.sourceItemId, "native");
+  assert.equal(restored.message.assistantDisplay?.mode, "restricted");
+  const stored = JSON.parse(s.getItem("codex-bridge:timeline:v3")!);
+  stored[0].items[0].message.body = [{ type: "markdown", text: "tampered-secret" }];
+  s.setItem("codex-bridge:timeline:v3", JSON.stringify(stored));
+  assert.equal(JSON.stringify(cache.load("a", "s")).includes("tampered-secret"), false);
+  assert.equal(s.getItem("codex-bridge:timeline:v3")!.includes("tampered-secret"), false);
 });

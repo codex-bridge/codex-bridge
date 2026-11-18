@@ -1,4 +1,5 @@
 import type { DecisionAction, DecisionRecord } from "../../shared/types.js";
+import type { AssistantDisplay } from "../../shared/assistant-display.js";
 
 export type DecisionContext = {
   id: string;
@@ -63,6 +64,8 @@ export type DeliverySpec = {
 };
 
 export type MessageSpec = {
+  assistantDisplay?: AssistantDisplay;
+  sourceItemId?: string;
   kind: MessageKind;
   title: string;
   session?: SessionContext;

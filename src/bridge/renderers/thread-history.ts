@@ -3,6 +3,7 @@ import { createProgressHistoryMessageSpec } from "./progress.js";
 import { createActivityMessage, createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
+import { protectPresentedAssistantText, type AssistantDisplay, type PresentedAssistantMessage } from "../../shared/assistant-display.js";
 
 export type ThreadHistoryReplayBlock = {
   entry: ThreadHistoryEntry | null;
@@ -101,11 +102,17 @@ export function createTranscriptMessageSpec(input: {
   directory: string;
   role: "user" | "assistant" | "system";
   text: string;
+  assistantDisplay?: AssistantDisplay;
+  sourceItemId?: string;
 }): MessageSpec {
+  const presented: PresentedAssistantMessage = input.role === "assistant"
+    ? protectPresentedAssistantText(input.text, input.assistantDisplay) : { text: input.text };
   return createMessage({
     kind: input.role === "user" ? "user" : input.role === "assistant" ? "codex" : "system",
     session: { id: null, directory: input.directory },
-    body: [{ type: input.role === "assistant" ? "markdown" : "text", text: input.text.trim() }]
+    body: [{ type: input.role === "assistant" ? "markdown" : "text", text: presented.text.trim() }],
+    ...(presented.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+    ...(input.sourceItemId ? { sourceItemId: input.sourceItemId } : {})
   });
 }
 
@@ -115,7 +122,8 @@ export function createThreadHistoryEntrySpec(input: {
 }): MessageSpec {
   const { directory, entry } = input;
   if (entry.kind === "message") {
-    return createTranscriptMessageSpec({ directory, role: entry.role, text: entry.text });
+    return createTranscriptMessageSpec({ directory, role: entry.role, text: entry.text,
+      assistantDisplay: entry.assistantDisplay, sourceItemId: entry.itemId });
   }
   if (entry.kind === "progress") {
     return createProgressHistoryMessageSpec({ directory, event: entry.event });

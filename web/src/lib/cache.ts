@@ -1,5 +1,6 @@
 import type { MessageSpec } from "./protocol";
 import type { TimelineItem } from "./timeline";
+import { protectPresentedAssistantText } from "../../../src/shared/assistant-display";
 
 export interface TimelineCache {
   load(threadId: string, sessionId: string): TimelineItem[];
@@ -8,7 +9,8 @@ export interface TimelineCache {
 type StoredSession = { threadId: string; sessionId: string; savedAt: number; items: TimelineItem[] };
 // v1 conflated lifecycle status with assistant dialogue. Keep its bytes for
 // recovery, but never guess message semantics from titles or text when loading.
-const KEY = "codex-bridge:timeline:v2";
+// Earlier caches discarded display metadata. Preserve their bytes, but do not replay them.
+const KEY = "codex-bridge:timeline:v3";
 const MAX_SESSIONS = 20, MAX_ITEMS = 100, MAX_BYTES = 512 * 1024, TTL = 7 * 24 * 60 * 60 * 1000;
 const kinds = new Set(["user", "codex", "progress", "failed", "called", "edited", "working", "mcp", "subagent", "compact-started", "compact-completed"]);
 
@@ -19,9 +21,13 @@ function sanitize(item: unknown): TimelineItem | null {
   if (typeof value.id !== "string" || value.id.length > 200 || !message || !kinds.has(message.kind) || message.decision ||
       typeof message.title !== "string" || !Array.isArray(message.body) ||
       ["sending", "unknown", "refused"].includes(value.deliveryStatus ?? "")) return null;
+  const presented = message.assistantDisplay !== undefined
+    ? protectPresentedAssistantText("", message.assistantDisplay) : undefined;
   const body: MessageSpec["body"] = [];
   let length = 0;
-  for (const part of message.body.slice(0, 30)) {
+  const parts = presented && presented.assistantDisplay?.mode !== "show"
+    ? [{ type: "text" as const, text: presented.text }] : message.body.slice(0, 30);
+  for (const part of parts) {
     if (!part || typeof part !== "object") continue;
     if (part.type === "field" && typeof part.label === "string" && typeof part.value === "string") {
       body.push({ type: "field", label: part.label.slice(0, 200), value: part.value.slice(0, 12000) });
@@ -33,7 +39,9 @@ function sanitize(item: unknown): TimelineItem | null {
     if (length > 24000) return null;
   }
   if (!body.length) return null;
-  return { id: value.id, origin: "cache", message: { kind: message.kind, title: message.title.slice(0, 300), body, actions: [] } };
+  return { id: value.id, origin: "cache", message: { kind: message.kind, title: message.title.slice(0, 300), body, actions: [],
+    ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+    ...(typeof message.sourceItemId === "string" && message.sourceItemId.length <= 200 ? { sourceItemId: message.sourceItemId } : {}) } };
 }
 export class LocalTimelineCache implements TimelineCache {
   constructor(private readonly storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,

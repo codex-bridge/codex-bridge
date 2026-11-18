@@ -1,3 +1,12 @@
+import type { AssistantDisplay } from "./assistant-display.js";
+
+export type TranscriptMessage = {
+  role: "user" | "assistant" | "system";
+  text: string;
+  assistantDisplay?: AssistantDisplay;
+  sourceItemId?: string;
+};
+
 export type DecisionAction =
   | "accept"
   | "acceptForSession"

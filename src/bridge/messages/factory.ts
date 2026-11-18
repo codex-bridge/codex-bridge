@@ -48,6 +48,8 @@ type MessageContentInput = {
   titleLabel?: string;
   presentation?: MessageSpec["presentation"];
   surface?: MessageSpec["surface"];
+  assistantDisplay?: MessageSpec["assistantDisplay"];
+  sourceItemId?: string;
 };
 
 export type CreateMessageInput = MessageContentInput & MessageContextInput;
@@ -76,7 +78,9 @@ export function createMessage(input: CreateMessageInput): MessageSpec {
     actions: [...(input.actions ?? [])],
     ...(input.delivery ? { delivery: input.delivery } : {}),
     ...(input.presentation ? { presentation: input.presentation } : {}),
-    ...(input.surface ? { surface: input.surface } : {})
+    ...(input.surface ? { surface: input.surface } : {}),
+    ...(input.assistantDisplay ? { assistantDisplay: input.assistantDisplay } : {}),
+    ...(input.sourceItemId ? { sourceItemId: input.sourceItemId } : {})
   };
 }
 

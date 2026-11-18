@@ -416,11 +416,11 @@ test("session activation replays only the five latest conversation messages", as
     (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
     const activated = await service.activateSession("chat", session.id);
     assert.deepEqual(activated.recentMessages, [
-      { role: "assistant", text: "old answer" },
-      { role: "user", text: "question 2" },
-      { role: "assistant", text: "answer 2" },
-      { role: "user", text: "turn question" },
-      { role: "assistant", text: "turn answer" }
+      { role: "assistant", text: "old answer", sourceItemId: "a1" },
+      { role: "user", text: "question 2", sourceItemId: "u2" },
+      { role: "assistant", text: "answer 2", sourceItemId: "a2" },
+      { role: "user", text: "turn question", sourceItemId: "u3" },
+      { role: "assistant", text: "turn answer", sourceItemId: "a3" }
     ]);
     assert.deepEqual(await store.listRecentMessages(session.id, 5), []);
     await service.postSessionSwitchTranscript("chat", activated.session, activated.recentMessages);
@@ -466,8 +466,8 @@ test("session activation uses summary history instead of resume fallback", async
     (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
     const activated = await service.activateSession("chat", session.id);
     assert.deepEqual(activated.recentMessages, [
-      { role: "user", text: "summary question" },
-      { role: "assistant", text: "summary answer" }
+      { role: "user", text: "summary question", sourceItemId: "user" },
+      { role: "assistant", text: "summary answer", sourceItemId: "assistant" }
     ]);
     assert.equal(activated.recentMessages.some((message) => message.text.includes("resume")), false);
     assert.deepEqual(await store.listRecentMessages(session.id, 5), []);

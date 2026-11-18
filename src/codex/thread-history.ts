@@ -1,12 +1,15 @@
 import type { AppServerProgressEvent } from "./client.js";
 import { extractProgressEventFromItem } from "./extractors/progress.js";
 import { asRecord, extractMessageText, firstString } from "./protocol-utils.js";
+import { extractAssistantMessage } from "./assistant-message.js";
+import type { AssistantDisplay } from "../shared/assistant-display.js";
 
 export type ThreadHistoryTurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
 export type ThreadHistoryEntry =
   | {
       kind: "message";
+      assistantDisplay?: AssistantDisplay;
       itemId: string;
       role: "user" | "assistant";
       text: string;
@@ -109,13 +112,15 @@ export function normalizeFullThreadTurnsPage(
       itemIds.push(itemId);
 
       if (item.type === "userMessage" || item.type === "agentMessage") {
-        const text = extractMessageText(item);
+        const presented = item.type === "agentMessage" ? extractAssistantMessage(item) : null;
+        const text = item.type === "agentMessage" ? presented?.text : extractMessageText(item);
         if (text) {
           entries.push({
             kind: "message",
             itemId,
             role: item.type === "userMessage" ? "user" : "assistant",
             text,
+            ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
             turnId
           });
         }

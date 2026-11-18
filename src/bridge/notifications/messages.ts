@@ -1,14 +1,13 @@
 import { createMessage } from "../messages/factory.js";
 import { helpAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
-import type { SessionRecord, MessageRecord } from "../../shared/types.js";
+import type { SessionRecord, MessageRecord, TranscriptMessage } from "../../shared/types.js";
+import type { PresentedAssistantMessage } from "../../shared/assistant-display.js";
+import { protectPresentedAssistantText } from "../../shared/assistant-display.js";
 import { BridgeStore } from "../../store/index.js";
 import { logger } from "../../logging/logger.js";
 
-export type CompletedAgentMessage = {
-  threadId: string;
-  text: string;
-};
+export type CompletedAgentMessage = PresentedAssistantMessage & { threadId: string };
 
 export type NotificationMessageDependencies = {
   store: BridgeStore;
@@ -19,14 +18,19 @@ export type NotificationMessageDependencies = {
   clearRetryingRecovery: (sessionId: string) => void;
   getSessionDirectory: (session: SessionRecord) => string;
   sendLongSpec: (chatId: string, messageSpec: MessageSpec) => Promise<void>;
-  sendTranscriptMessage: (session: SessionRecord, message: MessageRecord, threadId: string) => Promise<void>;
+  sendTranscriptMessage: (session: SessionRecord, message: MessageRecord & TranscriptMessage, threadId: string) => Promise<void>;
   clearProgressMessageForThread: (threadId: string) => Promise<void>;
 };
 
 export class NotificationMessageService {
+  private readonly nativeMessages = new Map<string, PresentedAssistantMessage>();
   constructor(private readonly deps: NotificationMessageDependencies) {}
 
   async handleCompletedAgentMessage(agentMessage: CompletedAgentMessage): Promise<void> {
+    const nativeKey = agentMessage.sourceItemId ? JSON.stringify([agentMessage.threadId, agentMessage.sourceItemId]) : null;
+    const previous = nativeKey ? this.nativeMessages.get(nativeKey) : undefined;
+    agentMessage = { ...agentMessage, ...protectPresentedAssistantText(agentMessage.text,
+      agentMessage.assistantDisplay, previous?.assistantDisplay) };
     logger.info("bridge.notification.agent_message", {
       threadId: agentMessage.threadId,
       text: agentMessage.text
@@ -37,16 +41,16 @@ export class NotificationMessageService {
     this.deps.assistantOutputByThread.set(agentMessage.threadId, true);
     const recentMessages = await this.deps.store.listRecentMessages(session.id, 1);
     const latestMessage = recentMessages.at(-1);
-    if (
-      latestMessage &&
+    const duplicate = nativeKey ? previous?.text === agentMessage.text &&
+      JSON.stringify(previous.assistantDisplay) === JSON.stringify(agentMessage.assistantDisplay) : latestMessage &&
       latestMessage.role === "assistant" &&
       latestMessage.text.trim() === agentMessage.text.trim() &&
-      Date.now() - latestMessage.createdAt < 15_000
-    ) {
+      Date.now() - latestMessage.createdAt < 15_000;
+    if (duplicate) {
       logger.info("bridge.notification.agent_message.duplicate_skipped", {
         sessionId: session.id,
         threadId: agentMessage.threadId,
-        messageId: latestMessage.id
+        messageId: latestMessage?.id
       });
       await this.deps.clearProgressMessageForThread(agentMessage.threadId);
       return;
@@ -59,6 +63,10 @@ export class NotificationMessageService {
       role: "assistant",
       text: agentMessage.text
     });
+    if (nativeKey) {
+      this.nativeMessages.set(nativeKey, agentMessage);
+      if (this.nativeMessages.size > 256) this.nativeMessages.delete(this.nativeMessages.keys().next().value!);
+    }
     const resolvedAt = this.deps.recentResolvedMcpBySession.get(session.id);
     if (resolvedAt && Date.now() - resolvedAt < 120_000) {
       this.deps.recentResolvedMcpBySession.delete(session.id);
@@ -66,13 +74,18 @@ export class NotificationMessageService {
         kind: "mcp",
         session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
         body: [{ type: "text", text: agentMessage.text.trim() }],
+        ...(agentMessage.assistantDisplay ? { assistantDisplay: agentMessage.assistantDisplay } : {}),
+        ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {}),
         actions: [helpAction()]
       });
       await this.deps.sendLongSpec(session.telegramChatId, messageSpec);
       await this.deps.clearProgressMessageForThread(agentMessage.threadId);
       return;
     }
-    await this.deps.sendTranscriptMessage(session, message, agentMessage.threadId);
+    await this.deps.sendTranscriptMessage(session, {
+      ...message, ...(agentMessage.assistantDisplay ? { assistantDisplay: agentMessage.assistantDisplay } : {}),
+      ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {})
+    }, agentMessage.threadId);
     await this.deps.clearProgressMessageForThread(agentMessage.threadId);
   }
 }

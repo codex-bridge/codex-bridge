@@ -35,7 +35,8 @@ test("partial answers stay visible without becoming a terminal turn signal", () 
 
   assert.deepEqual(extractCompletedAgentMessage(partial), {
     threadId: "thread-1",
-    text: "Partial result"
+    text: "Partial result",
+    sourceItemId: "message-1"
   });
   assert.equal(extractTurnLifecycleEvent(partial), null);
   assert.deepEqual(extractTurnLifecycleEvent({

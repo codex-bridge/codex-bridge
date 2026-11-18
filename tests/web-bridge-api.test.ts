@@ -21,6 +21,7 @@ import { DirectoryRegistrationError, WebDirectoryRegistry } from "../src/bridge/
 import { SessionActionGuardService } from "../src/bridge/sessions/action-guards.js";
 import { WebAttachmentStorage } from "../src/web/attachments.js";
 import type { CodexTurnInputPart } from "../src/codex/client.js";
+import { presentAssistantText } from "../src/shared/assistant-display.js";
 
 async function sendFixture(t: TestContext, attachmentRoot?: string) {
   const { store, session } = await historyFixture(t);
@@ -175,6 +176,18 @@ async function historyFixture(t: TestContext, overrides: Partial<SessionReaderDe
   }), undefined, { access: new SessionAccessService(store), reader });
   return { store, session, api };
 }
+
+test("Web history carries safe display instructions and native identity through the session reader", async (t) => {
+  const presented = presentAssistantText("private-answer", { moderated: true,
+    display: { version: 1, mode: "block", reason: { kind: "cyber" } } });
+  const { api } = await historyFixture(t, { isRuntimeConnected: () => true,
+    codexClient: { listRecentThreadMessages: async () => [
+      { role: "assistant", ...presented, turnId: "turn", itemId: "native-item" }
+    ] } as unknown as SessionReaderDependencies["codexClient"] });
+  const { history } = await api.readHistory("history-thread", undefined, () => {});
+  assert.deepEqual(history.messages, [{ role: "assistant", ...presented, sourceItemId: "native-item" }]);
+  assert.equal(JSON.stringify(history).includes("private-answer"), false);
+});
 
 test("Web history uses the disconnected database reader and returns only the latest five conversation messages", async (t) => {
   const { store, session, api } = await historyFixture(t);

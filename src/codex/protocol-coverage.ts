@@ -41,7 +41,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     { disposition: "handled", reason: "Structured file-change progress is rendered without inferring edits from arbitrary text.", names: [
       "item/fileChange/outputDelta", "item/fileChange/patchUpdated"
     ] },
-    { disposition: "partial", reason: "Only supported ThreadItem kinds are rendered; message questions and moderation are not retained yet.", names: [
+    { disposition: "partial", reason: "Only supported ThreadItem kinds are rendered; assistant display rules are applied, but questions are not delivered yet.", names: [
       "item/started", "item/completed"
     ] },
     { disposition: "partial", reason: "MCP status/error is cached and available in status views; no proactive notice or structured failure reason yet.", names: [
@@ -89,7 +89,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     { disposition: "handled", reason: "Existing progress summaries and lifecycle handlers cover these item kinds.", names: [
       "commandExecution", "fileChange", "mcpToolCall", "webSearch", "contextCompaction"
     ] },
-    { disposition: "partial", reason: "Dialogue text is delivered, but questions and moderation/display metadata are discarded.", names: ["agentMessage"] },
+    { disposition: "partial", reason: "Dialogue and versioned display instructions are applied before delivery; questions remain unsupported.", names: ["agentMessage"] },
     { disposition: "partial", reason: "Summaries feed live working status; raw reasoning and standalone replay are not exposed.", names: ["reasoning"] },
     { disposition: "partial", reason: "Direct-child tracking/delivery is implemented; nested delegation remains bounded.", names: [
       "subAgentActivity", "collabAgentToolCall"

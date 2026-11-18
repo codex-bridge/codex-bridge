@@ -1,12 +1,10 @@
 import type { BridgeMessageOptions } from "../transport.js";
-import type { DecisionRecord, MessageRecord, SessionRecord } from "../../shared/types.js";
+import type { DecisionRecord, TranscriptMessage, SessionRecord } from "../../shared/types.js";
 import { createTranscriptMessageSpec } from "../renderers/thread-history.js";
 import { logger } from "../../logging/logger.js";
 import { createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
-
-type TranscriptMessage = Pick<MessageRecord, "role" | "text">;
 
 export type SessionTranscriptHistoryBlock = {
   text: string;
@@ -109,7 +107,9 @@ export class SessionTranscriptService {
           const messageSpec = createTranscriptMessageSpec({
             directory,
             role: message.role,
-            text: message.text
+            text: message.text,
+            assistantDisplay: message.assistantDisplay,
+            sourceItemId: message.sourceItemId
           });
           return {
             text: renderLegacyMessage(messageSpec),

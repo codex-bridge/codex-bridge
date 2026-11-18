@@ -1,7 +1,7 @@
 import type { CodexTurnInputPart } from "../codex/client.js";
 import type {
   DecisionAction,
-  MessageRecord,
+  TranscriptMessage,
   SessionRecord
 } from "../shared/types.js";
 import type { IncomingAttachment } from "./input/payload.js";
@@ -10,7 +10,7 @@ import type { BridgeMessageTransport } from "./transport.js";
 
 export type SessionTranscript = {
   session: SessionRecord;
-  recentMessages: Array<Pick<MessageRecord, "role" | "text">>;
+  recentMessages: TranscriptMessage[];
 };
 
 type TurnInput = {
@@ -79,7 +79,7 @@ export interface BridgeSessionSelectionPort {
   postSessionSwitchTranscript(
     chatId: string,
     session: SessionRecord,
-    recentMessages?: Array<Pick<MessageRecord, "role" | "text">>,
+    recentMessages?: TranscriptMessage[],
     options?: {
       heading?: string;
       purpose?: "session_switch" | "session_refresh";

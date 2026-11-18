@@ -125,7 +125,7 @@ import type { BridgeMessageTransport } from "./transport.js";
 import type { SessionTranscript } from "./contracts.js";
 import type {
   DecisionAction,
-  MessageRecord,
+  TranscriptMessage,
   SessionRecord
 } from "../shared/types.js";
 
@@ -1074,7 +1074,7 @@ export class BridgeService {
 
   async activateSection(telegramChatId: string, sessionId: string): Promise<{
     session: SessionRecord;
-    recentMessages: Array<Pick<MessageRecord, "role" | "text">>;
+    recentMessages: TranscriptMessage[];
   }> {
     return this.activateSession(telegramChatId, sessionId);
   }
@@ -1216,7 +1216,7 @@ export class BridgeService {
 
   async activateSectionFromSelector(telegramChatId: string, sessionId: string): Promise<{
     session: SessionRecord;
-    recentMessages: Array<Pick<MessageRecord, "role" | "text">>;
+    recentMessages: TranscriptMessage[];
   }> {
     return this.activateSessionFromSelector(telegramChatId, sessionId);
   }
@@ -1227,14 +1227,14 @@ export class BridgeService {
 
   async activateSession(telegramChatId: string, sessionId: string): Promise<{
     session: SessionRecord;
-    recentMessages: Array<Pick<MessageRecord, "role" | "text">>;
+    recentMessages: TranscriptMessage[];
   }> {
     return this.sessionActivationService.activateSession(telegramChatId, sessionId);
   }
 
   async activateSessionFromSelector(telegramChatId: string, sessionId: string): Promise<{
     session: SessionRecord;
-    recentMessages: Array<Pick<MessageRecord, "role" | "text">>;
+    recentMessages: TranscriptMessage[];
   }> {
     const targetSession = await this.store.getSessionById(sessionId);
     if (!targetSession) {
@@ -1256,7 +1256,7 @@ export class BridgeService {
     directoryInput: string
   ): Promise<{
     session: SessionRecord;
-    recentMessages: Array<Pick<MessageRecord, "role" | "text">>;
+    recentMessages: TranscriptMessage[];
     created: boolean;
   }> {
     return this.sessionCreationService.activateOrCreateSessionForDirectory(telegramChatId, directoryInput);
@@ -1265,7 +1265,7 @@ export class BridgeService {
   async postSessionSwitchTranscript(
     telegramChatId: string,
     session: SessionRecord,
-    recentMessages?: Array<Pick<MessageRecord, "role" | "text">>,
+    recentMessages?: TranscriptMessage[],
     options?: { heading?: string; purpose?: "session_switch" | "session_refresh" }
   ): Promise<void> {
     return this.sessionTranscriptService.postSessionSwitchTranscript(

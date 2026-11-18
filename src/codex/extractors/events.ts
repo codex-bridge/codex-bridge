@@ -1,15 +1,10 @@
 import type { AppServerNotification } from "../client.js";
 import { asRecord, firstString } from "../protocol-utils.js";
 import { classifyItemKind } from "../item-kind.js";
+import { extractAssistantMessage } from "../assistant-message.js";
 
 export function extractAgentText(item: unknown): string | null {
-  const record = asRecord(item);
-  if (!record) {
-    return null;
-  }
-
-  const direct = firstString(record.text, record.review);
-  return direct ?? null;
+  return extractAssistantMessage(item)?.text ?? null;
 }
 
 export function extractStatusActivity(

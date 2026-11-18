@@ -1,4 +1,5 @@
 import type { WebActionSpec, WebMessageSpec } from "../../../src/web/message-presentation";
+import type { TranscriptMessage } from "../../../src/shared/types";
 export type MessageSpec = WebMessageSpec;
 export type { WebActionSpec };
 export type Grant = { windowId: string; token: string };
@@ -10,7 +11,7 @@ export type SessionEntry = {
 };
 export type Catalog = { directories: string[]; sessions: SessionEntry[] };
 export type DirectoryReceipt = { directory: string; existing: boolean };
-export type History = { threadId: string; sessionId: string; leaseVersion: number; messages: Array<{ role: "user" | "assistant"; text: string }> };
+export type History = { threadId: string; sessionId: string; leaseVersion: number; messages: Array<TranscriptMessage & { role: "user" | "assistant" }> };
 export type Decisions = { threadId: string; sessionId: string; leaseVersion: number; decisions: MessageSpec[] };
 export type MessageEvent = { operation: "send" | "edit" | "delete" | "clear-actions"; sessionId: string;
   threadId: string; leaseVersion: number; messageId: string; message?: MessageSpec };

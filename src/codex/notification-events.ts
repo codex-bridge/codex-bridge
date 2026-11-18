@@ -1,5 +1,4 @@
 import {
-  extractAgentText,
   extractErrorMessage,
   extractNotificationThreadId,
   extractStatusActivity,
@@ -8,6 +7,8 @@ import {
   extractThreadCompactedEvent as extractCompactedThread
 } from "./extractors/events.js";
 import { extractProgressEventFromItem } from "./extractors/progress.js";
+import { extractAssistantMessage } from "./assistant-message.js";
+import type { PresentedAssistantMessage } from "../shared/assistant-display.js";
 import { asRecord, firstString } from "./protocol-utils.js";
 import { extractRateLimitsStatus } from "./rate-limit-extractors.js";
 import type {
@@ -104,10 +105,7 @@ export function extractContextLeftPercent(
   return Math.max(0, Math.min(100, ((max - used) / max) * 100));
 }
 
-export function extractCompletedAgentMessage(notification: AppServerNotification): {
-  threadId: string;
-  text: string;
-} | null {
+export function extractCompletedAgentMessage(notification: AppServerNotification): (PresentedAssistantMessage & { threadId: string }) | null {
   if (notification.method !== "item/completed") {
     return null;
   }
@@ -119,15 +117,15 @@ export function extractCompletedAgentMessage(notification: AppServerNotification
   }
 
   const threadId = firstString(params?.threadId);
-  const text = extractAgentText(item);
-  if (!threadId || !text) {
+  const message = extractAssistantMessage(item);
+  if (!threadId || !message) {
     return null;
   }
 
   // `phase` is presentation metadata. Codex 0.162.1 can complete commentary,
   // partial_answer, and final_answer items independently; only turn/completed
   // is a terminal turn signal, so every completed agent message remains visible.
-  return { threadId, text };
+  return { threadId, ...message };
 }
 
 export function extractModelRuntimeEvent(notification: AppServerNotification): AppServerModelRuntimeEvent | null {

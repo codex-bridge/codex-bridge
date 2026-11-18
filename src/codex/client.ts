@@ -9,6 +9,8 @@ import {
 } from "./extractors/approval.js";
 import { asRecord, firstString } from "./protocol-utils.js";
 import type { ThreadHistoryEntry } from "./thread-history.js";
+import type { AssistantDisplay } from "../shared/assistant-display.js";
+import type { TranscriptMessage } from "../shared/types.js";
 import {
   getAppServerMethodCapability,
   isKnownAppServerMethod,
@@ -124,6 +126,7 @@ export interface AppServerErrorEvent {
 
 export type { CodexQueuedSubmission } from "./queue-api.js";
 export type AppServerHistoryMessage = {
+  assistantDisplay?: AssistantDisplay;
   role: "user" | "assistant";
   text: string;
   turnId: string;
@@ -535,10 +538,7 @@ export class CodexAppServerClient {
 
   async resumeThread(threadId: string, cwd?: string, assertCurrent?: () => void, timeoutMs?: number): Promise<{
     displayPath: string | null;
-    messages: Array<{
-      role: "user" | "assistant" | "system";
-      text: string;
-    }>;
+    messages: TranscriptMessage[];
   }> {
     return this.getThreadApi().resumeThread(threadId, cwd, assertCurrent, timeoutMs);
   }

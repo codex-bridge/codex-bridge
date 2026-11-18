@@ -24,12 +24,13 @@ import type { CodexTurnInputPart } from "../codex/client.js";
 import type { IncomingAttachment } from "../bridge/input/payload.js";
 import { WebAttachmentStorage, type WebUploadFile } from "./attachments.js";
 import type { WebAttentionService, WebAttentionDelivery } from "./attention.js";
+import type { TranscriptMessage } from "../shared/types.js";
 
 export type WebSessionHistory = {
   threadId: string;
   sessionId: string;
   leaseVersion: number;
-  messages: Array<{ role: "user" | "assistant"; text: string }>;
+  messages: Array<TranscriptMessage & { role: "user" | "assistant" }>;
 };
 
 /** The final guard is internal, and must run immediately before HTTP delivery. */
@@ -144,9 +145,10 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     access.assertCurrent();
     if (current.session.id !== access.session.id) throw new SessionAccessError("stale");
     const messages = transcript.recentMessages
-      .filter((message): message is { role: "user" | "assistant"; text: string } =>
+      .filter((message): message is TranscriptMessage & { role: "user" | "assistant" } =>
         message.role === "user" || message.role === "assistant")
-      .slice(-5).map(({ role, text }) => ({ role, text }));
+      .slice(-5).map(({ role, text, assistantDisplay, sourceItemId }) => ({ role, text,
+        ...(assistantDisplay ? { assistantDisplay } : {}), ...(sourceItemId ? { sourceItemId } : {}) }));
     return { history: { threadId, sessionId: access.session.id, leaseVersion: access.leaseVersion, messages },
       assertCurrent: access.assertCurrent };
   }

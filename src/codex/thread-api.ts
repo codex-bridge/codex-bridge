@@ -7,6 +7,8 @@ import { asRecord, extractMessageText, firstString } from "./protocol-utils.js";
 import { normalizeFullThreadTurnsPage, type ThreadHistoryEntry, type ThreadHistoryTurn } from "./thread-history.js";
 import { logger } from "../logging/logger.js";
 import type { AppServerHistoryMessage, AppServerThreadStatus } from "./client.js";
+import { extractAssistantMessage } from "./assistant-message.js";
+import type { TranscriptMessage } from "../shared/types.js";
 
 export type ThreadApiDependencies = {
   connect: () => Promise<void>;
@@ -24,7 +26,7 @@ export class CodexThreadApi {
 
   async resumeThread(threadId: string, cwd?: string, assertCurrent?: () => void, timeoutMs?: number): Promise<{
     displayPath: string | null;
-    messages: Array<{ role: "user" | "assistant" | "system"; text: string }>;
+    messages: TranscriptMessage[];
   }> {
     await this.deps.connect();
     logger.info("codex.thread.resume", { threadId, cwd });
@@ -279,10 +281,7 @@ function extractResumeDisplayPath(value: unknown): string | null {
   return walk(value);
 }
 
-function extractResumeMessages(value: unknown): Array<{
-  role: "user" | "assistant" | "system";
-  text: string;
-}> {
+function extractResumeMessages(value: unknown): TranscriptMessage[] {
   const result = asRecord(value);
   const initialMessages = Array.isArray(result?.initialMessages) ? result.initialMessages : [];
   return initialMessages
@@ -296,7 +295,8 @@ function extractResumeMessages(value: unknown): Array<{
         payload?.type === "user_message" ? "user" : undefined,
         payload?.type === "assistant_message" ? "assistant" : undefined
       );
-      const text = extractMessageText(payload ?? item);
+      const presented = role === "assistant" ? extractAssistantMessage({ ...item, ...payload }) : null;
+      const text = role === "assistant" ? presented?.text : extractMessageText(payload ?? item);
       if (!text || role === "developer") {
         return null;
       }
@@ -304,11 +304,13 @@ function extractResumeMessages(value: unknown): Array<{
         role: role === "user" || role === "assistant" || role === "system"
           ? role
           : payload?.type === "user_message" ? "user" : "system",
-        text
+        text,
+        ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+        ...(presented?.sourceItemId ? { sourceItemId: presented.sourceItemId } : {})
       };
     })
     .filter(
-      (item): item is { role: "user" | "assistant" | "system"; text: string } =>
+      (item): item is TranscriptMessage =>
         Boolean(item && (item.role === "user" || item.role === "assistant"))
     );
 }
@@ -340,8 +342,10 @@ function extractThreadTurnsPage(value: unknown): {
       if (!role) {
         return [];
       }
-      const text = extractMessageText(item);
-      return text ? [{ role, text, turnId, itemId }] : [];
+      const presented = role === "assistant" ? extractAssistantMessage(item) : null;
+      const text = role === "assistant" ? presented?.text : extractMessageText(item);
+      return text ? [{ role, text, turnId, itemId,
+        ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}) }] : [];
     });
   });
   return {

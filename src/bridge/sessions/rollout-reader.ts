@@ -1,11 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 
 import { logger } from "../../logging/logger.js";
+import { extractAssistantMessage } from "../../codex/assistant-message.js";
+import { presentAssistantText } from "../../shared/assistant-display.js";
+import type { TranscriptMessage } from "../../shared/types.js";
 
-type RolloutMessage = {
-  role: "user" | "assistant" | "system";
-  text: string;
-};
+type RolloutMessage = TranscriptMessage;
 
 export class RolloutReader {
   async resolveSessionActivityAt(
@@ -27,12 +27,19 @@ export class RolloutReader {
   async readRecentMessages(rolloutPath: string): Promise<RolloutMessage[]> {
     try {
       const raw = await readFile(rolloutPath, "utf8");
-      const messages = raw
+      const entries = raw
         .split("\n")
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as { payload?: Record<string, unknown> })
-        .map((entry): RolloutMessage | null => {
+        .map((line) => JSON.parse(line) as { type?: string; payload?: Record<string, unknown> });
+      const isAssistantEvent = (entry: typeof entries[number]) => entry.type === "event_msg" &&
+        (entry.payload?.type === "agent_message" || entry.payload?.type === "assistant_message");
+      const hasAssistantEvents = entries.some(isAssistantEvent);
+      const messages = entries.map((entry): RolloutMessage | null => {
           const payload = entry.payload;
+          if (isAssistantEvent(entry)) {
+            const presented = extractAssistantMessage(payload);
+            return presented ? { role: "assistant", ...presented } : null;
+          }
           if (!payload || typeof payload !== "object" || payload.type !== "message") {
             return null;
           }
@@ -40,6 +47,14 @@ export class RolloutReader {
           const role = payload.role;
           if (role !== "user" && role !== "assistant") {
             return null;
+          }
+
+          if (role === "assistant") {
+            if (hasAssistantEvents) return null;
+            // Raw model-context messages are not proof of a display decision.
+            const presented = "moderation" in payload ? extractAssistantMessage(payload)
+              : presentAssistantText("", { moderated: true });
+            return presented ? { role, ...presented } : null;
           }
 
           const content = Array.isArray(payload.content) ? payload.content : [];

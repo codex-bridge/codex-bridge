@@ -1,5 +1,5 @@
 import type { TelegramTextChunk } from "../../telegram/text.js";
-import type { MessageRecord, SessionRecord } from "../../shared/types.js";
+import type { MessageRecord, TranscriptMessage, SessionRecord } from "../../shared/types.js";
 import type { BridgeMessageOptions, BridgeSentMessage } from "../transport.js";
 import { createTranscriptMessageSpec } from "../renderers/thread-history.js";
 import { renderLegacyMessage } from "./legacy-adapter.js";
@@ -79,7 +79,7 @@ export class BridgeMessageOperations {
 
   async sendTranscriptMessage(
     session: SessionRecord,
-    message: MessageRecord,
+    message: MessageRecord & TranscriptMessage,
     threadId?: string
   ): Promise<void> {
     const lastSent = await this.sendRenderedTranscriptMessage(session, message);
@@ -94,13 +94,15 @@ export class BridgeMessageOperations {
 
   private async sendRenderedTranscriptMessage(
     session: SessionRecord,
-    message: Pick<MessageRecord, "role" | "text">,
+    message: TranscriptMessage,
     purpose?: string
   ): Promise<LastSentMessage | null> {
     const messageSpec = createTranscriptMessageSpec({
       directory: this.deps.getSessionDirectory(session),
       role: message.role,
-      text: message.text
+      text: message.text,
+      assistantDisplay: message.assistantDisplay,
+      sourceItemId: message.sourceItemId
     });
     messageSpec.session = { id: session.id, directory: this.deps.getSessionDirectory(session) };
     if (this.deps.sender.requireTransport(session.telegramChatId).sendMessageSpec) {

@@ -1,9 +1,9 @@
 import { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
-import type { MessageRecord, SessionRecord } from "../../shared/types.js";
+import type { TranscriptMessage, SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
 
-type RecentMessage = Pick<MessageRecord, "role" | "text">;
+type RecentMessage = TranscriptMessage;
 
 export type SessionReaderDependencies = {
   store: BridgeStore;
@@ -54,7 +54,7 @@ export class SessionReader {
       }
       try {
         recentMessages = (await this.deps.codexClient.listRecentThreadMessages(currentSession.codexThreadId, 5))
-          .map(({ role, text }) => ({ role, text }));
+          .map(({ role, text, assistantDisplay, itemId }) => ({ role, text, sourceItemId: itemId, ...(assistantDisplay ? { assistantDisplay } : {}) }));
         recentMessagesSource = "turns";
       } catch (error) {
         logger.warn("bridge.session.turn_history_failed", {
@@ -113,7 +113,7 @@ export class SessionReader {
 
     try {
       recentMessages = (await this.deps.codexClient.listRecentThreadMessages(session.codexThreadId, 5))
-        .map(({ role, text }) => ({ role, text }));
+        .map(({ role, text, assistantDisplay, itemId }) => ({ role, text, sourceItemId: itemId, ...(assistantDisplay ? { assistantDisplay } : {}) }));
     } catch (error) {
       logger.warn("bridge.session.refresh_turn_history_failed", {
         sessionId: session.id,

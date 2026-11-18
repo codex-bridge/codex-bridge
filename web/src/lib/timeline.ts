@@ -1,4 +1,5 @@
 import type { History, MessageEvent, MessageSpec } from "./protocol";
+import { protectPresentedAssistantText } from "../../../src/shared/assistant-display";
 export type TimelineItem = { id: string; message: MessageSpec; origin: "history" | "live" | "local" | "cache";
   deliveryStatus?: "sending" | "accepted" | "unknown" | "refused"; openDecision?: boolean };
 export function hasOpenDecision(item: TimelineItem): boolean {
@@ -10,6 +11,13 @@ export function dialogueText(message: MessageSpec): string {
   return message.body.filter((part) => part.type === "text" || part.type === "markdown").map((part) => part.text).join("\n");
 }
 export function isDialogue(message: MessageSpec): boolean { return message.kind === "user" || message.kind === "codex"; }
+function protectMessage(message: MessageSpec, previous?: MessageSpec): MessageSpec {
+  const presented = protectPresentedAssistantText("", message.assistantDisplay, previous?.assistantDisplay);
+  if (!presented.assistantDisplay) return message;
+  return { ...message, assistantDisplay: presented.assistantDisplay,
+    ...(presented.assistantDisplay?.mode !== "show"
+      ? { body: [{ type: "text", text: presented.text }], actions: [] } : {}) };
+}
 export function historyBoundaryIndex(items: TimelineItem[]): number {
   for (let index = items.length - 1; index >= 0; index--) {
     if (items[index]?.origin === "history" || items[index]?.origin === "cache") return index;
@@ -24,15 +32,30 @@ function hasVisibleMessageContent(message: MessageSpec): boolean {
     : Boolean(part.text.trim()));
 }
 export function restoreHistory(items: TimelineItem[], history: History): TimelineItem[] {
-  // Upstream history has no IDs. Anchor only on an exact contiguous sequence of
-  // role/text pairs, not a global text set. Keep interleaved stats/cards in place.
-  const messages = history.messages.slice(-5);
+  // Prefer native IDs; legacy history anchors on contiguous role/text pairs.
+  // Keep interleaved stats/cards in place.
+  const known = new Map(items.flatMap((item) => item.message.sourceItemId
+    ? [[item.message.sourceItemId, item.message] as const] : []));
+  const messages = history.messages.slice(-5).map((message) => message.role === "assistant"
+    ? { ...message, ...protectPresentedAssistantText(message.text, message.assistantDisplay,
+      message.sourceItemId ? known.get(message.sourceItemId)?.assistantDisplay : undefined) } : message);
+  const byId = new Map(messages.flatMap((message) => message.sourceItemId ? [[message.sourceItemId, message] as const] : []));
+  items = items.flatMap((item) => {
+    const authoritative = item.message.sourceItemId ? byId.get(item.message.sourceItemId) : undefined;
+    if (authoritative) return [{ ...item, message: protectMessage({ ...item.message,
+      body: [{ type: "markdown", text: authoritative.text }], actions: [],
+      assistantDisplay: authoritative.assistantDisplay }) }];
+    return [{ ...item, message: protectMessage(item.message) }];
+  });
   const dialogues = items.filter((item) => isDialogue(item.message) && !["sending", "unknown", "refused"].includes(item.deliveryStatus ?? ""));
   let match: { known: number; history: number; size: number } | undefined;
   outer: for (let size = Math.min(dialogues.length, messages.length); size > 0; size--) {
     for (let known = dialogues.length - size; known >= 0; known--) {
       for (let start = 0; start <= messages.length - size; start++) {
-        if (dialogues.slice(known, known + size).every((item, index) => messages[start + index]?.text === dialogueText(item.message) &&
+        if (dialogues.slice(known, known + size).every((item, index) =>
+            (messages[start + index]?.sourceItemId && item.message.sourceItemId
+              ? messages[start + index]?.sourceItemId === item.message.sourceItemId
+              : messages[start + index]?.text === dialogueText(item.message)) &&
             messages[start + index]?.role === (item.message.kind === "user" ? "user" : "assistant"))) {
           match = { known, history: start, size }; break outer;
         }
@@ -45,7 +68,9 @@ export function restoreHistory(items: TimelineItem[], history: History): Timelin
     while (ids.has(id)) id += "-new";
     ids.add(id);
     return { id, origin: "history", message: { kind: message.role === "user" ? "user" : "codex",
-      title: message.role === "user" ? "You" : "Codex", body: [{ type: "markdown", text: message.text }], actions: [] }
+      title: message.role === "user" ? "You" : "Codex", body: [{ type: "markdown", text: message.text }], actions: [],
+      ...(message.assistantDisplay ? { assistantDisplay: message.assistantDisplay } : {}),
+      ...(message.sourceItemId ? { sourceItemId: message.sourceItemId } : {}) }
     };
   });
   if (!match) return trimTimeline([...restored, ...items.filter((item) => item.origin !== "history" &&
@@ -60,6 +85,7 @@ export function restoreHistory(items: TimelineItem[], history: History): Timelin
 }
 export function applyMessage(items: TimelineItem[], event: MessageEvent): TimelineItem[] {
   const index = items.findIndex((item) => item.id === event.messageId ||
+    (event.message?.sourceItemId && item.message.sourceItemId === event.message.sourceItemId) ||
     (event.message?.decision && item.message.decision?.id === event.message.decision.id));
   if (event.operation === "delete") return items.filter((_, position) => position !== index);
   if (event.operation === "clear-actions") return items.map((item, position) => position !== index ? item :
@@ -67,10 +93,11 @@ export function applyMessage(items: TimelineItem[], event: MessageEvent): Timeli
       ...item.message.decision, availableActions: [], inputAllowed: false
     } } : {}) } });
   if (!event.message) return items;
+  const message = protectMessage(event.message, index >= 0 ? items[index]?.message : undefined);
   // Visibility follows browser-supported content types, not message titles.
-  if (!hasVisibleMessageContent(event.message))
+  if (!hasVisibleMessageContent(message))
     return index < 0 ? items : items.filter((_, position) => position !== index);
-  const next: TimelineItem = { id: event.messageId, message: event.message, origin: "live" };
+  const next: TimelineItem = { id: event.messageId, message, origin: "live" };
   // An edit may arrive after reload without its send; showing it is better than
   // silently discarding it. Existing cards retain their exact position.
   return trimTimeline(index < 0 ? [...items, next] : items.map((item, position) => position === index ? next : item));
