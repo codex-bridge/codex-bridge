@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { APP_SERVER_METHODS, getAppServerMethodCapability } from "../src/codex/protocol-registry.js";
-import { extractGeneratedMethods, extractRuntimeMethods, scanProductionReferences } from "../scripts/probes/protocol-evidence.js";
+import { extractGeneratedItemTypes, extractGeneratedMethods, extractRuntimeMethods, scanProductionReferences } from "../scripts/probes/protocol-evidence.js";
 
 test("protocol inventory distinguishes generated, runtime, production-reference and live evidence", () => {
   const archive = getAppServerMethodCapability("thread/archive")!;
@@ -24,6 +24,7 @@ test("protocol evidence scan matches executable-source literals without counting
   for (const entry of APP_SERVER_METHODS) assert.deepEqual(entry.evidence.productionReferences, refs[entry.method] ?? [], entry.method);
   assert.ok(refs["server/diagnostics"]?.includes("src/codex/runtime-capabilities.ts"));
   assert.ok(!refs["server/diagnostics"]?.includes("src/codex/protocol-registry.ts"));
+  assert.ok(Object.values(refs).every((files) => !files.includes("src/codex/protocol-coverage.ts")));
 });
 
 test("generated and runtime discovery collect method discriminants without inventing availability", () => {
@@ -34,4 +35,9 @@ test("generated and runtime discovery collect method discriminants without inven
   `), ["read/a", "read/b"]);
   assert.deepEqual(extractRuntimeMethods("unknown method, expected one of `read/b`, `read/a`, `read/a`"), ["read/a", "read/b"]);
   assert.deepEqual(extractRuntimeMethods("permission denied"), []);
+  assert.deepEqual(extractGeneratedItemTypes(`
+    // type: "not-an-item"
+    export type Items = { "type": "plan"; id: string } | { type: "sleep" } | { type: "plan" };
+    const sample = "agentMessage";
+  `), ["plan", "sleep"]);
 });

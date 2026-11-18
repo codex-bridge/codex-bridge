@@ -60,8 +60,8 @@ export interface AppServerMethodCapability extends AppServerMethodDefinition {
 }
 
 export const APP_SERVER_PROTOCOL_PROBE = {
-  codexCliVersion: "0.167.1",
-  probedAt: "2026-11-11",
+  codexCliVersion: "0.170.0",
+  probedAt: "2026-11-19",
   source: "Codex-generated TypeScript bindings, runtime method discovery, and targeted local probes"
 } as const;
 
@@ -74,6 +74,7 @@ export const APP_SERVER_METHOD_DEFINITIONS = [
   { method: "turn/settings/update", kind: "request", group: "turn", access: "restricted", notes: "Experimental; affects the running turn only, not pending approvals, child sessions, or future turns." },
 
   { method: "thread/start", kind: "request", group: "thread" },
+  { method: "thread/prepareApprovedPlan", kind: "request", group: "thread", access: "restricted", notes: "Experimental; prepares an approved plan for a fresh thread. Changes thread context and is not a read-only probe." },
   { method: "thread/resume", kind: "request", group: "thread" },
   { method: "thread/fork", kind: "request", group: "thread" },
   { method: "thread/sample", kind: "request", group: "thread", access: "restricted", notes: "Experimental model sampling; requires a loaded source and its latest terminal turn ID. Not a read-only probe." },
@@ -294,6 +295,9 @@ export const APP_SERVER_METHOD_DEFINITIONS = [
     group: "account",
     },
   { method: "account/read", kind: "request", group: "account" },
+  { method: "account/securitySetup/read", kind: "request", group: "account", notes: "Reads account security setup notices; not integrated into Bridge UI." },
+  { method: "modelProvider/list", kind: "request", group: "models", notes: "Lists configured providers without changing the default; not integrated into Bridge UI." },
+  { method: "modelProvider/config/write", kind: "request", group: "config", access: "restricted", notes: "Writes provider configuration; requires explicit user intent and is not a compatibility probe." },
   { method: "feedback/upload", kind: "request", group: "feedback" },
   { method: "feedback/save", kind: "request", group: "feedback", notes: "Writes a feedback ZIP to a previously unused host path; the caller owns cleanup even after RPC disconnect." },
 

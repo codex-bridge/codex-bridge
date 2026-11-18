@@ -1,6 +1,6 @@
 {
-  "version": "0.167.1",
-  "generatedAt": "2026-11-11",
+  "version": "0.170.0",
+  "generatedAt": "2026-11-18",
   "includesExperimental": true,
   "schemaMethods": {
     "request": [
@@ -17,6 +17,7 @@
       "account/rateLimitResetCredit/consume",
       "account/rateLimits/read",
       "account/read",
+      "account/securitySetup/read",
       "account/sendAddCreditsNudgeEmail",
       "account/usage/read",
       "account/workspaceMessages/read",
@@ -78,6 +79,8 @@
       "mock/experimentalMethod",
       "model/list",
       "modelProvider/capabilities/read",
+      "modelProvider/config/write",
+      "modelProvider/list",
       "permissionProfile/list",
       "plugin/install",
       "plugin/installed",
@@ -144,6 +147,7 @@
       "thread/metadata/update",
       "thread/name/set",
       "thread/prediction/request",
+      "thread/prepareApprovedPlan",
       "thread/queue/add",
       "thread/queue/delete",
       "thread/queue/list",
@@ -306,6 +310,7 @@
     "account/rateLimitResetCredit/consume",
     "account/rateLimits/read",
     "account/read",
+    "account/securitySetup/read",
     "account/sendAddCreditsNudgeEmail",
     "account/usage/read",
     "account/workspaceMessages/read",
@@ -367,6 +372,8 @@
     "mock/experimentalMethod",
     "model/list",
     "modelProvider/capabilities/read",
+    "modelProvider/config/write",
+    "modelProvider/list",
     "permissionProfile/list",
     "plugin/install",
     "plugin/installed",
@@ -433,6 +440,7 @@
     "thread/metadata/update",
     "thread/name/set",
     "thread/prediction/request",
+    "thread/prepareApprovedPlan",
     "thread/queue/add",
     "thread/queue/delete",
     "thread/queue/list",
@@ -733,19 +741,40 @@
   },
   "liveVerification": {
     "server/diagnostics": {
-      "version": "0.167.1",
-      "verifiedAt": "2026-11-11",
+      "version": "0.170.0",
+      "verifiedAt": "2026-11-18",
       "scenario": "read-only capabilities"
     },
     "configRequirements/read": {
-      "version": "0.167.1",
-      "verifiedAt": "2026-11-11",
+      "version": "0.170.0",
+      "verifiedAt": "2026-11-18",
       "scenario": "read-only capabilities"
     },
     "modelProvider/capabilities/read": {
-      "version": "0.167.1",
-      "verifiedAt": "2026-11-11",
+      "version": "0.170.0",
+      "verifiedAt": "2026-11-18",
       "scenario": "read-only capabilities"
     }
-  }
+  },
+  "schemaItemTypes": [
+    "agentMessage",
+    "collabAgentToolCall",
+    "commandExecution",
+    "contextCompaction",
+    "dynamicToolCall",
+    "enteredReviewMode",
+    "exitedReviewMode",
+    "fileChange",
+    "functionCallOutput",
+    "hookPrompt",
+    "imageGeneration",
+    "imageView",
+    "mcpToolCall",
+    "plan",
+    "reasoning",
+    "sleep",
+    "subAgentActivity",
+    "userMessage",
+    "webSearch"
+  ]
 }

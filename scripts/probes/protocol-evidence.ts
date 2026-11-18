@@ -8,7 +8,8 @@ export async function scanProductionReferences(root: string, methods: ReadonlySe
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) { await walk(path); continue; }
-      if (!entry.name.endsWith(".ts") || entry.name.startsWith("protocol-registry") || entry.name.startsWith("protocol-evidence")) continue;
+      if (!entry.name.endsWith(".ts") || entry.name.startsWith("protocol-registry") ||
+          entry.name.startsWith("protocol-evidence") || entry.name === "protocol-coverage.ts") continue;
       const source = ts.createSourceFile(path, await readFile(path, "utf8"), ts.ScriptTarget.Latest, true);
       function visit(node: ts.Node): void {
         if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && methods.has(node.text)) {
@@ -27,10 +28,18 @@ export async function scanProductionReferences(root: string, methods: ReadonlySe
 }
 
 export function extractGeneratedMethods(source: string): string[] {
+  return extractStringDiscriminants(source, "method");
+}
+
+export function extractGeneratedItemTypes(source: string): string[] {
+  return extractStringDiscriminants(source, "type");
+}
+
+function extractStringDiscriminants(source: string, property: string): string[] {
   const file = ts.createSourceFile("protocol.ts", source, ts.ScriptTarget.Latest, true);
   const methods = new Set<string>();
   function visit(node: ts.Node): void {
-    if (ts.isPropertySignature(node) && node.name.getText(file).replaceAll('"', "") === "method" &&
+    if (ts.isPropertySignature(node) && node.name.getText(file).replaceAll('"', "") === property &&
       node.type && ts.isLiteralTypeNode(node.type) && ts.isStringLiteral(node.type.literal)) methods.add(node.type.literal.text);
     ts.forEachChild(node, visit);
   }

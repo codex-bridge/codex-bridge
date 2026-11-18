@@ -1016,7 +1016,15 @@ export class CodexAppServerClient {
       id: request.id,
       method: request.method
     });
-    void this.connection.sendResponse(request.id, "cancel");
+    void this.connection.sendErrorResponse(request.id, {
+      code: -32601,
+      message: `Bridge does not support server request: ${request.method}`
+    }).catch((error) => {
+      logger.warn("codex.server_request.rejection_failed", {
+        method: request.method,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   }
 
 }

@@ -6,7 +6,7 @@ import { APP_SERVER_METHODS, APP_SERVER_PROTOCOL_PROBE } from "../../src/codex/p
 import { APP_SERVER_PROTOCOL_EVIDENCE } from "../../src/codex/protocol-evidence.js";
 import { logger } from "../../src/logging/logger.js";
 import { createVerificationClient, createVerificationConfig } from "../verify-codex/runtime.js";
-import { extractGeneratedMethods, extractRuntimeMethods, scanProductionReferences } from "./protocol-evidence.js";
+import { extractGeneratedItemTypes, extractGeneratedMethods, extractRuntimeMethods, scanProductionReferences } from "./protocol-evidence.js";
 
 logger.configureOutput({ console: "none", file: false });
 const schemaIndex = process.argv.indexOf("--schema");
@@ -30,6 +30,8 @@ if (live || schemaIndex >= 0) {
     if (!evidence.schemaMethods[kind].length) throw new Error(`No ${kind} methods in generated bindings`);
   }
   evidence.includesExperimental = true;
+  evidence.schemaItemTypes = extractGeneratedItemTypes(await readFile(join(directory, "v2/ThreadItem.ts"), "utf8"));
+  if (!evidence.schemaItemTypes.length) throw new Error("No ThreadItem types in generated bindings");
   console.log(`Read generated schemas from ${directory}`);
 }
 if (live) {

@@ -5,6 +5,7 @@ export type ProtocolEvidenceSnapshot = {
   generatedAt: string;
   includesExperimental: boolean;
   schemaMethods: { request: string[]; serverRequest: string[]; notification: string[] };
+  schemaItemTypes: string[];
   runtimeRequests: string[];
   productionReferences: Record<string, string[]>;
   liveVerification: Record<string, { version: string; verifiedAt: string; scenario: string }>;

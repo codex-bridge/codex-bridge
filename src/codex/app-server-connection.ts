@@ -203,6 +203,10 @@ export class AppServerConnection {
     await this.send({ id, result });
   }
 
+  async sendErrorResponse(id: JsonRpcId, error: { code: number; message: string }): Promise<void> {
+    await this.send({ id, error });
+  }
+
   private async initialize(): Promise<void> {
     if (this.initialized) {
       return;
