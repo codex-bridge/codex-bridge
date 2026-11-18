@@ -348,7 +348,7 @@ test("Run count includes initial send and successful replacements across restart
     assert.equal(frozen?.aggregate.run.updates, 3);
     assert.equal(frozen?.aggregate.run.succeeded, 0);
     assert.equal(frozen?.aggregate.run.failed, 0);
-    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×4 · Succeeded ×4 · Failed ×0$/);
+    assert.match(edits.at(-1) ?? "", /^Run · .*\nRun ×4 · Succeeded ×4$/);
   } finally {
     store.close();
   }

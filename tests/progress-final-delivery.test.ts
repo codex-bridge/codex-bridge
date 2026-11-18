@@ -93,7 +93,7 @@ test("live finalization sends no placeholder and allows the next phase during re
   f.setEdit(async () => true);
   await f.tick(5_000);
   assert.deepEqual(f.edits.map((edit) => edit.id), ["live-1", "live-1"]);
-  assert.match(f.edits[1]!.text, /Run ×1 · Succeeded ×1 · Failed ×0/);
+  assert.match(f.edits[1]!.text, /Run ×1 · Succeeded ×1/);
   await service.stop();
 });
 

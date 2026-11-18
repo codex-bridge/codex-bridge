@@ -68,7 +68,7 @@ test("Telegram sends and edits activity footers with the same keyboard and notif
       assert.equal(id, 7); calls.push({ chat, content, options }); return true;
     }
   } } as unknown as Bot;
-  const spec = activity("Run", ["Run ×1 · Succeeded ×1 · Failed ×0"]);
+  const spec = activity("Run", ["Run ×1 · Succeeded ×1"]);
   spec.actions = [helpAction()];
   const transport = new TelegramMessageTransport(bot, (text) => text);
   assert.deepEqual(await transport.sendMessageSpec("123", spec, { disable_notification: true }), { message_id: "7" });

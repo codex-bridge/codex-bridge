@@ -128,7 +128,11 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     const displayedUpdates = updates + 1;
     // Display policy: only explicit failures count as failed; all other displayed runs count as succeeded.
     const succeeded = Math.max(0, displayedUpdates - failed);
-    const statistics = `Run ×${displayedUpdates} · Succeeded ×${succeeded} · Failed ×${failed}`;
+    const statistics = [
+      `Run ×${displayedUpdates}`,
+      `Succeeded ×${succeeded}`,
+      ...(failed > 0 ? [`Failed ×${failed}`] : [])
+    ].join(" · ");
     const runLines = record.state === "step_failed" || record.state === "failed"
       ? [statistics, ...runFailureLines(record.failureReason)]
       : [...(record.state === "completed" ? [] : lines), statistics];

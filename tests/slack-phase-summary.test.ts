@@ -39,12 +39,12 @@ function contextText(blocks: KnownBlock[]): string {
 
 test("Slack activity uses one context with a separator only when it has a body", () => {
   const title = "Run · .../_inbox/story-agent-lab";
-  for (const body of [[], [{ type: "text" as const, text: "Run ×10 · Succeeded ×10 · Failed ×0" }]]) {
+  for (const body of [[], [{ type: "text" as const, text: "Run ×10 · Succeeded ×10" }]]) {
     const spec: MessageSpec = { ...summary(), title, body };
     const before = structuredClone(spec);
     assert.deepEqual(renderSlackMessageSpec("slack:T:C", spec, null), [{
       type: "context", elements: [{ type: "plain_text", emoji: false,
-        text: body.length ? "Run · .../_inbox/story-agent-lab ·\nRun ×10 · Succeeded ×10 · Failed ×0" : title }]
+        text: body.length ? "Run · .../_inbox/story-agent-lab ·\nRun ×10 · Succeeded ×10" : title }]
     }]);
     assert.deepEqual(spec, before);
   }
@@ -124,9 +124,9 @@ test("Slack send and edit keep the full summary in Activity fallback text", asyn
   await transport.editMessageSpec("slack:T:C", "1.0001", spec);
   assert.equal(requests.length, 2);
   for (const payload of requests) {
-    assert.equal(payload.text, "Run · /workspace/project\nRun ×1 · Succeeded ×1 · Failed ×0");
+    assert.equal(payload.text, "Run · /workspace/project\nRun ×1 · Succeeded ×1");
     assert.equal((payload.blocks as KnownBlock[]).length, 1);
-    assert.equal(contextText(payload.blocks as KnownBlock[]), "Run · /workspace/project ·\nRun ×1 · Succeeded ×1 · Failed ×0");
+    assert.equal(contextText(payload.blocks as KnownBlock[]), "Run · /workspace/project ·\nRun ×1 · Succeeded ×1");
   }
 });
 
