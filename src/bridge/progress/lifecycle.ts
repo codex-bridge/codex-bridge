@@ -29,6 +29,18 @@ export function appendPhaseEvent(
     explored: { ...current.explored }
   };
 
+  if (normalized.event.activity) {
+    const activity = normalized.event.activity;
+    const entries = current.activities ?? [];
+    const index = entries.findIndex(entry => entry.key === activity.key);
+    const previous = entries[index];
+    if (previous?.terminal || previous && JSON.stringify(previous) === JSON.stringify(activity)) return current;
+    aggregate.activities = entries.map(entry => ({ ...entry, lines: [...entry.lines] }));
+    if (index < 0) aggregate.activities.push({ ...activity, lines: [...activity.lines] });
+    else aggregate.activities[index] = { ...activity, lines: [...activity.lines] };
+    return aggregate;
+  }
+
   if (normalized.kind === "edited" && aggregate.fileEdits) {
     const { itemId, changes, completed, failed } = normalized.event;
     // Do not invent an operation identity from paths, content, or timestamps.
@@ -90,6 +102,11 @@ export function phaseTitle(kind: ProgressPhaseKind): string {
     case "edited": return "Edited";
     case "explored": return "Explored";
     case "system": return "System";
+    case "plan": return "Plan";
+    case "hook": return "Hook";
+    case "waiting": return "Waiting";
+    case "viewed": return "Viewed";
+    case "review": return "Review";
     // Old records are not reclassified, and should not become a new Progress card.
     case "other": return "Historical activity";
   }

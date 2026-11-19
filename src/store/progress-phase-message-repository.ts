@@ -49,6 +49,7 @@ function parseAggregate(value: string): ProgressPhaseAggregate {
       operations: parseOperations(parsed.operations),
       files: parsed.files && typeof parsed.files === "object" ? parsed.files : {},
       ...(Array.isArray(parsed.fileEdits) ? { fileEdits: parsed.fileEdits } : {}),
+      ...(Array.isArray(parsed.activities) ? { activities: parsed.activities } : {}),
       run: {
         updates: typeof parsed.run?.updates === "number" ? parsed.run.updates : 0,
         succeeded: typeof parsed.run?.succeeded === "number" ? parsed.run.succeeded : 0,
@@ -140,6 +141,16 @@ export class ProgressPhaseMessageRepository {
       WHERE id = ? AND state != 'active'
     `).run(JSON.stringify(aggregate), now(), id);
     return this.get(id);
+  }
+
+  getByActivity(codexThreadId: string, turnId: string, key: string): ProgressPhaseMessageRecord | null {
+    const row = this.sqlite.prepare(`
+      SELECT * FROM progress_phase_messages
+      WHERE codex_thread_id = ? AND turn_id = ?
+        AND EXISTS (SELECT 1 FROM json_each(aggregate_json, '$.activities') WHERE json_extract(value, '$.key') = ?)
+      ORDER BY phase_seq ASC LIMIT 1
+    `).get(codexThreadId, turnId, key) as ProgressPhaseMessageRow | undefined;
+    return row ? asRecord(row) : null;
   }
 
   create(input: {

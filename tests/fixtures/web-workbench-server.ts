@@ -14,6 +14,9 @@ import { USER_INPUT_METHOD, validateUserInputAnswers, type UserInputPrompt } fro
 import { presentWebDecision } from "../../src/web/decisions.js";
 import { NotificationNoticeService } from "../../src/bridge/notifications/notices.js";
 import { McpStartupTracker } from "../../src/bridge/status/mcp-startup.js";
+import { fixtureProgressService } from "./progress-service.js";
+import { extractProgressEvent } from "../../src/codex/notification-events.js";
+import type { AppServerNotification } from "../../src/codex/client.js";
 
 const store = new BridgeStore(":memory:");
 await store.ensureChat("web:local");
@@ -36,6 +39,10 @@ const nativePrompt: UserInputPrompt = { isBlocking: true, questions: [
   { id: "notes", header: "Notes", question: "Any notes for the fixture?", isOther: true, isSecret: false, options: null }
 ] };
 let sequence = 0;
+const activities = fixtureProgressService(store, (id, spec, edit) => {
+  const session = sessions.find(s => s.id === spec.session?.id)!;
+  publish(session.codexThreadId, id, spec, edit ? "edit" : "send");
+});
 const notices = new NotificationNoticeService({ store, mcpStartup: new McpStartupTracker(),
   resolveNotificationSession: thread => store.getSessionByThreadId(thread), getSessionDirectory: s => s.pathKey,
   sendGlobalNotice: async () => {}, sendLongSpec: async (_source, spec) => {
@@ -97,7 +104,22 @@ const api: WebBridgeApi = {
       replies.consume(input.replyToken!, owned.session.id, "web:local");
     }
     history.get(input.threadId)!.push({ role: "user", text: input.text });
-    if (input.text === "service-warning") {
+    if (input.text === "activities") {
+      const threadId = input.threadId, turnId = `fixture-activity-turn-${sequence++}`;
+      const observations: AppServerNotification[] = [
+        { method: "turn/plan/updated", params: { threadId, turnId, plan: [{ step: "Inspect the fixture", status: "completed" }, { step: "Review the result", status: "inProgress" }] } },
+        { method: "hook/started", params: { threadId, turnId, run: { id: "fixture-hook", eventName: "preCompact", status: "running" } } },
+        { method: "item/started", params: { threadId, turnId, item: { id: "fixture-wait", type: "sleep", durationMs: 100 } } },
+        { method: "hook/completed", params: { threadId, turnId, run: { id: "fixture-hook", eventName: "preCompact", status: "completed", statusMessage: "Fixture hook finished" } } },
+        { method: "item/completed", params: { threadId, turnId, item: { id: "fixture-wait", type: "sleep", durationMs: 100 } } },
+        { method: "item/completed", params: { threadId, turnId, item: { id: "fixture-view", type: "imageView", path: "/fixture/workbench/image.png" } } },
+        { method: "item/completed", params: { threadId, turnId, item: { id: "fixture-dynamic", type: "dynamicToolCall", namespace: "fixture", tool: "inspect", status: "completed", success: true } } },
+        { method: "item/autoApprovalReview/completed", params: { threadId, turnId, reviewId: "fixture-auto", review: { status: "approved", rationale: "Fixture operation is read-only" } } },
+        { method: "item/completed", params: { threadId, turnId, item: { id: "fixture-review", type: "exitedReviewMode", review: "The fixture review found no remaining issues." } } }
+      ];
+      for (const notification of observations) await activities.sendProgressMessage(owned.session, extractProgressEvent(notification)!, turnId);
+      await activities.clearProgressMessageForThread(threadId, { turnId });
+    } else if (input.text === "service-warning") {
       await notices.handleWarning({ kind: "configWarning", threadId: null, message: "The fixture configuration contains an unsupported option.",
         details: "Remove the deprecated setting.", path: "/fixture/config.toml" });
     } else if (input.text === "mcp-failed" || input.text === "mcp-ready") {

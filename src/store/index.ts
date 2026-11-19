@@ -447,6 +447,10 @@ export class BridgeStore {
     return this.progressPhaseMessageRepository.getByFileEdit(codexThreadId, turnId, itemId);
   }
 
+  getProgressPhaseMessageForActivity(codexThreadId: string, turnId: string, key: string): ProgressPhaseMessageRecord | null {
+    return this.progressPhaseMessageRepository.getByActivity(codexThreadId, turnId, key);
+  }
+
   updateFinalProgressPhaseAggregate(id: string, aggregate: ProgressPhaseAggregate): ProgressPhaseMessageRecord | null {
     return this.progressPhaseMessageRepository.updateFinalAggregate(id, aggregate);
   }

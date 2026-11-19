@@ -280,6 +280,8 @@ export interface AppServerTokenUsageEvent {
 }
 
 export interface AppServerProgressEvent {
+  activity?: import("../shared/types.js").ProgressActivity;
+  operationKind?: "dynamicTool";
   threadId: string;
   turnId?: string;
   itemId?: string;

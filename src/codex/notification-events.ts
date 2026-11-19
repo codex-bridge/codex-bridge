@@ -8,6 +8,8 @@ import {
 } from "./extractors/events.js";
 import { extractProgressEventFromItem } from "./extractors/progress.js";
 import { extractAssistantMessage } from "./assistant-message.js";
+import { extractActivityEvent } from "./activity-events.js";
+import { classifyItemKind } from "./item-kind.js";
 import type { PresentedAssistantMessage } from "../shared/assistant-display.js";
 import { asRecord, firstString } from "./protocol-utils.js";
 import { extractRateLimitsStatus } from "./rate-limit-extractors.js";
@@ -179,6 +181,8 @@ export function extractModelRuntimeEvent(notification: AppServerNotification): A
 }
 
 export function extractProgressEvent(notification: AppServerNotification): AppServerProgressEvent | null {
+  const activity = extractActivityEvent(notification);
+  if (activity) return activity;
   const isFileChangeProgress = FILE_CHANGE_PROGRESS_METHODS.has(notification.method);
   if (
     notification.method !== "item/started" &&
@@ -221,6 +225,7 @@ export function extractProgressEvent(notification: AppServerNotification): AppSe
 }
 
 export function extractStatusUpdate(notification: AppServerNotification): AppServerStatusUpdate | null {
+  if (classifyItemKind(asRecord(asRecord(notification.params)?.item)?.type) === "internal") return null;
   const threadId = extractNotificationThreadId(notification);
   if (!threadId) {
     return null;

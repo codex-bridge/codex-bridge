@@ -501,6 +501,9 @@
     "account/workspaceMessages/read": [
       "src/codex/catalog-api.ts"
     ],
+    "autoApprovalReview/strictReviewRequired": [
+      "src/codex/activity-events.ts"
+    ],
     "codex/event/error": [
       "src/codex/notification-events.ts"
     ],
@@ -540,6 +543,7 @@
       "src/bridge/sessions/stop.ts",
       "src/bridge/status/formatters.ts",
       "src/bridge/status/mcp-startup.ts",
+      "src/codex/activity-events.ts",
       "src/codex/app-server-connection.ts",
       "src/codex/client.ts",
       "src/codex/extractors/progress.ts",
@@ -551,6 +555,12 @@
     "guardianWarning": [
       "src/codex/notification-events.ts"
     ],
+    "hook/completed": [
+      "src/codex/activity-events.ts"
+    ],
+    "hook/started": [
+      "src/codex/activity-events.ts"
+    ],
     "initialize": [
       "src/codex/app-server-connection.ts"
     ],
@@ -561,12 +571,19 @@
       "src/codex/app-server-connection.ts",
       "src/codex/notification-events.ts"
     ],
+    "item/autoApprovalReview/completed": [
+      "src/codex/activity-events.ts"
+    ],
+    "item/autoApprovalReview/started": [
+      "src/codex/activity-events.ts"
+    ],
     "item/commandExecution/requestApproval": [
       "src/bridge/decisions/formatters.ts",
       "src/codex/client.ts",
       "src/shared/approval-policy.ts"
     ],
     "item/completed": [
+      "src/codex/activity-events.ts",
       "src/codex/extractors/events.ts",
       "src/codex/notification-events.ts"
     ],
@@ -597,6 +614,7 @@
       "src/codex/notification-events.ts"
     ],
     "item/started": [
+      "src/codex/activity-events.ts",
       "src/codex/extractors/events.ts",
       "src/codex/notification-events.ts"
     ],
@@ -736,6 +754,9 @@
     "turn/interrupt": [
       "src/codex/turn-api.ts"
     ],
+    "turn/plan/updated": [
+      "src/codex/activity-events.ts"
+    ],
     "turn/start": [
       "src/codex/error-policy.ts",
       "src/codex/turn-api.ts"
@@ -750,6 +771,7 @@
     ],
     "warning": [
       "src/bridge/notifications/rate-limit-notifier.ts",
+      "src/codex/activity-events.ts",
       "src/codex/notification-events.ts"
     ]
   },

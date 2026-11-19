@@ -31,6 +31,7 @@ export type ProgressServiceDependencies = {
   getProgressPhaseMessage: (id: string) => ProgressPhaseMessageRecord | null;
   getLatestProgressPhaseMessage: (threadId: string, turnId: string) => ProgressPhaseMessageRecord | null;
   getProgressPhaseMessageForFileEdit: (threadId: string, turnId: string, itemId: string) => ProgressPhaseMessageRecord | null;
+  getProgressPhaseMessageForActivity?: (threadId: string, turnId: string, key: string) => ProgressPhaseMessageRecord | null;
   updateFinalProgressPhaseAggregate: (id: string, aggregate: ProgressPhaseAggregate) => ProgressPhaseMessageRecord | null;
   listActiveProgressPhaseMessages: () => ProgressPhaseMessageRecord[];
   listPendingProgressPhaseFinalDelivery: () => ProgressPhaseMessageRecord[];
@@ -112,6 +113,7 @@ export class ProgressService {
       let active = this.deps.getActiveProgressPhaseMessage(event.threadId, resolvedTurnId);
       const owner = normalized.kind === "edited" && event.itemId
         ? this.deps.getProgressPhaseMessageForFileEdit(event.threadId, resolvedTurnId, event.itemId)
+        : event.activity && event.activity.updateMode !== "snapshot" ? this.deps.getProgressPhaseMessageForActivity?.(event.threadId, resolvedTurnId, event.activity.key)
         : null;
       if (owner && owner.state !== "active") {
         // A late completion updates its original summary, never opens another phase.
@@ -130,8 +132,8 @@ export class ProgressService {
       const previous = this.lastProgressByTurn.get(key);
       const duplicatePreview = previous?.text === text && previous.failed === event.failed && now - previous.sentAt < 30_000;
       // Edited completion/identity must reach the aggregate even when the preview is unchanged.
-      if (duplicatePreview && normalized.kind !== "edited") return;
-      if (normalized.kind === "called" && !event.failed && this.deps.shouldSkipCalledProgress(session, now)) return;
+      if (duplicatePreview && normalized.kind !== "edited" && !event.activity) return;
+      if (normalized.kind === "called" && event.operationKind !== "dynamicTool" && !event.failed && this.deps.shouldSkipCalledProgress(session, now)) return;
       if (opensNewPhase(active, normalized) && active) {
         await this.finalizePhase(active, "phase_complete", null);
         active = null;

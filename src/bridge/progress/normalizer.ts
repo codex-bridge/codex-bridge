@@ -2,6 +2,8 @@ import type { AppServerProgressFileChange } from "../../codex/client.js";
 import type { ProgressFailureReason, ProgressPhaseKind } from "../../shared/types.js";
 
 export type ProgressNotificationEvent = {
+  activity?: import("../../shared/types.js").ProgressActivity;
+  operationKind?: "dynamicTool";
   threadId: string;
   itemId?: string;
   label: string;
@@ -30,7 +32,7 @@ export function normalizeProgressEvent(event: ProgressNotificationEvent): Normal
   return {
     kind,
     event,
-    operation: kind === "called" ? safeOperationName(event.toolName) : null,
+    operation: kind === "called" ? safeOperationName(event.toolName, event.operationKind) : null,
     failureReason: event.failed ? normalizeFailureReason(event.text) : null
   };
 }
@@ -46,6 +48,7 @@ export function normalizeFailureReason(raw: string): ProgressFailureReason {
 }
 
 function phaseKindFor(event: ProgressNotificationEvent): NewProgressPhaseKind | null {
+  if (event.activity) return event.activity.kind;
   if (event.changes?.length || event.label === "Edited") return "edited";
   if (event.label === "Run") return "run";
   if (event.label === "Called" || event.label.startsWith("Called ")) return "called";
@@ -54,10 +57,11 @@ function phaseKindFor(event: ProgressNotificationEvent): NewProgressPhaseKind | 
   return null;
 }
 
-function safeOperationName(toolName: string | null): string | null {
+function safeOperationName(toolName: string | null, kind?: "dynamicTool"): string | null {
   if (!toolName) return null;
   const mcpMatch = toolName.match(/^mcp__([^_]+)__([A-Za-z0-9_:-]+)$/);
   const normalized = mcpMatch ? `${mcpMatch[1]}.${mcpMatch[2]}` : toolName;
+  if (kind === "dynamicTool" && /^[A-Za-z][A-Za-z0-9_:-]*$/.test(normalized)) return normalized;
   // A qualified tool identifier is safe to retain in a durable summary. Reject
   // command-like and free-form values that the App Server may expose as a name.
   return /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_:-]*)+$/.test(normalized)

@@ -747,6 +747,7 @@ export class BridgeService {
       getActiveProgressPhaseMessage: (threadId, turnId) => store.getActiveProgressPhaseMessage(threadId, turnId),
       getLatestProgressPhaseMessage: (threadId, turnId) => store.getLatestProgressPhaseMessage(threadId, turnId),
       getProgressPhaseMessageForFileEdit: (threadId, turnId, itemId) => store.getProgressPhaseMessageForFileEdit(threadId, turnId, itemId),
+      getProgressPhaseMessageForActivity: (threadId, turnId, key) => store.getProgressPhaseMessageForActivity(threadId, turnId, key),
       updateFinalProgressPhaseAggregate: (id, aggregate) => store.updateFinalProgressPhaseAggregate(id, aggregate),
       listActiveProgressPhaseMessages: () => store.listActiveProgressPhaseMessages(),
       listPendingProgressPhaseFinalDelivery: () => store.listPendingProgressPhaseFinalDelivery(),

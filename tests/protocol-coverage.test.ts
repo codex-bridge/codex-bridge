@@ -10,7 +10,7 @@ test("all generated client-bound methods and items have an explicit disposition"
   assert.equal(getMessageCoverage("notification", "warning")?.disposition, "handled");
   assert.equal(getMessageCoverage("serverRequest", "item/tool/requestUserInput")?.disposition, "handled");
   assert.equal(getMessageCoverage("item", "agentMessage")?.disposition, "partial");
-  assert.equal(getMessageCoverage("item", "sleep")?.disposition, "unsupported");
+  assert.equal(getMessageCoverage("item", "sleep")?.disposition, "handled");
   assert.equal(getMessageCoverage("item", "new-upstream-item"), undefined);
 });
 

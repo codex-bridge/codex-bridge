@@ -53,10 +53,17 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     { disposition: "unsupported", reason: "Windows writable-path warnings still need a dedicated presentation contract.", names: [
       "windows/worldWritableWarning"
     ] },
-    { disposition: "unsupported", reason: "Activity or waiting-state notification has no shared presentation yet.", names: [
-      "hook/started", "hook/completed", "turn/plan/updated", "item/plan/delta",
+    { disposition: "handled", reason: "Plan snapshots and approval-review observations use the existing ordered activity lifecycle, without executing or approving actions.", names: [
+      "turn/plan/updated",
       "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
-      "autoApprovalReview/strictReviewRequired", "model/safetyBuffering/updated",
+      "autoApprovalReview/strictReviewRequired"
+    ] },
+    { disposition: "partial", reason: "Turn-scoped Hook lifecycle and public status/error entries are shown as activities; null-turn session/connection hooks are not assigned to an invented task. Internal context and feedback stay private.", names: [
+      "hook/started", "hook/completed"
+    ] },
+    { disposition: "ignored", reason: "Full plan items and structured turn plan snapshots provide content; raw plan deltas are not separate messages.", names: ["item/plan/delta"] },
+    { disposition: "unsupported", reason: "Activity or waiting-state notification has no shared presentation yet.", names: [
+      "model/safetyBuffering/updated",
       "item/commandExecution/terminalInteraction", "item/mcpToolCall/progress",
       "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted"
     ] },
@@ -98,7 +105,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
       "subAgentActivity", "collabAgentToolCall"
     ] },
     { disposition: "partial", reason: "Generic tool activity is summarized; generated image/media delivery is not implemented.", names: ["imageGeneration"] },
-    { disposition: "unsupported", reason: "No dedicated activity or review-result presentation yet.", names: [
+    { disposition: "handled", reason: "Public activities feed ordered phases; plan/review text is retained, dynamic tools expose names/results, and direct-child observations remain with the tracker.", names: [
       "plan", "sleep", "imageView", "dynamicToolCall", "enteredReviewMode", "exitedReviewMode"
     ] },
     { disposition: "ignored", reason: "Internal model-facing tool outputs and hook prompts are not user dialogue.", names: [

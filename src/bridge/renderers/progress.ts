@@ -14,6 +14,7 @@ import type {
 import { phaseTitle } from "../progress/lifecycle.js";
 
 export type ProgressRenderEvent = {
+  activity?: import("../../shared/types.js").ProgressActivity;
   label: string;
   toolName: string | null;
   target: string | null;
@@ -48,6 +49,9 @@ export function createProgressHistoryMessageSpec(input: ProgressMessageInput): M
 
 function buildProgressMessageSpec(input: ProgressMessageInput, create: typeof createMessage): MessageSpec {
   const session = { id: null, directory: input.directory };
+  if (input.event.activity) return create({ kind: input.event.failed ? "failed" : "progress",
+    titleLabel: phaseTitle(input.event.activity.kind), session,
+    body: activityLines(input.event.activity).map(text => ({ type: "text" as const, text })) });
   if (input.event.label === "System") {
     return create({
       kind: "system",
@@ -109,6 +113,10 @@ export function createProgressPhaseSummarySpec(input: {
 
 function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   const aggregate = record.aggregate;
+  if (aggregate.activities?.length) return [
+    ...aggregate.activities.flatMap(activityLines),
+    ...(record.state === "interrupted" ? ["Interrupted"] : [])
+  ];
   const outcome = phaseOutcomeLine(record.state, record.failureReason);
   if (record.phaseKind === "called") {
     const lines = [aggregate.operations.length > 0
@@ -175,6 +183,11 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     return lines.length ? lines : [eventCountLine(aggregate.eventCount)];
   }
   return lines.length ? lines : [eventCountLine(aggregate.eventCount)];
+}
+
+function activityLines(activity: import("../../shared/types.js").ProgressActivity): string[] {
+  const status = ({ inProgress: "In progress", timedOut: "Timed out" } as Record<string, string>)[activity.status] ?? activity.status;
+  return [`${activity.name} · ${status}`, ...activity.lines];
 }
 
 function formatCalledOperation({ name, count, failed }: ProgressPhaseOperationGroup): string {

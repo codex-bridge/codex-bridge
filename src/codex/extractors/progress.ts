@@ -39,6 +39,10 @@ export function extractProgressText(item: Record<string, unknown>): string | nul
 }
 
 export function extractProgressToolName(item: Record<string, unknown>): string | null {
+  if (classifyItemKind(item.type) === "dynamicTool") {
+    const tool = firstString(item.tool), namespace = firstString(item.namespace);
+    return tool ? namespace ? `${namespace}.${tool}` : tool : "dynamic tool";
+  }
   const payload = asRecord(item.payload);
   const server = firstString(item.server, payload?.server);
   const tool = firstString(item.tool, payload?.tool);
@@ -372,7 +376,7 @@ export function isProgressItem(item: Record<string, unknown>): boolean {
   const kind = classifyItemKind(item.type);
   const toolName = extractProgressToolName(item);
   return Boolean(
-    kind === "command" || kind === "fileChange" || kind === "mcp" || kind === "tool" ||
+    kind === "command" || kind === "fileChange" || kind === "mcp" || kind === "tool" || kind === "dynamicTool" ||
       kind === "webSearch" || kind === "image" ||
       (firstString(item.server) && firstString(item.tool)) ||
       toolName?.startsWith("mcp__") ||
@@ -392,12 +396,18 @@ export function extractProgressEventFromItem(input: {
   toolName?: string | null;
 }): AppServerProgressEvent | null {
   const { fallback, item, threadId } = input;
+  if (classifyItemKind(item.type) === "internal") return null;
   const progressItem = isProgressItem(item);
   if (classifyItemKind(item.type) === "agentMessage" ||
       (input.requireProgressItem !== false && !progressItem)) {
     return null;
   }
   const kind = classifyItemKind(item.type);
+  if (kind === "dynamicTool") return {
+    operationKind: "dynamicTool",
+    threadId, label: "Called", toolName: extractProgressToolName(item), action: "call", target: null, input: null, changes: null,
+    failed: progressItemFailed(item), text: progressItemFailed(item) ? "Dynamic tool reported failure." : "Dynamic tool observed."
+  };
   const toolName = extractProgressToolName(item);
   const fileMutation = input.fileMutation === true ||
     kind === "fileChange" ||
