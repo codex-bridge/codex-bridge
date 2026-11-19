@@ -8,6 +8,7 @@ import type {
   AppServerWorkspaceMessagesStatus
 } from "../../codex/client.js";
 import { getRateLimitLeftPercent } from "../notifications/rate-limit-policy.js";
+import { isMcpFailure, isMcpReady } from "./mcp-startup.js";
 
 export function formatRateLimitWindow(window: AppServerRateLimitWindow): string {
   const resolvedLeftPercent = getRateLimitLeftPercent(window);
@@ -243,9 +244,9 @@ export function formatModelToolCallStatus(version: string | null): string {
 
 export function formatMcpStartupStatusCache(
   currentStatus: AppServerMcpServerStatus | null,
-  startupStatuses: Map<string, { status: string | null; error: string | null }>
+  startupStatuses: Map<string, { status: string | null; error: string | null; failureReason?: string | null }>
 ): string | null {
-  const statusesByName = new Map<string, { status: string | null; error: string | null }>();
+  const statusesByName = new Map<string, { status: string | null; error: string | null; failureReason?: string | null }>();
   if (currentStatus && !currentStatus.error) {
     for (const server of currentStatus.servers) statusesByName.set(server.name, { status: server.status, error: null });
   }
@@ -257,10 +258,9 @@ export function formatMcpStartupStatusCache(
   let unknown = 0;
   const failedNames: string[] = [];
   for (const [name, entry] of statusesByName) {
-    const status = entry.status?.toLowerCase() ?? "";
-    if (status.includes("running") || status.includes("ready") || status.includes("started")) {
+    if (isMcpReady(entry.status)) {
       running += 1;
-    } else if (status.includes("fail") || status.includes("error") || status.includes("stopped") || entry.error) {
+    } else if (isMcpFailure(entry)) {
       failed += 1;
       failedNames.push(name);
     } else {
@@ -277,17 +277,18 @@ export function formatMcpStartupStatusCache(
 }
 
 export function formatMcpStartupFailureDetails(
-  startupStatuses: Map<string, { status: string | null; error: string | null }>
+  startupStatuses: Map<string, { status: string | null; error: string | null; failureReason?: string | null }>
 ): string | null {
   const failures = [...startupStatuses]
-    .filter(([, entry]) => Boolean(entry.error) || /(fail|error|stopped|disconnected)/i.test(entry.status ?? ""))
+    .filter(([, entry]) => isMcpFailure(entry))
     .slice(0, 3)
     .map(([name, entry]) => {
-      const error = entry.error?.replace(/\s+/g, " ").trim() || "connection failed";
-      const loginHint = /(oauth|token|credential|auth)/i.test(error)
+      const error = entry.error?.replace(/\s+/g, " ").trim() || entry.failureReason || "connection failed";
+      const loginHint = entry.failureReason === "reauthenticationRequired" || /(oauth|token|credential|auth)/i.test(error)
         ? ` Run: codex mcp login ${name}`
         : "";
-      return `${name}: ${error}${loginHint}`;
+      const reason = entry.failureReason && entry.failureReason !== error ? ` (${entry.failureReason})` : "";
+      return `${name}: ${error}${reason}${loginHint}`;
     });
   return failures.length > 0 ? failures.join("\n") : null;
 }

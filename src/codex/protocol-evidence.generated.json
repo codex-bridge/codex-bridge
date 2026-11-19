@@ -513,6 +513,12 @@
     "configRequirements/read": [
       "src/codex/runtime-capabilities.ts"
     ],
+    "configWarning": [
+      "src/codex/notification-events.ts"
+    ],
+    "deprecationNotice": [
+      "src/codex/notification-events.ts"
+    ],
     "error": [
       "src/bridge/goals/service.ts",
       "src/bridge/input/payload.ts",
@@ -533,6 +539,7 @@
       "src/bridge/sessions/ownership.ts",
       "src/bridge/sessions/stop.ts",
       "src/bridge/status/formatters.ts",
+      "src/bridge/status/mcp-startup.ts",
       "src/codex/app-server-connection.ts",
       "src/codex/client.ts",
       "src/codex/extractors/progress.ts",
@@ -540,6 +547,9 @@
       "src/logging/logger.ts",
       "src/web/bridge-api.ts",
       "src/web/server.ts"
+    ],
+    "guardianWarning": [
+      "src/codex/notification-events.ts"
     ],
     "initialize": [
       "src/codex/app-server-connection.ts"
@@ -739,7 +749,8 @@
       "src/codex/turn-api.ts"
     ],
     "warning": [
-      "src/bridge/notifications/rate-limit-notifier.ts"
+      "src/bridge/notifications/rate-limit-notifier.ts",
+      "src/codex/notification-events.ts"
     ]
   },
   "liveVerification": {

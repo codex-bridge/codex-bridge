@@ -31,6 +31,28 @@ export type AppServerModelRuntimeEvent = {
   verifications: string[];
 };
 
+export type AppServerWarningEvent = {
+  kind: "warning" | "guardianWarning" | "configWarning" | "deprecationNotice";
+  threadId: string | null;
+  message: string;
+  details: string | null;
+  path: string | null;
+};
+
+export function extractWarningEvent(notification: AppServerNotification): AppServerWarningEvent | null {
+  const kind = notification.method;
+  if (kind !== "warning" && kind !== "guardianWarning" && kind !== "configWarning" && kind !== "deprecationNotice") return null;
+  const params = asRecord(notification.params);
+  const scoped = kind === "warning" || kind === "guardianWarning";
+  if (scoped && params?.threadId != null && (typeof params.threadId !== "string" || !params.threadId.trim())) return null;
+  const threadId = scoped ? firstString(params?.threadId) ?? null : null;
+  if (kind === "guardianWarning" && !threadId) return null;
+  const message = firstString(scoped ? params?.message : params?.summary)?.trim();
+  if (!message) return null;
+  return { kind, threadId, message, details: scoped ? null : firstString(params?.details) ?? null,
+    path: kind === "configWarning" ? firstString(params?.path) ?? null : null };
+}
+
 const FILE_CHANGE_PROGRESS_METHODS = new Set([
   // COMPATIBILITY(MESSAGE_FACTORY): keep deprecated outputDelta for older Codex servers until they are no longer supported.
   "item/fileChange/outputDelta",
@@ -311,25 +333,31 @@ export function extractMcpStartupStatusEvent(
   }
 
   const params = asRecord(notification.params);
+  if (params?.threadId != null && (typeof params.threadId !== "string" || !params.threadId.trim())) return null;
+  const threadId = firstString(params?.threadId) ?? null;
   if (notification.method === "mcpServer/oauthLogin/completed") {
+    if (typeof params?.success !== "boolean") return null;
     const name = firstString(params?.name);
     if (!name) return null;
     return {
+      threadId, source: "oauth", failureReason: null,
       name,
-      status: params?.success === true ? "ready" : "error",
+      status: params?.success === true ? "authenticated" : "error",
       error: params?.success === true ? null : firstString(params?.error) ?? "OAuth login failed"
     };
   }
   const server = asRecord(params?.server) ?? asRecord(params?.mcpServer) ?? params;
-  const name = firstString(server?.name, server?.id, server?.serverName, server?.command) ?? null;
+  const name = firstString(server?.name, server?.id, server?.serverName) ?? null;
   if (!name) {
     return null;
   }
 
   return {
+    threadId, source: "startup",
     name,
     status: firstString(server?.status, server?.state, server?.phase) ?? null,
-    error: extractErrorMessage(server?.error) ?? firstString(server?.errorMessage, server?.message) ?? null
+    error: extractErrorMessage(server?.error) ?? firstString(server?.errorMessage, server?.message) ?? null,
+    failureReason: firstString(server?.failureReason) ?? null
   };
 }
 

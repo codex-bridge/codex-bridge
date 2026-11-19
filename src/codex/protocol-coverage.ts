@@ -44,11 +44,14 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     { disposition: "partial", reason: "Supported ThreadItem kinds include assistant display rules and async question choices; other activities remain unsupported.", names: [
       "item/started", "item/completed"
     ] },
-    { disposition: "partial", reason: "MCP status/error is cached and available in status views; no proactive notice or structured failure reason yet.", names: [
+    { disposition: "handled", reason: "Scoped MCP status and failure reasons feed shared status views and deduplicated failure/recovery notices; OAuth success alone does not imply readiness.", names: [
       "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed"
     ] },
-    { disposition: "unsupported", reason: "User-facing warning has no shared delivery handler yet.", names: [
-      "warning", "guardianWarning", "configWarning", "deprecationNotice", "windows/worldWritableWarning"
+    { disposition: "handled", reason: "Public warnings use declared session or service scope and shared presentation; identical observations are deduplicated in memory.", names: [
+      "warning", "guardianWarning", "configWarning", "deprecationNotice"
+    ] },
+    { disposition: "unsupported", reason: "Windows writable-path warnings still need a dedicated presentation contract.", names: [
+      "windows/worldWritableWarning"
     ] },
     { disposition: "unsupported", reason: "Activity or waiting-state notification has no shared presentation yet.", names: [
       "hook/started", "hook/completed", "turn/plan/updated", "item/plan/delta",

@@ -24,7 +24,7 @@ import { WebDecisionService } from "../web/decisions.js";
 import { WebAttachmentStorage } from "../web/attachments.js";
 import { NotificationDeliveryTargets } from "./notifications/delivery-target.js";
 import { SessionBindingService, bindingEventText } from "./sessions/binding.js";
-import { WEB_SOURCE_ID } from "../shared/source-address.js";
+import { WEB_SOURCE_ID, messageTransportPlatform } from "../shared/source-address.js";
 import { SessionReader } from "./sessions/reader.js";
 import { ExternalSessionRecoveryService } from "./sessions/external-recovery.js";
 import { SessionViewService } from "./sessions/view.js";
@@ -41,6 +41,7 @@ import { NotificationTurnService } from "./notifications/turns.js";
 import { NotificationRecoveryService } from "./notifications/recovery.js";
 import { NotificationMessageService } from "./notifications/messages.js";
 import { NotificationAuxiliaryService } from "./notifications/auxiliary.js";
+import { NotificationNoticeService } from "./notifications/notices.js";
 import { NotificationDispatcher } from "./notifications/dispatcher.js";
 import { NotificationApprovalService, type EarlyApproval } from "./notifications/approval.js";
 import { VersionUpdateNotifier } from "./notifications/version-update.js";
@@ -196,6 +197,7 @@ export class BridgeService {
   private readonly notificationRecoveryService: NotificationRecoveryService;
   private readonly notificationMessageService: NotificationMessageService;
   private readonly notificationAuxiliaryService: NotificationAuxiliaryService;
+  private readonly notificationNoticeService: NotificationNoticeService;
   private readonly notificationDispatcher: NotificationDispatcher;
   private readonly notificationApprovalService: NotificationApprovalService;
   private readonly notificationListener: NotificationListener;
@@ -572,12 +574,21 @@ export class BridgeService {
       sendTranscriptMessage: (session, message, threadId) => this.messageOperations.sendTranscriptMessage(session, message, threadId),
       clearProgressMessageForThread: (threadId) => this.clearProgressMessageForThread(threadId)
     });
+    this.notificationNoticeService = new NotificationNoticeService({
+      store, mcpStartup: state.mcpStartupStatus,
+      resolveNotificationSession: (threadId) => {
+        const child = this.subagents.route(threadId);
+        return child ? store.getSessionById(child.sessionId) : this.notificationDeliveryTargets.resolve(threadId);
+      },
+      getSessionDirectory: (session) => this.getSessionDirectory(session),
+      sendLongSpec: (sourceId, spec) => this.messageOperations.sendLongSpec(sourceId, spec),
+      sendGlobalNotice: (spec) => this.sendServiceNotice(spec)
+    });
     this.notificationAuxiliaryService = new NotificationAuxiliaryService({
       store,
       clearDecisionMessageActions: (decision) => this.decisionDelivery.clearDecisionMessageActions(decision),
       syncBatchDecisionMessageForSessionId: (sessionId) => this.decisionDelivery.syncBatchDecisionMessageForSessionId(sessionId),
       statusRuntimeState: this.statusRuntimeState,
-      mcpStartupStatusByName: state.mcpStartupStatusByName,
       modelRuntimeEventByThread: state.modelRuntimeEventByThread,
       tokenUsageTracker: this.tokenUsageTracker,
       recentResolvedMcpBySession: state.recentResolvedMcpBySession,
@@ -589,6 +600,7 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
     });
     this.notificationDispatcher = new NotificationDispatcher({
+      notices: this.notificationNoticeService,
       store,
       sessionMenuSnapshots: this.sessionMenuSnapshots,
       notificationTurnService: this.notificationTurnService,
@@ -777,7 +789,8 @@ export class BridgeService {
       seenErrors: state.errorSeenByThread,
       rateLimitSessions: this.rateLimitNotifier,
       tokenUsage: this.tokenUsageTracker,
-      mcpStartupStatus: state.mcpStartupStatusByName,
+      mcpStartupStatus: state.mcpStartupStatus,
+      notices: this.notificationNoticeService,
       modelRuntimeEvents: state.modelRuntimeEventByThread,
       lastAssistantMessages: state.lastAssistantTelegramByThread,
       pendingGoShortcuts: state.pendingGoShortcutByThread,
@@ -804,7 +817,8 @@ export class BridgeService {
       codexClient,
       tokenUsageTracker: this.tokenUsageTracker,
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
-      mcpStartupStatusByName: state.mcpStartupStatusByName,
+      mcpStartupStatus: state.mcpStartupStatus,
+      serviceNotices: () => this.notificationNoticeService.snapshot(),
       modelRuntimeEventByThread: state.modelRuntimeEventByThread,
       isRuntimeConnected: () => this.isRuntimeConnected(),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
@@ -1196,7 +1210,7 @@ export class BridgeService {
           runtimeConnected: this.isRuntimeConnected()
         })
       })
-    }, new WebAttachmentStorage());
+    }, new WebAttachmentStorage(), () => this.notificationNoticeService.snapshot());
   }
 
   async cancelSessionHandoff(sourceId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec> {
@@ -1406,6 +1420,20 @@ export class BridgeService {
 
   private getDiscoveryChatIds(): string[] {
     return this.config.telegramAllowedChatIds ? [...this.config.telegramAllowedChatIds] : [];
+  }
+
+  private async sendServiceNotice(spec: MessageSpec): Promise<void> {
+    const roots = new Set((await this.store.listChatIds()).concat(this.getDiscoveryChatIds())
+      .filter(sourceId => {
+        const platform = messageTransportPlatform(sourceId);
+        return platform === "slack" ? this.config.slackEnabled : platform === "telegram" && !!this.config.telegramBotToken;
+      }).map(getSessionSelectorChatId));
+    for (const sourceId of roots) {
+      try {
+        await this.ensureChatAllowed(sourceId);
+        await this.messageOperations.sendLongSpec(sourceId, spec);
+      } catch { logger.warn("bridge.notice.service_delivery_failed", { sourceId }); }
+    }
   }
 
   private attachCodexListeners(): void {

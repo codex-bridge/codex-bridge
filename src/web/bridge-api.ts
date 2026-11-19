@@ -61,6 +61,7 @@ export class WebSendError extends Error {
 /** Web has one stable source; browser window credentials never become source IDs. */
 export interface WebBridgeApi {
   listCatalog(): Promise<SessionCatalog>;
+  readServiceNotices?: () => WebMessageSpec[];
   registerDirectory?: (path: string, assertCurrent: () => void) => Promise<WebDirectoryRegistration>;
   requestBinding?: (threadId: string, expectedVersion: number | undefined, assertCurrent: () => void) => Promise<SessionBindingResult>;
   cancelBinding?: (threadId: string, expectedVersion: number | undefined, assertCurrent: () => void) => Promise<SessionHandoffCancellation>;
@@ -109,7 +110,10 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     private readonly decisions?: WebDecisionService,
     private readonly directories?: WebDirectoryRegistry,
     private readonly operations?: WebSessionOperations,
-    private readonly attachments?: WebAttachmentStorage) {}
+    private readonly attachments?: WebAttachmentStorage,
+    private readonly serviceNotices?: () => MessageSpec[]) {}
+
+  readServiceNotices(): WebMessageSpec[] { return (this.serviceNotices?.() ?? []).map(presentWebMessage); }
 
   listCatalog(): Promise<SessionCatalog> {
     return this.catalog.list();

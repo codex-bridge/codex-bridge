@@ -15,6 +15,17 @@ const { ServiceConnectionControl } = await tsImport("../web/src/components/servi
   typeof import("../web/src/components/service-connection-control.tsx");
 const { SessionCatalog } = await tsImport("../web/src/components/session-catalog.tsx", options) as
   typeof import("../web/src/components/session-catalog.tsx");
+const { ServiceNotices } = await tsImport("../web/src/components/service-notices.tsx", options) as
+  typeof import("../web/src/components/service-notices.tsx");
+
+test("service notices stay collapsed and share the existing safe message renderer", () => {
+  assert.equal(renderToStaticMarkup(createElement(ServiceNotices, { notices: [] })), "");
+  const html = renderToStaticMarkup(createElement(ServiceNotices, { notices: [{ kind: "system", title: "Configuration warning",
+    body: [{ type: "text", text: "<script>untrusted</script>" }], actions: [] }] }));
+  assert.match(html, /Service notices · 1/);
+  assert.equal(html.includes("<script>"), false);
+  assert.equal(html.includes(" open="), false);
+});
 
 test("workbench shell composes navigation and conversation without introducing another layout wrapper", () => {
   const html = renderToStaticMarkup(createElement(WorkbenchShell, {

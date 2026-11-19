@@ -9,7 +9,7 @@ export type SessionEntry = {
   capabilities?: { releaseToCodex: boolean };
   ownership: { state: string; ownerSourceId: string | null; pendingSourceId: string | null; version: number } | null;
 };
-export type Catalog = { directories: string[]; sessions: SessionEntry[] };
+export type Catalog = { directories: string[]; sessions: SessionEntry[]; serviceNotices?: MessageSpec[] };
 export type DirectoryReceipt = { directory: string; existing: boolean };
 export type History = { threadId: string; sessionId: string; leaseVersion: number; messages: Array<TranscriptMessage & { role: "user" | "assistant" }> };
 export type Decisions = { threadId: string; sessionId: string; leaseVersion: number; decisions: MessageSpec[] };

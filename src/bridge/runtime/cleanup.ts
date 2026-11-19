@@ -19,6 +19,7 @@ export type RuntimeStateCleanupDependencies = {
   rateLimitSessions: SessionRouteClearable;
   tokenUsage: Clearable;
   mcpStartupStatus: Clearable;
+  notices?: Clearable;
   modelRuntimeEvents: Clearable;
   lastAssistantMessages: Clearable;
   pendingGoShortcuts: Map<string, ReturnType<typeof setTimeout>>;
@@ -39,6 +40,7 @@ export class RuntimeStateCleanupService {
     this.deps.rateLimitSessions.clearSessionRoutes();
     this.deps.tokenUsage.clear();
     this.deps.mcpStartupStatus.clear();
+    this.deps.notices?.clear();
     this.deps.modelRuntimeEvents.clear();
     this.deps.lastAssistantMessages.clear();
     for (const timeout of this.deps.pendingGoShortcuts.values()) {

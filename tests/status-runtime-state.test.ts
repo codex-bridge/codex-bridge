@@ -25,6 +25,9 @@ test("MCP OAuth completion updates the same startup status channel", () => {
     method: "mcpServer/oauthLogin/completed",
     params: { name: "notion", success: false, error: "OAuth login cancelled" }
   }), {
+    threadId: null,
+    source: "oauth",
+    failureReason: null,
     name: "notion",
     status: "error",
     error: "OAuth login cancelled"

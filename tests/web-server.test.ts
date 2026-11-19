@@ -390,6 +390,22 @@ test("catalog requires a window grant and rejects delivery after takeover during
   assert.equal((await rejected.text()).includes("private/work"), false);
 });
 
+test("service notices require a valid window but do not require a session or enter its history", async t => {
+  let reads = 0;
+  const notice = { kind: "system" as const, title: "Configuration warning", body: [{ type: "text" as const, text: "Check the config option" }], actions: [] };
+  const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
+    readServiceNotices: () => { reads++; return [notice]; } });
+  assert.equal((await fetch(`${base}/api/web/catalog`)).status, 403);
+  assert.equal(reads, 0);
+  const grant = await acquire(base, "service-viewer");
+  const response = await fetch(`${base}/api/web/catalog`, { headers: headers(grant) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { directories: [], sessions: [], serviceNotices: [notice] });
+  await acquire(base, "replacement-viewer", true);
+  assert.equal((await fetch(`${base}/api/web/catalog`, { headers: headers(grant) })).status, 403);
+  assert.equal(reads, 1);
+});
+
 test("directory registration is strict, lease-guarded and maps path errors", async (t) => {
   let finish!: () => void;
   let start!: () => void;

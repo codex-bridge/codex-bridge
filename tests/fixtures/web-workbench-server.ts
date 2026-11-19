@@ -12,6 +12,8 @@ import { extractAssistantMessage } from "../../src/codex/assistant-message.js";
 import { createTranscriptMessageSpec } from "../../src/bridge/renderers/thread-history.js";
 import { USER_INPUT_METHOD, validateUserInputAnswers, type UserInputPrompt } from "../../src/shared/user-input.js";
 import { presentWebDecision } from "../../src/web/decisions.js";
+import { NotificationNoticeService } from "../../src/bridge/notifications/notices.js";
+import { McpStartupTracker } from "../../src/bridge/status/mcp-startup.js";
 
 const store = new BridgeStore(":memory:");
 await store.ensureChat("web:local");
@@ -34,6 +36,12 @@ const nativePrompt: UserInputPrompt = { isBlocking: true, questions: [
   { id: "notes", header: "Notes", question: "Any notes for the fixture?", isOther: true, isSecret: false, options: null }
 ] };
 let sequence = 0;
+const notices = new NotificationNoticeService({ store, mcpStartup: new McpStartupTracker(),
+  resolveNotificationSession: thread => store.getSessionByThreadId(thread), getSessionDirectory: s => s.pathKey,
+  sendGlobalNotice: async () => {}, sendLongSpec: async (_source, spec) => {
+    const session = sessions.find(s => s.id === spec.session?.id)!;
+    publish(session.codexThreadId, `notice-${sequence++}`, spec);
+  } });
 function publish(threadId: string, messageId: string, message: MessageSpec, operation: "send" | "edit" = "send") {
   const session = sessions.find((item) => item.codexThreadId === threadId)!;
   const lease = store.getSessionLease(session.id)!;
@@ -43,6 +51,7 @@ function publish(threadId: string, messageId: string, message: MessageSpec, oper
 const history = new Map(sessions.map((session) => [session.codexThreadId, Array.from({ length: 5 }, (_, i) => ({
   role: i % 2 ? "user" as const : "assistant" as const, text: `Recent message ${i + 1}` }))]));
 const api: WebBridgeApi = {
+  readServiceNotices: () => notices.snapshot(),
   listCatalog: async () => ({ directories: [...new Set([...sessions.map((session) => session.pathKey), ...store.listWebDirectories()])].sort(), sessions: sessions.map((session, index) => {
     const lease = store.getSessionLease(session.id);
     const source = (id: string | null) => id ? store.getSessionBindingById(id)?.sourceId ?? null : null;
@@ -88,7 +97,16 @@ const api: WebBridgeApi = {
       replies.consume(input.replyToken!, owned.session.id, "web:local");
     }
     history.get(input.threadId)!.push({ role: "user", text: input.text });
-    if (input.text === "native-question") {
+    if (input.text === "service-warning") {
+      await notices.handleWarning({ kind: "configWarning", threadId: null, message: "The fixture configuration contains an unsupported option.",
+        details: "Remove the deprecated setting.", path: "/fixture/config.toml" });
+    } else if (input.text === "mcp-failed" || input.text === "mcp-ready") {
+      const failed = input.text === "mcp-failed";
+      await notices.handleMcpStartup({ threadId: null, source: "startup", name: "fixture-tools", status: failed ? "failed" : "ready",
+        error: failed ? "Fixture MCP could not connect." : null, failureReason: failed ? "reauthenticationRequired" : null });
+    } else if (input.text === "thread-warning") {
+      await notices.handleWarning({ kind: "guardianWarning", threadId: input.threadId, message: "Fixture guardian review unavailable.", details: null, path: null });
+    } else if (input.text === "native-question") {
       const row = await store.createOrReplacePendingDecision({ sessionId: owned.session.id, telegramChatId: "web:local",
         approvalId: "fixture-native", kind: USER_INPUT_METHOD, title: "Answer questions", summary: "Fixture questions", requiresUserInput: true });
       const pending = await store.resolveDecision(row.id, "awaitingInput");

@@ -1,15 +1,10 @@
 import type { RefreshStatusEntry } from "./sessions/refresh-status.js";
+import { McpStartupTracker } from "./status/mcp-startup.js";
 
 export type LastAssistantMessage = {
   chatId: string;
   messageId: string;
   text: string;
-};
-
-export type McpStartupStatus = {
-  status: string | null;
-  error: string | null;
-  updatedAt: number;
 };
 
 export type ModelRuntimeEvent = {
@@ -30,7 +25,7 @@ export class BridgeRuntimeState {
   readonly errorSeenByThread = new Map<string, boolean>();
   readonly pendingGoShortcutByThread = new Map<string, ReturnType<typeof setTimeout>>();
   readonly lastAssistantTelegramByThread = new Map<string, LastAssistantMessage>();
-  readonly mcpStartupStatusByName = new Map<string, McpStartupStatus>();
+  readonly mcpStartupStatus = new McpStartupTracker();
   readonly modelRuntimeEventByThread = new Map<string, ModelRuntimeEvent>();
   editedProgressMinIntervalMs = 1_500;
 }

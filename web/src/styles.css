@@ -147,6 +147,9 @@ button { cursor: pointer; }
 .message-body th, .message-body td { border-bottom: 1px solid var(--color-rule); padding: var(--space-xs) var(--space-sm); text-align: left; }
 .message-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .message-action-groups { display: grid; gap: var(--space-sm); }
+.service-notices { flex-shrink: 0; max-height: 32dvh; overflow: auto; padding: var(--space-sm) var(--content-gutter); border-bottom: 1px solid var(--color-rule); font-size: var(--text-sm); }
+.service-notices summary { cursor: pointer; color: var(--color-muted); }
+.service-notices .message { margin-block: var(--space-sm); padding-block: var(--space-sm); }
 .user-question-form { display: grid; gap: var(--space-md); }
 .user-question { min-width: 0; border: 0; padding: 0; margin: 0; }
 .user-question legend { font-weight: 600; margin-bottom: var(--space-sm); overflow-wrap: anywhere; }

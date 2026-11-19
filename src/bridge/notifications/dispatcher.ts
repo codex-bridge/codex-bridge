@@ -13,6 +13,8 @@ import {
   extractTokenUsageEvent,
   extractTurnLifecycleEvent
 } from "../../codex/notification-events.js";
+import { extractWarningEvent } from "../../codex/notification-events.js";
+import type { NotificationNoticeService } from "./notices.js";
 import { logger } from "../../logging/logger.js";
 import type { SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
@@ -24,6 +26,7 @@ import type { ProgressNotificationEvent } from "../progress/service.js";
 import { canDeliverSession } from "./delivery-target.js";
 
 export type NotificationDispatcherDependencies = {
+  notices: NotificationNoticeService;
   store: BridgeStore;
   sessionMenuSnapshots: { clear: () => void };
   notificationTurnService: NotificationTurnService;
@@ -119,8 +122,11 @@ export class NotificationDispatcher {
 
     const mcpStartupStatus = extractMcpStartupStatusEvent(notification);
     if (mcpStartupStatus) {
-      this.deps.notificationAuxiliaryService.rememberMcpStartupStatus(mcpStartupStatus);
+      await this.deps.notices.handleMcpStartup(mcpStartupStatus);
     }
+
+    const warning = extractWarningEvent(notification);
+    if (warning) await this.deps.notices.handleWarning(warning);
 
     const modelRuntimeEvent = extractModelRuntimeEvent(notification);
     if (modelRuntimeEvent) {

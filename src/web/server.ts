@@ -364,7 +364,7 @@ export class WebServer {
         if (!this.bridge) throw new HttpError(503, "Web Bridge API is unavailable.");
         const catalog = await this.bridge.listCatalog();
         this.requireLease(request);
-        json(response, 200, catalog);
+        json(response, 200, { ...catalog, ...(this.bridge.readServiceNotices ? { serviceNotices: this.bridge.readServiceNotices() } : {}) });
         return;
       }
       case "POST /api/web/directories": {

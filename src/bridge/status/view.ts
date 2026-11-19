@@ -32,6 +32,7 @@ import { formatCompactDateTime, pickDirectory } from "../sessions/menu-formatter
 import type { TokenUsageTracker } from "./token-usage.js";
 import type { ModelRuntimeEvent } from "../runtime-state.js";
 import { formatConfigRequirements, formatProviderCapabilities, formatServerDiagnostics } from "./capability-formatters.js";
+import type { McpStartupTracker } from "./mcp-startup.js";
 
 type SessionProviderDetails = {
   activeProvider: string | null;
@@ -47,7 +48,8 @@ export type StatusViewDependencies = {
   codexClient: CodexAppServerClient;
   tokenUsageTracker: Pick<TokenUsageTracker, "get">;
   inFlightTurnIdByThread: Map<string, string>;
-  mcpStartupStatusByName: Map<string, { status: string | null; error: string | null; updatedAt: number }>;
+  mcpStartupStatus: Pick<McpStartupTracker, "forThread">;
+  serviceNotices?: () => MessageSpec[];
   modelRuntimeEventByThread: Map<string, ModelRuntimeEvent>;
   isRuntimeConnected: () => boolean;
   getSessionDirectory: (session: SessionRecord) => string;
@@ -137,13 +139,9 @@ export class StatusViewService {
           maxTokens: threadStatus.contextMaxTokens
         }
       : this.deps.tokenUsageTracker.get(session.codexThreadId);
-    const mcpStartupStatus = formatMcpStartupStatusCache(
-      mcpServerStatus,
-      new Map([...this.deps.mcpStartupStatusByName].map(([name, startup]) => [name, { status: startup.status, error: startup.error }]))
-    );
-    const mcpStartupFailureDetails = formatMcpStartupFailureDetails(
-      new Map([...this.deps.mcpStartupStatusByName].map(([name, startup]) => [name, { status: startup.status, error: startup.error }]))
-    );
+    const startupStatuses = this.deps.mcpStartupStatus.forThread(session.codexThreadId);
+    const mcpStartupStatus = formatMcpStartupStatusCache(mcpServerStatus, startupStatuses);
+    const mcpStartupFailureDetails = formatMcpStartupFailureDetails(startupStatuses);
     const healthSummary = formatStatusHealthSummary({
       busy: Boolean(inFlightTurnId),
       tokenUsage,
@@ -197,6 +195,9 @@ export class StatusViewService {
       if (mcpStartupStatus) lines.push(field("MCP startup", mcpStartupStatus));
       if (mcpStartupFailureDetails) lines.push(field("MCP reconnect", mcpStartupFailureDetails));
       if (mcpServerStatus) lines.push(field("MCP tools", formatMcpToolCatalogStatus(mcpServerStatus)));
+      for (const notice of this.deps.serviceNotices?.() ?? []) {
+        lines.push(field(notice.title, notice.body.flatMap(part => part.type === "text" ? [part.text] : []).join("\n")));
+      }
       lines.push(field("Model tool calls", formatModelToolCallStatus(runtimeInfo?.version ?? null)));
     }
     lines.push("", section("Runtime"));

@@ -7,7 +7,7 @@ import type { SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
 import { createMessage } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
-import { extractTurnLifecycleEvent } from "../../codex/notification-events.js";
+import { extractTurnLifecycleEvent, extractWarningEvent, extractMcpStartupStatusEvent } from "../../codex/notification-events.js";
 import { NotificationApprovalService, type EarlyApproval } from "./approval.js";
 import { NotificationDispatcher } from "./dispatcher.js";
 import { SubagentDeliveryService } from "./subagent-delivery.js";
@@ -96,7 +96,8 @@ export class NotificationListener {
           logger.info("bridge.session.bridge_locks_released_after_auth_change", { releasedCount });
           return;
         }
-        const observed = this.deps.subagents.observe(notification,
+        const notice = extractWarningEvent(notification) || extractMcpStartupStatusEvent(notification);
+        const observed = notice ? { handled: false, deliveries: [] } : this.deps.subagents.observe(notification,
           params?.threadId ? this.deps.notificationSessionRouter.getRememberedSessionId(params.threadId) : undefined);
         for (const [id, pending] of this.deps.earlyApprovals) {
           if (!this.deps.subagents.route(pending.request.threadId, pending.request.turnId)) continue;

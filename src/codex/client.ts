@@ -254,9 +254,12 @@ export interface AppServerMcpServerStatus {
 }
 
 export interface AppServerMcpStartupStatusEvent {
+  threadId: string | null;
+  source: "startup" | "oauth";
   name: string;
   status: string | null;
   error: string | null;
+  failureReason: string | null;
 }
 
 export interface AppServerLoadedThreadsStatus {

@@ -1,5 +1,4 @@
 import type {
-  AppServerMcpStartupStatusEvent,
   AppServerRateLimitsStatus,
   AppServerTokenUsageEvent
 } from "../../codex/client.js";
@@ -15,7 +14,6 @@ import type { StatusRuntimeState } from "../status/runtime-state.js";
 export type NotificationAuxiliaryDependencies = {
   store: BridgeStore;
   statusRuntimeState: Pick<StatusRuntimeState, "statusMessageBySession" | "resetEditThrottle" | "getLabel">;
-  mcpStartupStatusByName: Map<string, { status: string | null; error: string | null; updatedAt: number }>;
   modelRuntimeEventByThread: Map<string, Omit<AppServerModelRuntimeEvent, "threadId"> & { updatedAt: number }>;
   tokenUsageTracker: Pick<TokenUsageTracker, "remember">;
   recentResolvedMcpBySession: Map<string, number>;
@@ -41,14 +39,6 @@ export class NotificationAuxiliaryService {
 
   async handleRateLimits(rateLimits: AppServerRateLimitsStatus): Promise<void> {
     await this.deps.rateLimitNotifier.handleRateLimitsUpdate(rateLimits, this.deps.getInFlightThreadIds());
-  }
-
-  rememberMcpStartupStatus(status: AppServerMcpStartupStatusEvent): void {
-    this.deps.mcpStartupStatusByName.set(status.name, {
-      status: status.status,
-      error: status.error,
-      updatedAt: Date.now()
-    });
   }
 
   rememberModelRuntimeEvent(event: AppServerModelRuntimeEvent): void {
