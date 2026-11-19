@@ -1,4 +1,5 @@
-import { CodexAppServerClient, type AppServerApprovalRequest } from "../../codex/client.js";
+import { CodexAppServerClient, type AppServerInteractionRequest } from "../../codex/client.js";
+import { USER_INPUT_METHOD } from "../../shared/user-input.js";
 import { logger } from "../../logging/logger.js";
 import type { SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
@@ -15,7 +16,7 @@ const SUPPORTED_MCP_ELICITATION_MODES = new Set([
 ]);
 
 export type EarlyApproval = {
-  request: AppServerApprovalRequest;
+  request: AppServerInteractionRequest;
   timer: ReturnType<typeof setTimeout>;
 };
 
@@ -36,7 +37,7 @@ export type NotificationApprovalDependencies = {
 export class NotificationApprovalService {
   constructor(private readonly deps: NotificationApprovalDependencies) {}
 
-  async handleApprovalRequest(request: AppServerApprovalRequest): Promise<void> {
+  async handleApprovalRequest(request: AppServerInteractionRequest): Promise<void> {
     const child = this.deps.subagents.route(request.threadId, request.turnId);
     const session = child
       ? await this.deps.store.getSessionById(child.sessionId)
@@ -49,13 +50,15 @@ export class NotificationApprovalService {
       if (!this.deps.earlyApprovals.has(request.requestId) && this.deps.earlyApprovals.size < 128) {
         const timer = setTimeout(() => {
           this.deps.earlyApprovals.delete(request.requestId);
-          void this.deps.codexClient.resolveApproval(request.requestId, "cancel", request.method)
+          void (request.method === USER_INPUT_METHOD ? this.deps.codexClient.rejectUserInput(request.requestId)
+            : this.deps.codexClient.resolveApproval(request.requestId, "cancel", request.method))
             .catch((error) => logger.warn("bridge.approval.unmapped_cancel_failed", { error: String(error) }));
         }, 10_000);
         timer.unref();
         this.deps.earlyApprovals.set(request.requestId, { request, timer });
       } else if (!this.deps.earlyApprovals.has(request.requestId)) {
-        await this.deps.codexClient.resolveApproval(request.requestId, "cancel", request.method);
+        if (request.method === USER_INPUT_METHOD) await this.deps.codexClient.rejectUserInput(request.requestId);
+        else await this.deps.codexClient.resolveApproval(request.requestId, "cancel", request.method);
       }
       logger.warn("bridge.approval.unmapped_thread", {
         requestId: request.requestId,
@@ -120,7 +123,7 @@ export class NotificationApprovalService {
       return;
     }
 
-    const decision = await this.deps.store.createOrReplacePendingDecision({
+    let decision = await this.deps.store.createOrReplacePendingDecision({
       sessionId: session.id,
       telegramChatId: session.telegramChatId,
       approvalId: request.requestId,
@@ -132,8 +135,10 @@ export class NotificationApprovalService {
       requiresUserInput: request.requiresUserInput
     });
 
+    if (request.method === USER_INPUT_METHOD) decision = await this.deps.store.resolveDecision(decision.id, "awaitingInput") ?? decision;
+
     if (await canDeliverSession(this.deps.store, session)) {
-      await this.deps.setSessionStatus(session, "Waiting for approval");
+      await this.deps.setSessionStatus(session, request.method === USER_INPUT_METHOD ? "Waiting for answers" : "Waiting for approval");
       await this.deps.sendDecisionMessage(session, decision);
       await this.deps.syncBatchDecisionMessage(session);
     } else {

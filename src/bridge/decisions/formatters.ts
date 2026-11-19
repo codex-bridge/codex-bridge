@@ -4,6 +4,7 @@ import { createMessage } from "../messages/factory.js";
 import type { ActionSpec, DecisionContext, MessageSpec, SessionContext } from "../messages/types.js";
 import { pickDirectory } from "../sessions/menu-formatters.js";
 import { getApprovalPolicy } from "../../shared/approval-policy.js";
+import { USER_INPUT_METHOD } from "../../shared/user-input.js";
 
 export function decisionApprovalPolicy(decision: DecisionRecord) {
   // Older persisted cards encoded server decisions in their display summary.
@@ -29,6 +30,23 @@ export function createDecisionMessageSpec(
   decision: DecisionRecord,
   actions: ActionSpec[]
 ): MessageSpec {
+  if (decision.kind === USER_INPUT_METHOD) {
+    const prompt = decision.userInput;
+    const current = prompt?.questions.find(question => question.id === prompt.activeQuestionId) ??
+      prompt?.questions.find(question => !prompt.answeredQuestionIds?.includes(question.id));
+    const title = decision.state === "answered" ? "Answers submitted" : decision.state === "cancelled" ? "Questions skipped"
+      : decision.state === "stale" ? "Question expired" : "Answer questions";
+    return { ...createMessage({ kind: "decision", titleLabel: title,
+      session: { id: session.id, directory: pickDirectory(session.currentCwd, session.pathKey) ?? session.pathKey },
+      body: prompt ? [
+        ...prompt.questions.map((question, index) => ({ type: "text" as const,
+          text: `${index + 1}. ${question.question}${prompt.answeredQuestionIds?.includes(question.id) ? " · Answer saved" : ""}` })),
+        ...(current?.options ?? []).map(option => ({ type: "text" as const,
+          text: `${option.label}${option.description ? `: ${option.description}` : ""}` })),
+        { type: "text", text: current ? `Answer now: ${current.question}\nChoose an option or reply with text.`
+          : "All answers are saved. Edit an answer or use Submit answers to continue." }
+      ] : [{ type: "text", text: decision.summary ?? decision.title }], actions }), decision: describeDecision(decision) };
+  }
   const { command, reason, cwd, grantRoot, permissions } = parseDecisionSummary(decision.summary);
   const directory = formatSessionMarker(
     pickDirectory(cwd, session.currentCwd, session.displayName, session.pathKey) ?? session.pathKey
@@ -87,6 +105,11 @@ export function createDecisionMessageSpec(
 
 /** Semantic controls for native clients, never chat callbacks or raw RPC identities. */
 export function describeDecision(decision: DecisionRecord): DecisionContext {
+  if (decision.kind === USER_INPUT_METHOD) {
+    const open = ["pending", "awaitingInput"].includes(decision.state) && !!decision.userInput;
+    return { id: decision.id, state: decision.state, interaction: "user-input", userInput: decision.userInput,
+      requiresUserInput: true, requestedFields: [], availableActions: open ? ["cancel"] : [], inputAllowed: open };
+  }
   const open = decision.state === "pending" || decision.state === "awaitingInput";
   const mcp = decision.kind === "mcpServer/elicitation/request";
   const policy = decisionApprovalPolicy(decision);

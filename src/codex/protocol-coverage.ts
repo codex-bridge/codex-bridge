@@ -13,7 +13,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
       "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
       "item/permissions/requestApproval", "mcpServer/elicitation/request"
     ] },
-    { disposition: "unsupported", reason: "No user-question UI; return an RPC method error, never a fabricated answer or cancellation.", names: [
+    { disposition: "handled", reason: "Connection-bound native questions collect typed answers through shared session guards and platform forms; verification-only clients without a handler reject requests explicitly.", names: [
       "item/tool/requestUserInput"
     ] },
     { disposition: "unsupported", reason: "Bridge registers no dynamic tools; an unexpected call receives an RPC method error.", names: [

@@ -31,6 +31,8 @@ export function presentWebDecision(session: SessionRecord, decision: DecisionRec
     message.body.push({ type: "field", label: "Reason", value: expired
       ? "The original Codex request is no longer active." : "Codex runtime is disconnected. Refresh after reconnecting." });
   }
+  // The native form renders the full prompt; chat-only instructions would duplicate it.
+  if (message.decision?.interaction === "user-input" && message.decision.inputAllowed) message.body = [];
   return message;
 }
 
@@ -42,6 +44,7 @@ export class WebDecisionService {
     commands: Pick<DecisionCommandService, "handle" | "submitInput">;
     isRuntimeConnected: () => boolean;
     isApprovalPending: (approvalId: string) => boolean;
+    presentDecision?: (decision: DecisionRecord) => DecisionRecord;
     runDispatch: <T>(session: SessionRecord, operation: () => Promise<T>) => Promise<T>;
   }) {}
 
@@ -55,7 +58,7 @@ export class WebDecisionService {
     if (current.session.id !== access.session.id) throw new WebDecisionError("unavailable");
     access.assertCurrent();
     const messages = decisions.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-      .map((decision) => presentWebMessage(presentWebDecision(access.session, decision,
+      .map((decision) => presentWebMessage(presentWebDecision(access.session, this.deps.presentDecision?.(decision) ?? decision,
         this.deps.isRuntimeConnected(), this.deps.isApprovalPending(decision.approvalId))));
     return { snapshot: { threadId, sessionId: access.session.id, leaseVersion: access.leaseVersion, decisions: messages },
       assertCurrent: access.assertCurrent };
@@ -74,11 +77,11 @@ export class WebDecisionService {
         if (!this.deps.isApprovalPending(decision.approvalId)) throw new WebDecisionError("inactive");
       };
       assertCurrent();
-      const controls = presentWebDecision(access.session, decision, true, true).decision!;
+      const controls = presentWebDecision(access.session, this.deps.presentDecision?.(decision) ?? decision, true, true).decision!;
       if (input.action === "submit" ? !controls.inputAllowed : !controls.availableActions.includes(input.action)) {
         throw new WebDecisionError("invalid_action");
       }
-      const guard = { sessionId: access.session.id, threadId: input.threadId, assertCurrent };
+      const guard = { sessionId: access.session.id, threadId: input.threadId, sourceId: WEB_SOURCE_ID, assertCurrent };
       const result = input.action === "submit"
         ? await this.deps.commands.submitInput(decision.id, input.content, guard)
         : await this.deps.commands.handle(decision.id, input.action, WEB_SOURCE_ID, guard);

@@ -707,7 +707,7 @@ export class WorkbenchController {
       if (receipt.decisionId !== decisionId) throw new Error("The approval receipt does not match the request.");
       // A guarded terminal receipt can fill a lost SSE update, but must not overwrite
       // a newer native edit of this card. Awaiting-input controls come from a fresh read.
-      const terminal = ["approved", "approvedForSession", "rejected", "cancelled", "stale"];
+      const terminal = ["approved", "approvedForSession", "rejected", "cancelled", "stale", "answered"];
       if (receipt.accepted && receipt.state && terminal.includes(receipt.state)) this.timeline(entry.threadId,
         (this.state.timelines[entry.threadId] ?? []).map((item) => item.message.decision === decision ? { ...item,
           message: { ...item.message, decision: { ...decision, state: receipt.state as typeof decision.state,
@@ -715,7 +715,8 @@ export class WorkbenchController {
       if (this.sameSelection(entry)) this.update({ feedback: { source: "operation", surface: "conversation",
         tone: receipt.accepted ? "neutral" : "error", threadId: entry.threadId,
         message: receipt.accepted
-          ? receipt.state === "awaitingInput" ? "Awaiting input. Fill in the JSON; it has not been submitted to the runtime." : "The approval action was accepted. This does not mean execution succeeded."
+          ? decision.interaction === "user-input" ? receipt.state === "answered" ? "Answers submitted." : "Questions skipped."
+            : receipt.state === "awaitingInput" ? "Awaiting input. Fill in the JSON; it has not been submitted to the runtime." : "The approval action was accepted. This does not mean execution succeeded."
           : receipt.message ?? "Bridge did not accept the approval action." } });
       await this.refresh(true);
     } catch (error) {

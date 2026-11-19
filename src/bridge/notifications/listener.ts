@@ -14,6 +14,7 @@ import { SubagentDeliveryService } from "./subagent-delivery.js";
 import { SubagentTracker } from "./subagent-tracker.js";
 
 export type NotificationListenerDependencies = {
+  clearUserInput?: () => void;
   codexClient: CodexAppServerClient;
   threadMetadataCache: CodexThreadMetadataCache;
   sessionMenuSnapshots: { clear: () => void };
@@ -36,6 +37,7 @@ export type NotificationListenerDependencies = {
 export class NotificationListener {
   private notificationUnsubscribe: (() => void) | null = null;
   private approvalUnsubscribe: (() => void) | null = null;
+  private userInputUnsubscribe: (() => void) | null = null;
 
   constructor(private readonly deps: NotificationListenerDependencies) {}
 
@@ -57,6 +59,7 @@ export class NotificationListener {
           this.deps.earlyApprovals.delete(params.requestId);
         }
         if (notification.method === "bridge/connection/lost") {
+          this.deps.clearUserInput?.();
           if (this.deps.getRuntimeState() !== "disconnected" && this.deps.getRuntimeState() !== "failed") {
             this.deps.setRuntimeState("failed");
           }
@@ -147,9 +150,16 @@ export class NotificationListener {
           });
       });
     }
+    if (!this.userInputUnsubscribe) {
+      this.userInputUnsubscribe = this.deps.codexClient.onUserInputRequest(request => {
+        void this.deps.notificationQueue.run(request.threadId, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
+          .catch(() => logger.error("bridge.user_input.delivery_failed", { requestId: request.requestId, threadId: request.threadId }));
+      });
+    }
   }
 
   detach(): void {
+    this.deps.clearUserInput?.();
     this.deps.subagentDelivery.reset();
     this.deps.subagents.reset();
     for (const pending of this.deps.earlyApprovals.values()) clearTimeout(pending.timer);
@@ -158,5 +168,7 @@ export class NotificationListener {
     this.notificationUnsubscribe = null;
     this.approvalUnsubscribe?.();
     this.approvalUnsubscribe = null;
+    this.userInputUnsubscribe?.();
+    this.userInputUnsubscribe = null;
   }
 }

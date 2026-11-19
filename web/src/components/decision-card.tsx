@@ -3,6 +3,7 @@ import { decisionAppearance } from "../lib/decision-appearance";
 import type { MessageSpec } from "../lib/protocol";
 import { Button } from "./ui/button";
 import { AutoSizeTextarea } from "./ui/auto-size-textarea";
+import { UserQuestionForm } from "./user-question-form";
 
 const labels: Record<string, string> = { accept: "Approve once", acceptForSession: "Approve for session", decline: "Reject", cancel: "Cancel" };
 const variants = { accept: "default", acceptForSession: "outline", decline: "destructive", cancel: "ghost" } as const;
@@ -15,13 +16,15 @@ export function DecisionCard({ message, current, enabled, busy, onAction }: { me
   const disabled = !!appearance.unavailable || !!decision.unavailableReason;
   const noControls = appearance.open && !actions.length && !decision.inputAllowed;
   const helpId = `decision-help-${decision.id}`, errorId = `decision-error-${decision.id}`;
-  return <section className="decision-card" data-open={appearance.open} data-tone={appearance.tone} aria-label={`Approval status: ${appearance.label}`}>
+  return <section className="decision-card" data-open={appearance.open} data-tone={appearance.tone} aria-label={`${decision.interaction === "user-input" ? "Question" : "Approval"} status: ${appearance.label}`}>
     <div className="decision-status-line">
       <strong className="decision-status" role="status">{appearance.label}</strong>
       <p>{appearance.guidance}</p>
     </div>
     {(appearance.unavailable || noControls) && <p className="decision-unavailable">{appearance.unavailable ?? "No actions are available. Refresh the status."}</p>}
-    {appearance.open && decision.inputAllowed && <form className="decision-input" onSubmit={(event) => {
+    {appearance.open && decision.inputAllowed && decision.userInput && <UserQuestionForm id={decision.id} prompt={decision.userInput}
+      disabled={disabled} onSubmit={content => { void onAction(decision.id, "submit", content); }} />}
+    {appearance.open && decision.inputAllowed && !decision.userInput && <form className="decision-input" onSubmit={(event) => {
       event.preventDefault(); setError(null);
       try {
         const parsed: unknown = JSON.parse(input);
@@ -43,8 +46,8 @@ export function DecisionCard({ message, current, enabled, busy, onAction }: { me
       <p id={errorId} role={error ? "alert" : undefined} className="decision-input-error">{error ?? ""}</p>
       <div className="decision-input-footer"><Button type="submit" disabled={disabled}>Submit input</Button></div>
     </form>}
-    {appearance.open && !!actions.length && <div className="decision-actions" aria-label="Approval actions">{actions.map((action) => <Button key={action}
+    {appearance.open && !!actions.length && <div className="decision-actions" aria-label={decision.interaction === "user-input" ? "Question actions" : "Approval actions"}>{actions.map((action) => <Button key={action}
       variant={variants[action as keyof typeof variants]} disabled={disabled}
-      onClick={() => { void onAction(decision.id, action); }}>{labels[action]}</Button>)}</div>}
+      onClick={() => { void onAction(decision.id, action); }}>{decision.interaction === "user-input" ? "Skip questions" : labels[action]}</Button>)}</div>}
   </section>;
 }

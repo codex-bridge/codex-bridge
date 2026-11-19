@@ -11,6 +11,7 @@ import { asRecord, firstString } from "./protocol-utils.js";
 import type { ThreadHistoryEntry } from "./thread-history.js";
 import type { AssistantDisplay, PresentedAssistantMessage } from "../shared/assistant-display.js";
 import type { TranscriptMessage } from "../shared/types.js";
+import { USER_INPUT_METHOD, parseUserInputPrompt, validateUserInputAnswers, type UserInputPrompt } from "../shared/user-input.js";
 import {
   getAppServerMethodCapability,
   isKnownAppServerMethod,
@@ -92,6 +93,11 @@ export interface AppServerNotification {
   method: string;
   params?: unknown;
 }
+
+export type AppServerUserInputRequest = Omit<AppServerApprovalRequest, "method"> & {
+  method: typeof USER_INPUT_METHOD; userInput: UserInputPrompt;
+};
+export type AppServerInteractionRequest = AppServerApprovalRequest | AppServerUserInputRequest;
 
 export interface AppServerStatusUpdate {
   threadId: string;
@@ -336,7 +342,8 @@ export class CodexAppServerClient {
   private runtimeInfo: AppServerRuntimeInfo | null = null;
   private notificationListeners = new Set<(notification: AppServerNotification) => void>();
   private approvalListeners = new Set<(request: AppServerApprovalRequest) => void>();
-  private approvalTokens = new Map<string, { id: JsonRpcId; method: string } & ApprovalConstraints>();
+  private userInputListeners = new Set<(request: AppServerUserInputRequest) => void>();
+  private approvalTokens = new Map<string, { id: JsonRpcId; method: string; userInput?: UserInputPrompt } & ApprovalConstraints>();
   private approvalIds = new Map<JsonRpcId, string>();
   private readonly threadRuntimeState = new ThreadRuntimeState();
   private catalogApi: CodexCatalogApi | null = null;
@@ -482,6 +489,30 @@ export class CodexAppServerClient {
   onApprovalRequest(listener: (request: AppServerApprovalRequest) => void): () => void {
     this.approvalListeners.add(listener);
     return () => this.approvalListeners.delete(listener);
+  }
+
+  onUserInputRequest(listener: (request: AppServerUserInputRequest) => void): () => void {
+    this.userInputListeners.add(listener);
+    return () => this.userInputListeners.delete(listener);
+  }
+
+  readUserInputRequest(requestId: string): UserInputPrompt | undefined {
+    return this.isApprovalPending(requestId) ? this.approvalTokens.get(requestId)?.userInput : undefined;
+  }
+
+  async resolveUserInput(requestId: string, content: unknown | null): Promise<void> {
+    const pending = this.approvalTokens.get(requestId);
+    if (!pending?.userInput || !this.connection.isInitialized()) throw new Error("This question is no longer active on the original connection.");
+    const answers = content === null ? {} : validateUserInputAnswers(pending.userInput, content);
+    this.approvalTokens.delete(requestId);
+    await this.connection.sendResponse(pending.id, { answers });
+  }
+
+  async rejectUserInput(requestId: string): Promise<void> {
+    const pending = this.approvalTokens.get(requestId);
+    if (!pending?.userInput) return;
+    this.approvalTokens.delete(requestId);
+    await this.connection.sendErrorResponse(pending.id, { code: -32601, message: "User question could not be delivered by Bridge." });
   }
 
   listKnownMethods(filter?: {
@@ -937,6 +968,26 @@ export class CodexAppServerClient {
   }
 
   private handleServerRequest(request: AppServerServerRequest): void {
+    if (request.method === USER_INPUT_METHOD && this.userInputListeners.size) {
+      if (this.approvalIds.has(request.id)) return;
+      try {
+        const params = asRecord(request.params);
+        const threadId = firstString(params?.threadId), turnId = firstString(params?.turnId), itemId = firstString(params?.itemId);
+        if (!threadId || !turnId || !itemId) throw new Error("User question identity is missing.");
+        const userInput = parseUserInputPrompt(params);
+        const requestId = randomUUID();
+        this.approvalTokens.set(requestId, { id: request.id, method: USER_INPUT_METHOD, userInput });
+        this.approvalIds.set(request.id, requestId);
+        const interaction: AppServerUserInputRequest = { requestId, threadId, turnId, itemId, method: USER_INPUT_METHOD,
+          title: "Answer questions", summary: userInput.questions.map(question => question.question).join("\n\n"),
+          requestedFields: [], requiresUserInput: true, elicitationMode: null, userInput };
+        for (const listener of this.userInputListeners) listener(interaction);
+      } catch {
+        void this.connection.sendErrorResponse(request.id, { code: -32602, message: "Invalid user question request." })
+          .catch(() => logger.warn("codex.user_input.rejection_failed", { method: request.method }));
+      }
+      return;
+    }
     if (
       request.method === "mcpServer/elicitation/request" ||
       request.method === "item/commandExecution/requestApproval" ||

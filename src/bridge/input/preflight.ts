@@ -8,6 +8,7 @@ import type { CodexTurnInputPart } from "../../codex/client.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionActivationError, SessionOwnershipService } from "../sessions/ownership.js";
 import { validateDecisionInput } from "../decisions/formatters.js";
+import { USER_INPUT_METHOD } from "../../shared/user-input.js";
 
 export type IncomingTextInput = {
   inputParts?: CodexTurnInputPart[];
@@ -22,6 +23,7 @@ export type IncomingPreflightResult =
   | { kind: "response"; response: { routed: boolean; prompt?: MessageSpec } };
 
 export type IncomingPreflightDependencies = {
+  answerUserQuestion?: (decision: DecisionRecord, text: string, sourceId: string) => Promise<{ ok: boolean; message: string }>;
   store: BridgeStore;
   codexClient: CodexAppServerClient;
   sessionOwnershipService: SessionOwnershipService;
@@ -75,8 +77,15 @@ export class IncomingPreflightService {
       }
     }
 
+    const pendingQuestion = activeSession ? await this.deps.store.getAwaitingInputDecisionForSession(activeSession.id) : null;
+    if (pendingQuestion?.kind === USER_INPUT_METHOD) {
+      const result = await this.deps.answerUserQuestion?.(pendingQuestion, input.text, input.telegramChatId) ??
+        { ok: false, message: "Question input is unavailable. Check the original question." };
+      return { kind: "response", response: { routed: result.ok, ...(result.ok ? {} : {
+        prompt: this.deps.createIncomingPromptSpec("system", result.message, activeSession) }) } };
+    }
     const pendingElicitation = await this.deps.store.getAwaitingInputDecisionForChat(input.telegramChatId);
-    if (pendingElicitation) {
+    if (pendingElicitation && pendingElicitation.kind !== USER_INPUT_METHOD) {
       const currentSession = await this.deps.getActiveSession(input.telegramChatId);
       if (!currentSession || currentSession.id !== pendingElicitation.sessionId) {
         const original = await this.deps.store.getSessionById(pendingElicitation.sessionId);

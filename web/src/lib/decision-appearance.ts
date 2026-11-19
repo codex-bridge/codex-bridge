@@ -13,6 +13,7 @@ export type DecisionAppearance = {
 const terminal: Record<Exclude<Decision["state"], "pending" | "awaitingInput">,
   Pick<DecisionAppearance, "label" | "tone" | "guidance">> = {
   approved: { label: "Approved", tone: "success", guidance: "Codex may continue. This does not mean the later operation succeeded." },
+  answered: { label: "Answers submitted", tone: "success", guidance: "The answers were sent to Codex." },
   approvedForSession: { label: "Approved for session", tone: "success", guidance: "Codex may continue within this session. This does not mean the later operation succeeded." },
   rejected: { label: "Rejected", tone: "danger", guidance: "This request was rejected." },
   cancelled: { label: "Cancelled", tone: "muted", guidance: "This request was cancelled." },
@@ -20,6 +21,15 @@ const terminal: Record<Exclude<Decision["state"], "pending" | "awaitingInput">,
 };
 
 export function decisionAppearance(decision: Decision, options: { current: boolean; enabled: boolean; busy: boolean }): DecisionAppearance {
+  if (decision.interaction === "user-input") {
+    const open = ["pending", "awaitingInput"].includes(decision.state) && options.current;
+    const unavailable = !options.current || decision.unavailableReason === "original_request_inactive" ? "The original question is no longer active."
+      : decision.unavailableReason === "runtime_disconnected" ? "Codex is disconnected."
+      : !options.enabled ? "A valid connection and session access are required." : options.busy ? "Another operation is in progress." : null;
+    return { label: decision.state === "answered" ? "Answers submitted" : decision.state === "cancelled" ? "Questions skipped"
+      : open ? "Waiting for answers" : "Question expired", tone: decision.state === "answered" ? "success" : open ? "attention" : "muted",
+      open, guidance: open ? "Codex requested your input." : "", unavailable: open ? unavailable : null };
+  }
   if ((decision.state === "pending" || decision.state === "awaitingInput") && !options.current) return {
     label: "Status unknown",
     tone: "muted",

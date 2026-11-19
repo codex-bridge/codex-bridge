@@ -4,6 +4,7 @@ import { createMessage, messageContextForSession } from "../../bridge/messages/f
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { SlackMessageTransport } from "../transport.js";
 import { parseAssistantReplyCallback } from "../../bridge/interactions/assistant-replies.js";
+import { parseUserQuestionAction } from "../../bridge/decisions/user-input.js";
 
 type TurnWorkflowAction = { type: "queue.open" } | { type: "turn.continue"; text: "go" | "next" }
   | { type: "turn.reply"; token: string };
@@ -26,6 +27,14 @@ export async function handleSlackTurnWorkflow(input: {
   service: BridgeSlackTurnWorkflowPort;
   transport: SlackMessageTransport;
 }): Promise<boolean> {
+  const question = parseUserQuestionAction(input.action);
+  if (question) {
+    const result = await input.service.handleUserQuestion(input.context.conversationId, question);
+    if (!result.ok) await input.transport.sendMessageSpec(input.context.conversationId, createMessage({ kind: "system",
+      ...messageContextForSession(await input.service.getActiveSessionContext(input.context.conversationId)),
+      body: [{ type: "text", text: result.message }] }));
+    return true;
+  }
   const action = parseTurnWorkflowAction(input.action);
   if (!action) return false;
   const { context, service, transport } = input;

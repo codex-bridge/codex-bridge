@@ -124,6 +124,7 @@ import {
 import type { BridgeMessageTransport } from "./transport.js";
 import type { SessionTranscript } from "./contracts.js";
 import { AssistantReplyService } from "./interactions/assistant-replies.js";
+import { UserInputService, type UserQuestionAction } from "./decisions/user-input.js";
 import type {
   DecisionAction,
   TranscriptMessage,
@@ -214,6 +215,7 @@ export class BridgeService {
   private readonly decisionDelivery: DecisionDeliveryService;
   private readonly sessionDecisionOperationQueue = new SessionDecisionOperationQueue();
   private readonly decisionCommandService: DecisionCommandService;
+  private readonly userInputService: UserInputService;
   private readonly rateLimitNotifier: RateLimitNotifier;
   private readonly compactService: CompactService;
   private readonly progressService: ProgressService;
@@ -613,6 +615,7 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
     });
     this.notificationListener = new NotificationListener({
+      clearUserInput: () => this.userInputService.clear(),
       codexClient,
       threadMetadataCache: this.threadMetadataCache,
       sessionMenuSnapshots: this.sessionMenuSnapshots,
@@ -638,6 +641,7 @@ export class BridgeService {
       handleIncomingUserText: (input) => this.handleIncomingUserText(input)
     });
     this.incomingPreflightService = new IncomingPreflightService({
+      answerUserQuestion: (decision, text, sourceId) => this.userInputService.text(decision, text, sourceId),
       store,
       codexClient,
       sessionOwnershipService: this.sessionOwnershipService,
@@ -676,7 +680,11 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec),
       setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label)
     });
+    this.userInputService = new UserInputService({ store, client: codexClient,
+      refresh: (session, decision) => this.decisionDelivery.sendDecisionMessage(session, decision, true),
+      finish: (decision) => this.decisionDelivery.clearDecisionMessageActions(decision) });
     this.decisionDelivery = new DecisionDeliveryService({
+      presentDecision: (decision) => this.userInputService.present(decision),
       store,
       requireMessageTransport: (chatId) => this.messageSender.requireTransport(chatId),
       sessionOperationQueue: this.sessionDecisionOperationQueue,
@@ -690,6 +698,7 @@ export class BridgeService {
       editMessageSpec: (chatId, messageId, messageSpec, options) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec, options)
     });
     this.decisionCommandService = new DecisionCommandService({
+      userInput: this.userInputService,
       store,
       codexClient,
       sessionOwnershipService: this.sessionOwnershipService,
@@ -1157,6 +1166,7 @@ export class BridgeService {
       assistantReplies: this.assistantReplies,
       isRuntimeConnected: () => this.isRuntimeConnected()
     }, new WebDecisionService({
+      presentDecision: (decision) => this.userInputService.present(decision),
       access: new SessionAccessService(this.store), store: this.store, commands: this.decisionCommandService,
       isRuntimeConnected: () => this.isRuntimeConnected(),
       isApprovalPending: (approvalId) => this.codexClient.isApprovalPending(approvalId),
@@ -1312,6 +1322,11 @@ export class BridgeService {
     const preflight = await this.incomingPreflightService.run(input);
     if (preflight.kind === "response") return preflight.response;
     return this.incomingTurnService.route(preflight.session, input);
+  }
+
+  async handleUserQuestion(chatId: string, action: UserQuestionAction): Promise<{ ok: boolean; message: string }> {
+    await this.ensureChatAllowed(chatId);
+    return this.userInputService.act(action, chatId);
   }
 
   async replyToAssistantOption(chatId: string, token: string): Promise<{ routed: boolean; prompt?: MessageSpec }> {

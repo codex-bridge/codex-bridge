@@ -108,6 +108,7 @@ test("early child approval is delivered only to the originating parent chat", as
   const answers: string[] = [];
   const client = {
     onNotification: (listener: typeof notify) => { notify = listener; return () => {}; },
+    onUserInputRequest: () => () => {},
     onApprovalRequest: () => () => {},
     resolveApproval: async (id: string) => { answers.push(id); }
   } as unknown as CodexAppServerClient;
@@ -285,6 +286,7 @@ test("child completion cannot claim a pending global version notification", asyn
   let notify!: (event: AppServerNotification) => void;
   const client = {
     onNotification: (listener: typeof notify) => { notify = listener; return () => {}; },
+    onUserInputRequest: () => () => {},
     onApprovalRequest: () => () => {}
   } as unknown as CodexAppServerClient;
   const service = new BridgeService(testConfig(":memory:"), store, client);

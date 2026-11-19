@@ -590,6 +590,9 @@
       "src/codex/extractors/events.ts",
       "src/codex/notification-events.ts"
     ],
+    "item/tool/requestUserInput": [
+      "src/shared/user-input.ts"
+    ],
     "mcpServer/elicitation/request": [
       "src/bridge/decisions/commands.ts",
       "src/bridge/decisions/delivery.ts",

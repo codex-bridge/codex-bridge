@@ -5,6 +5,7 @@ import type { BridgeChatPort, BridgeTelegramTurnWorkflowPort } from "../../bridg
 import { createTelegramHelpMessage } from "./help.js";
 import type { TelegramInteractionResponder } from "./responder.js";
 import { parseAssistantReplyCallback } from "../../bridge/interactions/assistant-replies.js";
+import { parseUserQuestionAction } from "../../bridge/decisions/user-input.js";
 
 async function sendPrompt(
   service: Pick<BridgeChatPort, "getActiveSessionContext">,
@@ -31,6 +32,13 @@ export async function handleTelegramTurnWorkflow(input: {
 }): Promise<boolean> {
   const { action, context, responder, service } = input;
   const chatId = context.conversationId;
+
+  const question = parseUserQuestionAction(action);
+  if (question) {
+    const result = await service.handleUserQuestion(chatId, question);
+    await input.acknowledge(result.message);
+    return true;
+  }
 
   if (action === "quick:help") {
     await input.acknowledge();

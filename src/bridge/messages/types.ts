@@ -3,6 +3,8 @@ import type { AssistantDisplay } from "../../shared/assistant-display.js";
 import type { AssistantQuestion } from "../../shared/assistant-questions.js";
 
 export type DecisionContext = {
+  interaction?: "user-input";
+  userInput?: import("../../shared/user-input.js").UserInputPrompt;
   id: string;
   state: DecisionRecord["state"];
   requiresUserInput: boolean;

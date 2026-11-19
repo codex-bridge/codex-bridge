@@ -9,6 +9,8 @@ import type { SessionDecisionOperationQueue } from "./session-operation-queue.js
 import { canDeliverSession } from "../notifications/delivery-target.js";
 import { createBatchDecisionCallback } from "./action-callbacks.js";
 import { describeDecision } from "./formatters.js";
+import { USER_INPUT_METHOD } from "../../shared/user-input.js";
+import { userQuestionActions } from "./user-input.js";
 
 type DecisionStore = Pick<
   BridgeStore,
@@ -24,6 +26,7 @@ type DecisionStore = Pick<
 >;
 
 export type DecisionDeliveryDependencies = {
+  presentDecision?: (decision: DecisionRecord) => DecisionRecord;
   store: DecisionStore;
   requireMessageTransport: (chatId: string) => BridgeMessageTransport;
   sessionOperationQueue: Pick<SessionDecisionOperationQueue, "run">;
@@ -41,6 +44,7 @@ export class DecisionDeliveryService {
   constructor(private readonly deps: DecisionDeliveryDependencies) {}
 
   async sendDecisionMessage(session: SessionRecord, decision: DecisionRecord, refresh = false): Promise<void> {
+    decision = this.deps.presentDecision?.(decision) ?? decision;
     const targetChatId = session.telegramChatId;
     if (!refresh && decision.telegramMessageId && decision.telegramChatId === targetChatId) {
       logger.info("bridge.decision.delivery_deduped", {
@@ -69,7 +73,8 @@ export class DecisionDeliveryService {
       ...actionRow(...selected.filter((action) => action === "accept" || action === "acceptForSession").map((action) => buttons[action])),
       ...actionRow(...selected.filter((action) => action === "decline" || action === "cancel").map((action) => buttons[action]))
     ];
-    const messageSpec = this.deps.createDecisionMessageSpec(session, decision, actions);
+    const messageSpec = this.deps.createDecisionMessageSpec(session, decision,
+      decision.kind === USER_INPUT_METHOD ? userQuestionActions(decision) : actions);
     if (refresh && decision.telegramMessageId && decision.telegramChatId === targetChatId) {
       await this.deps.editMessageSpec(targetChatId, decision.telegramMessageId, messageSpec);
       return;
@@ -91,7 +96,7 @@ export class DecisionDeliveryService {
   async refreshPendingMessages(session: SessionRecord): Promise<void> {
     for (const decision of await this.deps.store.listOpenDecisions(session.id)) {
       if (decision.telegramChatId !== session.telegramChatId || !decision.telegramMessageId) continue;
-      if (decision.state === "awaitingInput") {
+      if (decision.state === "awaitingInput" && decision.kind !== USER_INPUT_METHOD) {
         await this.deps.editMessageSpec(session.telegramChatId, decision.telegramMessageId,
           this.deps.createMcpInputPromptSpec(session, decision));
       } else {
@@ -219,7 +224,7 @@ export class DecisionDeliveryService {
       return;
     }
     try {
-      const messageSpec = this.deps.createDecisionMessageSpec(session, decision, []);
+      const messageSpec = this.deps.createDecisionMessageSpec(session, this.deps.presentDecision?.(decision) ?? decision, []);
       await this.deps.editMessageSpec(
         decision.telegramChatId,
         decision.telegramMessageId,

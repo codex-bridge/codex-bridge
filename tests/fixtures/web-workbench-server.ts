@@ -10,6 +10,8 @@ import { WebDirectoryRegistry } from "../../src/bridge/sessions/directory-regist
 import { AssistantReplyService } from "../../src/bridge/interactions/assistant-replies.js";
 import { extractAssistantMessage } from "../../src/codex/assistant-message.js";
 import { createTranscriptMessageSpec } from "../../src/bridge/renderers/thread-history.js";
+import { USER_INPUT_METHOD, validateUserInputAnswers, type UserInputPrompt } from "../../src/shared/user-input.js";
+import { presentWebDecision } from "../../src/web/decisions.js";
 
 const store = new BridgeStore(":memory:");
 await store.ensureChat("web:local");
@@ -26,6 +28,11 @@ const replies = new AssistantReplyService(id => store.getSessionLease(id)?.versi
 const directories = new WebDirectoryRegistry(store);
 const listeners = new Set<(delivery: WebMessageDelivery) => void>();
 const cards = new Map<string, MessageSpec>();
+const nativePrompt: UserInputPrompt = { isBlocking: true, questions: [
+  { id: "direction", header: "Direction", question: "Which direction should the fixture take?", isOther: true, isSecret: false,
+    options: [{ label: "Go", description: "Continue the synthetic task." }, { label: "Next", description: "Discuss the next steps." }] },
+  { id: "notes", header: "Notes", question: "Any notes for the fixture?", isOther: true, isSecret: false, options: null }
+] };
 let sequence = 0;
 function publish(threadId: string, messageId: string, message: MessageSpec, operation: "send" | "edit" = "send") {
   const session = sessions.find((item) => item.codexThreadId === threadId)!;
@@ -81,7 +88,13 @@ const api: WebBridgeApi = {
       replies.consume(input.replyToken!, owned.session.id, "web:local");
     }
     history.get(input.threadId)!.push({ role: "user", text: input.text });
-    if (input.text === "questions") {
+    if (input.text === "native-question") {
+      const row = await store.createOrReplacePendingDecision({ sessionId: owned.session.id, telegramChatId: "web:local",
+        approvalId: "fixture-native", kind: USER_INPUT_METHOD, title: "Answer questions", summary: "Fixture questions", requiresUserInput: true });
+      const pending = await store.resolveDecision(row.id, "awaitingInput");
+      const card = presentWebDecision(owned.session, { ...pending!, userInput: nativePrompt }, true, true);
+      cards.set(row.id, card); publish(input.threadId, `decision-${row.id}`, card);
+    } else if (input.text === "questions") {
       const presented = extractAssistantMessage({ type: "agentMessage", id: `question-${sequence++}`, delivery: "async",
         text: "Which next step?\n- Go\n- Next\n\nWhich level of detail?\n- Brief\n- Detailed\n\nAny other notes?",
         questions: [{ title: "Which next step?", options: ["Go", "Next"] },
@@ -113,9 +126,14 @@ const api: WebBridgeApi = {
   actDecision: async (input, check) => {
     const owned = await access.requireOwned(input.threadId, "web:local", input.leaseVersion, check); owned.assertCurrent();
     const card = cards.get(input.decisionId)!;
-    const state = input.action === "accept" && card.decision!.requiresUserInput ? "awaitingInput" : input.action === "decline" ? "rejected" : input.action === "cancel" ? "cancelled" : "approved";
-    const next: MessageSpec = { ...card, decision: { ...card.decision!, state, inputAllowed: state === "awaitingInput",
-      availableActions: state === "awaitingInput" ? ["decline", "cancel"] : [] } };
+    const native = card.decision!.interaction === "user-input";
+    if (native && input.action === "submit") validateUserInputAnswers(nativePrompt, input.content);
+    const state = native ? input.action === "submit" ? "answered" : "cancelled"
+      : input.action === "accept" && card.decision!.requiresUserInput ? "awaitingInput" : input.action === "decline" ? "rejected" : input.action === "cancel" ? "cancelled" : "approved";
+    const next: MessageSpec = native
+      ? presentWebDecision(owned.session, (await store.resolveDecision(input.decisionId, state))!, true, false)
+      : { ...card, decision: { ...card.decision!, state, inputAllowed: state === "awaitingInput",
+        availableActions: state === "awaitingInput" ? ["decline", "cancel"] : [] } };
     cards.set(input.decisionId, next); publish(input.threadId, `decision-${input.decisionId}`, next, "edit");
     return { accepted: true, decisionId: input.decisionId, state };
   }

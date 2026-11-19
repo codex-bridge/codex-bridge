@@ -34,6 +34,7 @@ export interface BridgeChatPort {
 }
 
 export interface BridgeInputPort {
+  handleUserQuestion(chatId: string, action: import("./decisions/user-input.js").UserQuestionAction): Promise<{ ok: boolean; message: string }>;
   replyToAssistantOption(chatId: string, token: string): Promise<TurnRouteResult>;
   handleIncomingUserPayload(input: {
     attachments: IncomingAttachment[];

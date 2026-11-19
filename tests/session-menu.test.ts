@@ -301,6 +301,7 @@ test("unexpected Codex connection loss preserves the failed state and exposes on
       notificationListener = listener;
       return () => undefined;
     },
+    onUserInputRequest: () => () => {},
     onApprovalRequest: () => () => undefined
   } as unknown as CodexAppServerClient;
   const service = new BridgeService(testConfig(databasePath), store, client);
@@ -329,6 +330,7 @@ test("Codex account reconnect restores runtime state and releases old Bridge loc
       notificationListener = listener;
       return () => undefined;
     },
+    onUserInputRequest: () => () => {},
     onApprovalRequest: () => () => undefined
   } as unknown as CodexAppServerClient;
   const service = new BridgeService(testConfig(databasePath), store, client);
@@ -1406,6 +1408,7 @@ test("bootstrap connects without eagerly discovering all sessions", async () => 
         return [];
       },
       onNotification: () => undefined,
+      onUserInputRequest: () => () => {},
       onApprovalRequest: () => undefined
     } as unknown as CodexAppServerClient
   );
@@ -1432,6 +1435,7 @@ test("bootstrap reconciles durable active turns without deleting their progress 
     {
       connect: async () => {},
       onNotification: () => undefined,
+      onUserInputRequest: () => () => {},
       onApprovalRequest: () => undefined,
       readThreadStatus: async (threadId: string) => ({
         threadId,

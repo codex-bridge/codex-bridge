@@ -8,7 +8,7 @@ test("all generated client-bound methods and items have an explicit disposition"
   assert.equal(getMessageCoverage("notification", "mcpServer/startupStatus/updated")?.disposition, "partial");
   assert.equal(getMessageCoverage("notification", "item/agentMessage/delta")?.disposition, "ignored");
   assert.equal(getMessageCoverage("notification", "warning")?.disposition, "unsupported");
-  assert.equal(getMessageCoverage("serverRequest", "item/tool/requestUserInput")?.disposition, "unsupported");
+  assert.equal(getMessageCoverage("serverRequest", "item/tool/requestUserInput")?.disposition, "handled");
   assert.equal(getMessageCoverage("item", "agentMessage")?.disposition, "partial");
   assert.equal(getMessageCoverage("item", "sleep")?.disposition, "unsupported");
   assert.equal(getMessageCoverage("item", "new-upstream-item"), undefined);

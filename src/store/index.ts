@@ -596,6 +596,7 @@ export class BridgeStore {
     decisionId: string,
     state:
       | "awaitingInput"
+      | "answered"
       | "approved"
       | "approvedForSession"
       | "rejected"

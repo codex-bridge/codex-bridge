@@ -1,4 +1,5 @@
 import type { PresentedAssistantMessage } from "./assistant-display.js";
+import type { UserInputPrompt } from "./user-input.js";
 
 export type TranscriptMessage = PresentedAssistantMessage & {
   role: "user" | "assistant" | "system";
@@ -146,6 +147,8 @@ export interface MessageRecord {
 }
 
 export interface DecisionRecord {
+  /** Original connection only; never persisted as a recoverable request. */
+  userInput?: UserInputPrompt;
   id: string;
   sessionId: string;
   telegramChatId: string;
@@ -160,6 +163,7 @@ export interface DecisionRecord {
     | "pending"
     | "awaitingInput"
     | "approved"
+    | "answered"
     | "approvedForSession"
     | "rejected"
     | "cancelled"

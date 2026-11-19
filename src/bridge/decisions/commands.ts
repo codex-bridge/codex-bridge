@@ -20,12 +20,15 @@ import {
 } from "./formatters.js";
 import type { DecisionDeliveryService } from "./delivery.js";
 import { KeyedQueue } from "../../shared/keyed-queue.js";
+import { USER_INPUT_METHOD } from "../../shared/user-input.js";
+import type { UserInputService } from "./user-input.js";
 
-export type DecisionOperationGuard = { sessionId: string; threadId: string; assertCurrent: () => void };
+export type DecisionOperationGuard = { sessionId: string; threadId: string; sourceId?: string; assertCurrent: () => void };
 
 type BatchDecisionAction = Extract<DecisionAction, "accept" | "decline" | "cancel">;
 
 export type DecisionCommandDependencies = {
+  userInput?: UserInputService;
   store: BridgeStore;
   codexClient: Pick<CodexAppServerClient, "resolveApproval">;
   sessionOwnershipService: Pick<SessionOwnershipService, "getSessionOwnershipPrompt">;
@@ -59,6 +62,9 @@ export class DecisionCommandService {
       logger.warn("bridge.decision.missing", { decisionId });
       return { ok: false, message: "This decision no longer exists." };
     }
+    if (decision.kind === USER_INPUT_METHOD) return action === "cancel" && this.deps.userInput
+      ? this.deps.userInput.submit(decision.id, null, sourceId ?? guard?.sourceId ?? decision.telegramChatId, guard)
+      : { ok: false, message: "Use the question form to submit answers." };
 
     if (decision.state !== "pending" && !(guard && decision.state === "awaitingInput")) {
       await this.deps.decisionDelivery.clearDecisionMessageActions(decision);
@@ -186,6 +192,8 @@ export class DecisionCommandService {
     return this.operations.run(decisionId, async () => {
       const decision = await this.deps.store.getDecision(decisionId);
       guard.assertCurrent();
+      if (decision?.kind === USER_INPUT_METHOD && this.deps.userInput) return this.deps.userInput.submit(
+        decision.id, content, guard.sourceId ?? decision.telegramChatId, guard);
       if (!decision || decision.sessionId !== guard.sessionId || !describeDecision(decision).inputAllowed) {
         return { ok: false, message: "This request is not awaiting structured input." };
       }

@@ -17,6 +17,7 @@ function createId(prefix: string): string {
 
 const MAX_RESOLVED_DECISIONS_PER_SESSION = 50;
 const RESOLVED_DECISION_STATES = [
+  "answered",
   "approved",
   "approvedForSession",
   "rejected",
