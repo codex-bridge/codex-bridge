@@ -8,6 +8,7 @@ import { BridgeStore } from "../../store/index.js";
 import type { QueuedSubmissionService } from "../input/queued-submission.js";
 
 export type NotificationTurnDependencies = {
+  preserveTurnLease?: (sessionId: string, change: () => boolean) => boolean;
   store: BridgeStore;
   promoteSessionHandoff: (session: SessionRecord) => Promise<void>;
   inFlightTurnIdByThread: Map<string, string>;
@@ -118,7 +119,9 @@ export class NotificationTurnService {
     }
     this.deps.store.completeTurnRoute(turnLifecycle.turnId, turnLifecycle.terminalState ?? "interrupted");
     if (session) {
-      this.deps.store.clearSessionOwnerTurn(session.id, turnLifecycle.turnId);
+      const clear = () => this.deps.store.clearSessionOwnerTurn(session.id, turnLifecycle.turnId);
+      if (this.deps.preserveTurnLease) this.deps.preserveTurnLease(session.id, clear);
+      else clear();
       await this.deps.promoteSessionHandoff(session);
     }
     const activeRoute = this.deps.store.getActiveTurnRoute(turnLifecycle.threadId);

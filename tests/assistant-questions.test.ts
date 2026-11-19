@@ -104,6 +104,30 @@ test("three renderers share choice text and grouping while history and cache rem
   assert.equal(JSON.stringify(cache.load("t", session.id)).includes("Choose direction"), false);
 });
 
+test("choices survive explicit owner-turn transitions, but handoffs and disconnects never revive old tokens", async t => {
+  const store = new BridgeStore(":memory:"); t.after(() => store.close());
+  const session = await store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId: "t", pathKey: "/work" });
+  store.claimSession(session.id, "123");
+  const replies = new AssistantReplyService(id => store.getSessionLease(id)?.version);
+  const create = () => replies.createActions(session, { role: "assistant", ...extractAssistantMessage(item)! });
+  let actions = create();
+  const first = parseAssistantReplyCallback(actions[0]!.callback)!, second = parseAssistantReplyCallback(actions[2]!.callback)!;
+  assert.equal(replies.preserveForTurnTransition(session.id, () => store.setSessionOwnerTurn(session.id, "123", "turn")), true);
+  assert.equal(replies.resolve(first, session.id, "123").text, "Go");
+  assert.equal(replies.preserveForTurnTransition(session.id, () => store.clearSessionOwnerTurn(session.id, "turn")), true);
+  replies.consume(first, session.id, "123");
+  assert.equal(replies.preserveForTurnTransition(session.id, () => store.setSessionOwnerTurn(session.id, "123", "reply-turn")), true);
+  assert.equal(replies.resolve(second, session.id, "123").text, "Brief", "another question remains answerable in the next turn");
+  replies.preserveForTurnTransition(session.id, () => store.clearSessionOwnerTurn(session.id, "reply-turn"));
+  store.requestSessionHandoff(session.id, "slack:T:C:1", true);
+  store.requestSessionHandoff(session.id, "123", true);
+  replies.preserveForTurnTransition(session.id, () => store.setSessionOwnerTurn(session.id, "123", "later-turn"));
+  assert.throws(() => replies.resolve(second, session.id, "123"), /no longer available/);
+  actions = create();
+  const fresh = parseAssistantReplyCallback(actions[0]!.callback)!;
+  replies.clear(); assert.throws(() => replies.resolve(fresh, session.id, "123"), /no longer available/);
+});
+
 test("live notification delivery attaches choices once and keeps async questions out of MCP result classification", async (t) => {
   const store = new BridgeStore(":memory:"); t.after(() => store.close());
   const session = await store.upsertDiscoveredSession({ telegramChatId: "chat", codexThreadId: "t", pathKey: "/work", currentCwd: "/work" });

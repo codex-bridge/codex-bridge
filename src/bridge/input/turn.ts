@@ -32,6 +32,7 @@ function formatConfigSyncError(error: unknown): string {
 }
 
 export type IncomingTurnDependencies = {
+  preserveTurnLease?: (sessionId: string, change: () => boolean) => boolean;
   store: BridgeStore;
   codexClient: CodexAppServerClient;
   turnRouteQueue: KeyedQueue;
@@ -264,7 +265,8 @@ export class IncomingTurnService {
           bindingId: binding?.id ?? null,
           sourceId: input.telegramChatId
         });
-        if (!this.deps.store.setSessionOwnerTurn(routedSession.id, input.telegramChatId, turn.turnId)) {
+        const setOwnerTurn = () => this.deps.store.setSessionOwnerTurn(routedSession.id, input.telegramChatId, turn.turnId!);
+        if (!(this.deps.preserveTurnLease ? this.deps.preserveTurnLease(routedSession.id, setOwnerTurn) : setOwnerTurn())) {
           logger.warn("bridge.session.owner_turn_not_recorded", {
             chatId: input.telegramChatId,
             sessionId: routedSession.id,

@@ -528,6 +528,7 @@ export class BridgeService {
       editMessageSpec: (chatId, messageId, messageSpec) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec)
     });
     this.notificationTurnService = new NotificationTurnService({
+      preserveTurnLease: (id, change) => this.assistantReplies.preserveForTurnTransition(id, change),
       store,
       promoteSessionHandoff: (session) => this.sessionBindingService.promote(session),
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
@@ -627,7 +628,7 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
     });
     this.notificationListener = new NotificationListener({
-      clearUserInput: () => this.userInputService.clear(),
+      clearUserInput: () => { this.userInputService.clear(); this.assistantReplies.clear(); },
       codexClient,
       threadMetadataCache: this.threadMetadataCache,
       sessionMenuSnapshots: this.sessionMenuSnapshots,
@@ -669,6 +670,7 @@ export class BridgeService {
       renderSessionMenu: (chatId, page, options) => this.renderSessionMenu(chatId, page, options)
     });
     this.incomingTurnService = new IncomingTurnService({
+      preserveTurnLease: (id, change) => this.assistantReplies.preserveForTurnTransition(id, change),
       store,
       codexClient,
       turnRouteQueue: this.turnRouteQueue,
@@ -1547,7 +1549,8 @@ export class BridgeService {
         if (status.activity === "idle") {
           if (candidate.route) {
             this.store.completeTurnRoute(candidate.route.turnId, "interrupted");
-            this.store.clearSessionOwnerTurn(session.id, candidate.route.turnId);
+            this.assistantReplies.preserveForTurnTransition(session.id,
+              () => this.store.clearSessionOwnerTurn(session.id, candidate.route!.turnId));
           }
           await this.clearProgressMessageForThread(threadId, {
             terminal: "interrupted",

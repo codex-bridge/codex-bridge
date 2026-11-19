@@ -23,6 +23,8 @@ export class AssistantReplyService {
 
   constructor(private readonly readLeaseVersion: (sessionId: string) => number | undefined) {}
 
+  clear(): void { this.replies.clear(); this.messages.clear(); }
+
   createActions(session: SessionRecord, message: TranscriptMessage): ActionSpec[] {
     if (message.role !== "assistant" || !message.sourceItemId) return [];
     const key = JSON.stringify([session.id, message.sourceItemId]);
@@ -60,6 +62,17 @@ export class AssistantReplyService {
   consume(token: string, sessionId: string, sourceId: string): void {
     const reply = this.resolve(token, sessionId, sourceId);
     for (const entry of reply.group) this.replies.delete(entry);
+  }
+
+  /** Preserve choices only across a synchronous owner-turn update, never a claim or handoff. */
+  preserveForTurnTransition(sessionId: string, change: () => boolean): boolean {
+    const before = this.readLeaseVersion(sessionId);
+    if (!change()) return false;
+    const after = this.readLeaseVersion(sessionId);
+    for (const reply of this.replies.values()) {
+      if (reply.sessionId === sessionId && reply.leaseVersion === before) reply.leaseVersion = after;
+    }
+    return true;
   }
 
   private removeMessage(key: string): void {
