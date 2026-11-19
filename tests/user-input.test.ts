@@ -21,6 +21,7 @@ import { IncomingPreflightService } from "../src/bridge/input/preflight.js";
 import { createMessage } from "../src/bridge/messages/factory.js";
 import { handleSlackTurnWorkflow } from "../src/slack/interactions/turn-workflow.js";
 import { handleTelegramTurnWorkflow } from "../src/telegram/interactions/turn-workflow.js";
+import { WebMessageTransport, type WebMessageDelivery } from "../src/web/transport.js";
 
 const prompt = { isBlocking: true, questions: [
   { id: "direction", header: "Direction", question: "Which direction?", isOther: true, isSecret: false,
@@ -182,6 +183,23 @@ test("saved answers can be edited before the single final submission", async t =
   const result = await f.service.act({ decisionId: f.decision.id, type: "submit" }, "web:local");
   assert.equal(result.ok, true);
   assert.deepEqual(f.writes, [{ answers: { direction: { answers: ["Next"] }, notes: { answers: ["initial notes"] } } }]);
+});
+
+test("live Web transport preserves the original native form and expires it with the request", async t => {
+  const f = await serviceFixture(t);
+  const transport = new WebMessageTransport(f.store, { isRuntimeConnected: () => true,
+    isApprovalPending: () => f.client.isApprovalPending(), presentDecision: d => f.service.present(d) });
+  const deliveries: WebMessageDelivery[] = [];
+  transport.subscribe(d => deliveries.push(d));
+  const spec = createDecisionMessageSpec(f.session, f.service.present(f.decision), []);
+  const sent = await transport.sendMessageSpec("web:local", spec);
+  assert.ok(sent);
+  assert.deepEqual(deliveries[0]!.event.message!.decision!.userInput!.questions, prompt.questions);
+  assert.equal(deliveries[0]!.event.message!.decision!.inputAllowed, true);
+  f.expire();
+  assert.equal(await transport.editMessageSpec("web:local", sent.message_id, spec), true);
+  assert.equal(deliveries[1]!.event.message!.decision!.inputAllowed, false);
+  assert.equal(deliveries[1]!.event.message!.decision!.userInput, undefined);
 });
 
 test("skipping sends an empty answer; pending handoff preserves the owner and lost ownership rejects answers", async t => {

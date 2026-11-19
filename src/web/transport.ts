@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { BridgeStore } from "../store/index.js";
 import type { BridgeMessageOptions, BridgeMessageTransport, BridgeSentMessage } from "../bridge/transport.js";
+import type { DecisionRecord } from "../shared/types.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
 import { messageTransportPlatform, WEB_SOURCE_ID } from "../shared/source-address.js";
 import type { SessionBindingEvent } from "../bridge/sessions/binding.js";
@@ -27,14 +28,16 @@ export class WebMessageTransport implements BridgeMessageTransport {
 
   constructor(private readonly store: Pick<BridgeStore,
     "getSessionById" | "getSessionLease" | "getSessionBindingById" | "getActiveTurnRoute" | "getDecision">,
-    private readonly runtime?: { isRuntimeConnected: () => boolean; isApprovalPending: (approvalId: string) => boolean }) {}
+    private readonly runtime?: { isRuntimeConnected: () => boolean; isApprovalPending: (approvalId: string) => boolean;
+      presentDecision?: (decision: DecisionRecord) => DecisionRecord }) {}
 
   private async prepareSpec(spec: MessageSpec, target: MessageTarget): Promise<MessageSpec | null> {
     if (!spec.decision || !this.runtime) return spec;
     const decision = await this.store.getDecision(spec.decision.id);
     const session = spec.session?.id ? await this.store.getSessionById(spec.session.id) : null;
     if (!decision || !session || session.codexArchivedAt !== null || session.codexThreadId !== target.threadId || decision.sessionId !== session.id) return null;
-    return presentWebDecision(session, decision, this.runtime.isRuntimeConnected(), this.runtime.isApprovalPending(decision.approvalId));
+    return presentWebDecision(session, this.runtime.presentDecision?.(decision) ?? decision,
+      this.runtime.isRuntimeConnected(), this.runtime.isApprovalPending(decision.approvalId));
   }
 
   canHandle(sourceId: string): boolean { return messageTransportPlatform(sourceId) === "web"; }

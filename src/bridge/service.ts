@@ -1135,6 +1135,7 @@ export class BridgeService {
     if (!this.webMessageTransport) {
       const attention = this.webAttention = new WebAttentionService(this.store, (session) => this.getSessionDirectory(session));
       this.webMessageTransport = new WebMessageTransport(this.store, {
+        presentDecision: (decision) => this.userInputService.present(decision),
         isRuntimeConnected: () => this.isRuntimeConnected(),
         isApprovalPending: (approvalId) => this.codexClient.isApprovalPending(approvalId)
       });
