@@ -64,8 +64,10 @@ not certification of every provider, operating system or network path.
   within the same 800-visible-character body limit. Detailed arguments are omitted
   from final phase summaries, phase records and restored history; missing inputs
   are not reconstructed.
-- Resume responses need not contain legacy `initialMessages`. Bridge reads
-  structured thread history separately; it does not require that old field.
+- Resume requests use `excludeTurns: true`, including the legacy status-method
+  fallback, to avoid deprecated full-history hydration. Bridge reads the latest
+  five dialogue messages through structured pagination separately. Resume responses
+  need not contain legacy `initialMessages`; Bridge does not require that old field.
 
 ## Rechecking a CLI upgrade
 

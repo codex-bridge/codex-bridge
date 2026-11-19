@@ -11,6 +11,7 @@ import {
   renderThreadHistoryEntry
 } from "../src/bridge/renderers/thread-history.js";
 import { CodexAppServerClient } from "../src/codex/client.js";
+import { CodexThreadApi } from "../src/codex/thread-api.js";
 import { normalizeFullThreadTurnsPage } from "../src/codex/thread-history.js";
 import type { AppConfig } from "../src/config/index.js";
 import { BridgeStore } from "../src/store/index.js";
@@ -46,6 +47,58 @@ function testConfig(databasePath = ":memory:"): AppConfig {
     codexAutoCompactOnIncompatibleHistory: false
   };
 }
+
+test("resume requests metadata only and reads the latest five messages through pagination", async () => {
+  const calls: string[] = [];
+  const metadata = { thread: { id: "thread", cwd: "/work", turns: [] } };
+  const api = new CodexThreadApi({ connect: async () => {}, getObservedThreadSettings: () => undefined,
+    isUnknownMethodError: () => false,
+    rememberThreadSettings: (id, result) => { assert.equal(id, "thread"); assert.deepEqual(result, metadata); },
+    request: async (method, params, options) => {
+      calls.push(method);
+      assert.equal(method, "thread/resume");
+      assert.deepEqual(params, { threadId: "thread", cwd: "/work", excludeTurns: true });
+      assert.deepEqual(options, { timeoutMs: 3000 });
+      return metadata;
+    },
+    requestKnownMethod: async (method, params) => {
+      calls.push(method);
+      assert.equal(method, "thread/turns/list");
+      assert.deepEqual(params, { threadId: "thread", cursor: null, limit: 10, sortDirection: "desc", itemsView: "summary" });
+      return { data: [3, 2, 1].map(index => ({ id: `turn-${index}`, items: [
+        { type: "userMessage", id: `user-${index}`, content: [{ type: "text", text: `question ${index}` }] },
+        { type: "agentMessage", id: `assistant-${index}`, text: `answer ${index}` }
+      ] })), nextCursor: null };
+    }
+  });
+  let checked = false;
+  assert.deepEqual(await api.resumeThread("thread", "/work", () => { checked = true; }, 3000), { displayPath: "/work", messages: [] });
+  assert.equal(checked, true);
+  assert.deepEqual(calls, ["thread/resume"]);
+  assert.deepEqual((await api.listRecentThreadMessages("thread", 5)).map(message => message.text),
+    ["answer 1", "question 2", "answer 2", "question 3", "answer 3"]);
+});
+
+test("status fallback also excludes history, while read-only status never resumes implicitly", async () => {
+  for (const readOnly of [false, true]) {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const api = new CodexThreadApi({ connect: async () => {}, getObservedThreadSettings: () => undefined,
+      isUnknownMethodError: () => true, rememberThreadSettings: () => {}, requestKnownMethod: async () => null,
+      request: async (method, params) => {
+        calls.push({ method, params });
+        if (method === "thread/read") throw new Error("Unknown read method");
+        return { thread: { id: "thread", cwd: "/work", status: { type: "idle" } } };
+      }
+    });
+    if (readOnly) {
+      await assert.rejects(api.readThreadStatus("thread", "/work", { readOnly }), /Unknown read method/);
+    } else {
+      assert.equal((await api.readThreadStatus("thread", "/work", { readOnly })).activity, "idle");
+    }
+    assert.deepEqual(calls, [{ method: "thread/read", params: { threadId: "thread" } },
+      ...(readOnly ? [] : [{ method: "thread/resume", params: { threadId: "thread", cwd: "/work", excludeTurns: true } }])]);
+  }
+});
 
 test("thread turn history paginates newest-first and returns messages chronologically", async () => {
   const calls: Array<Record<string, unknown>> = [];

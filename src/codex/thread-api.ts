@@ -31,7 +31,7 @@ export class CodexThreadApi {
   }> {
     await this.deps.connect();
     logger.info("codex.thread.resume", { threadId, cwd });
-    const params: Record<string, unknown> = { threadId };
+    const params: Record<string, unknown> = { threadId, excludeTurns: true };
     if (cwd) {
       params.cwd = cwd;
     }
@@ -183,7 +183,7 @@ export class CodexThreadApi {
       if (options?.readOnly || !this.deps.isUnknownMethodError(error, "thread/read")) {
         throw error;
       }
-      const params: Record<string, unknown> = { threadId };
+      const params: Record<string, unknown> = { threadId, excludeTurns: true };
       if (cwd) {
         params.cwd = cwd;
       }
