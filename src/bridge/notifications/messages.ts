@@ -1,3 +1,4 @@
+import { assistantPresentation } from "../../shared/assistant-questions.js";
 import { createMessage } from "../messages/factory.js";
 import { helpAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
@@ -29,8 +30,9 @@ export class NotificationMessageService {
   async handleCompletedAgentMessage(agentMessage: CompletedAgentMessage): Promise<void> {
     const nativeKey = agentMessage.sourceItemId ? JSON.stringify([agentMessage.threadId, agentMessage.sourceItemId]) : null;
     const previous = nativeKey ? this.nativeMessages.get(nativeKey) : undefined;
-    agentMessage = { ...agentMessage, ...protectPresentedAssistantText(agentMessage.text,
-      agentMessage.assistantDisplay, previous?.assistantDisplay) };
+    const displayed = protectPresentedAssistantText(agentMessage.text, agentMessage.assistantDisplay, previous?.assistantDisplay);
+    agentMessage = { threadId: agentMessage.threadId, sourceItemId: agentMessage.sourceItemId, ...displayed,
+      ...assistantPresentation({ ...agentMessage, ...displayed }) };
     logger.info("bridge.notification.agent_message", {
       threadId: agentMessage.threadId,
       text: agentMessage.text
@@ -42,7 +44,7 @@ export class NotificationMessageService {
     const recentMessages = await this.deps.store.listRecentMessages(session.id, 1);
     const latestMessage = recentMessages.at(-1);
     const duplicate = nativeKey ? previous?.text === agentMessage.text &&
-      JSON.stringify(previous.assistantDisplay) === JSON.stringify(agentMessage.assistantDisplay) : latestMessage &&
+      JSON.stringify(assistantPresentation(previous)) === JSON.stringify(assistantPresentation(agentMessage)) : latestMessage &&
       latestMessage.role === "assistant" &&
       latestMessage.text.trim() === agentMessage.text.trim() &&
       Date.now() - latestMessage.createdAt < 15_000;
@@ -68,8 +70,8 @@ export class NotificationMessageService {
       if (this.nativeMessages.size > 256) this.nativeMessages.delete(this.nativeMessages.keys().next().value!);
     }
     const resolvedAt = this.deps.recentResolvedMcpBySession.get(session.id);
-    if (resolvedAt && Date.now() - resolvedAt < 120_000) {
-      this.deps.recentResolvedMcpBySession.delete(session.id);
+    if (resolvedAt) this.deps.recentResolvedMcpBySession.delete(session.id);
+    if (resolvedAt && Date.now() - resolvedAt < 120_000 && agentMessage.delivery !== "async") {
       const messageSpec = createMessage({
         kind: "mcp",
         session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
@@ -83,7 +85,7 @@ export class NotificationMessageService {
       return;
     }
     await this.deps.sendTranscriptMessage(session, {
-      ...message, ...(agentMessage.assistantDisplay ? { assistantDisplay: agentMessage.assistantDisplay } : {}),
+      ...message, ...assistantPresentation(agentMessage),
       ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {})
     }, agentMessage.threadId);
     await this.deps.clearProgressMessageForThread(agentMessage.threadId);

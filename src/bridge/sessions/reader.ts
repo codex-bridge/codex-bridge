@@ -1,3 +1,4 @@
+import { assistantPresentation } from "../../shared/assistant-questions.js";
 import { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
 import type { TranscriptMessage, SessionRecord } from "../../shared/types.js";
@@ -54,7 +55,7 @@ export class SessionReader {
       }
       try {
         recentMessages = (await this.deps.codexClient.listRecentThreadMessages(currentSession.codexThreadId, 5))
-          .map(({ role, text, assistantDisplay, itemId }) => ({ role, text, sourceItemId: itemId, ...(assistantDisplay ? { assistantDisplay } : {}) }));
+          .map(({ role, text, itemId, ...presentation }) => ({ role, text, sourceItemId: itemId, ...assistantPresentation(presentation) }));
         recentMessagesSource = "turns";
       } catch (error) {
         logger.warn("bridge.session.turn_history_failed", {
@@ -113,7 +114,7 @@ export class SessionReader {
 
     try {
       recentMessages = (await this.deps.codexClient.listRecentThreadMessages(session.codexThreadId, 5))
-        .map(({ role, text, assistantDisplay, itemId }) => ({ role, text, sourceItemId: itemId, ...(assistantDisplay ? { assistantDisplay } : {}) }));
+        .map(({ role, text, itemId, ...presentation }) => ({ role, text, sourceItemId: itemId, ...assistantPresentation(presentation) }));
     } catch (error) {
       logger.warn("bridge.session.refresh_turn_history_failed", {
         sessionId: session.id,

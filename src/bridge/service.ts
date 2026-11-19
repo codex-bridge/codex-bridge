@@ -123,6 +123,7 @@ import {
 } from "../telegram/text.js";
 import type { BridgeMessageTransport } from "./transport.js";
 import type { SessionTranscript } from "./contracts.js";
+import { AssistantReplyService } from "./interactions/assistant-replies.js";
 import type {
   DecisionAction,
   TranscriptMessage,
@@ -206,6 +207,7 @@ export class BridgeService {
   private readonly messageSender: MessageDeliveryService;
   private readonly messageOperations: BridgeMessageOperations;
   private readonly goShortcutService: GoShortcutService;
+  private readonly assistantReplies: AssistantReplyService;
   private readonly runtimePromptFactory: RuntimePromptFactory;
   private readonly goalService: GoalService;
   private readonly goalCommandService: GoalCommandService;
@@ -381,7 +383,9 @@ export class BridgeService {
         return activeSession ? `Codex · ${this.sessionPresentationService.getSessionTitle(activeSession)}` : "Codex";
       }
     });
+    this.assistantReplies = new AssistantReplyService((id) => this.store.getSessionLease(id)?.version);
     this.messageOperations = new BridgeMessageOperations({
+      createAssistantReplyActions: (session, message) => this.assistantReplies.createActions(session, message),
       sender: this.messageSender,
       formatCodexTelegramHtml: (text) => this.formatCodexTelegramHtml(text),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
@@ -1150,6 +1154,7 @@ export class BridgeService {
     }), { store: this.store, service: this.sessionBindingService }, {
       access: new SessionAccessService(this.store), reader: this.sessionReader,
       sender: this.incomingTurnService, transport, attention: this.webAttention!, store: this.store,
+      assistantReplies: this.assistantReplies,
       isRuntimeConnected: () => this.isRuntimeConnected()
     }, new WebDecisionService({
       access: new SessionAccessService(this.store), store: this.store, commands: this.decisionCommandService,
@@ -1307,6 +1312,36 @@ export class BridgeService {
     const preflight = await this.incomingPreflightService.run(input);
     if (preflight.kind === "response") return preflight.response;
     return this.incomingTurnService.route(preflight.session, input);
+  }
+
+  async replyToAssistantOption(chatId: string, token: string): Promise<{ routed: boolean; prompt?: MessageSpec }> {
+    let session: SessionRecord | null = null;
+    try {
+      await this.ensureChatAllowed(chatId);
+      session = await this.store.getActiveSession(chatId);
+      if (!session) throw new Error("Choose the original session before replying to this question.");
+      const reply = this.assistantReplies.resolve(token, session.id, chatId);
+      const access = await new SessionAccessService(this.store).requireOwned(reply.threadId, chatId, reply.leaseVersion, () => {});
+      const input = { telegramChatId: chatId, telegramMessageId: `assistant-reply:${token}`, text: reply.text };
+      const preflight = await this.incomingPreflightService.run(input);
+      if (preflight.kind === "response") return preflight.response;
+      access.assertCurrent();
+      if (preflight.session.id !== session.id) throw new Error("The selected session changed. Reply from the current conversation.");
+      let consumed = false;
+      return await this.incomingTurnService.route(session, input, {
+        assertCurrent: access.assertCurrent,
+        beforeSend: async () => {
+          const current = await this.store.getActiveSession(chatId);
+          access.assertCurrent();
+          if (current?.id !== session!.id) throw new Error("The selected session changed. Reply from the current conversation.");
+          if (!consumed) { this.assistantReplies.consume(token, session!.id, chatId); consumed = true; }
+        }
+      });
+    } catch (error) {
+      return { routed: false, prompt: createMessage({ kind: "system", ...(session
+        ? { session: { id: session.id, directory: this.getSessionDirectory(session) } } : { scope: "global" as const }),
+        body: [{ type: "text", text: error instanceof Error ? error.message : "This option could not be sent. Reply with text instead." }] }) };
+    }
   }
 
   async cancelQueuedSubmission(chatId: string, id: string): Promise<MessageSpec> {

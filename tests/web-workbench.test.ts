@@ -658,6 +658,42 @@ test("typed session tools use the structured tool endpoint and append the result
   assert.deepEqual(tools, ["a:status"]);
   assert.equal(f.controller.getSnapshot().timelines.a!.at(-1)?.message.title, "result-status");
 });
+
+test("asynchronous option actions are scoped, one-use per question and preserve the composer draft", async (t) => {
+  const sent: unknown[] = [];
+  const f = fixture({ send: async (_, thread, text, requestId, __, ___, ____, token) => {
+    sent.push({ thread, text, token }); return { accepted: true, requestId };
+  } });
+  t.after(() => f.controller.dispose()); await open(f);
+  f.controller.setDraft("keep my draft");
+  const option = (text: string, token: string, questionId: string) => ({ id: token, label: text,
+    execution: { type: "send-text" as const, text, reply: { threadId: "a", token, questionId } } });
+  const actions = [option("Go", "aaaaaaaaaaaaaaaa", "direction"), option("Next", "bbbbbbbbbbbbbbbb", "direction"),
+    option("Brief", "cccccccccccccccc", "tone")];
+  f.event({ name: "message", data: { operation: "send", messageId: "question", threadId: "a", sessionId: "session-a", leaseVersion: 1,
+    message: { title: "Codex", kind: "codex", body: [{ type: "markdown", text: "Which next?" }], actions } } });
+  await f.controller.actMessage(actions[0]!);
+  await f.controller.actMessage(actions[1]!);
+  assert.deepEqual(sent, [{ thread: "a", text: "Go", token: "aaaaaaaaaaaaaaaa" }]);
+  assert.equal(f.controller.getSnapshot().drafts.a, "keep my draft");
+  assert.deepEqual(f.controller.getSnapshot().timelines.a!.find(item => item.id === "question")!.message.actions, [actions[2]]);
+  f.controller.select("b"); await settle();
+  await f.controller.actMessage(actions[2]!);
+  assert.equal(sent.length, 1, "old choices cannot send to the newly selected session");
+});
+
+test("an expired option is a known refusal and does not revoke session access or claim an unknown delivery", async (t) => {
+  const f = fixture({ send: async () => { throw new ApiError(409, "This option is no longer available. Reply with text instead.", "stale_option"); } });
+  t.after(() => f.controller.dispose()); await open(f);
+  const action = { id: "choice", label: "Go", execution: { type: "send-text" as const, text: "Go",
+    reply: { threadId: "a", token: "aaaaaaaaaaaaaaaa", questionId: "question" } } };
+  f.event({ name: "message", data: { operation: "send", messageId: "question", threadId: "a", sessionId: "session-a", leaseVersion: 1,
+    message: { title: "Codex", kind: "codex", body: [{ type: "markdown", text: "Which?" }], actions: [action] } } });
+  await f.controller.actMessage(action);
+  assert.equal(canInteract(f.controller.getSnapshot()), true);
+  assert.equal(f.controller.getSnapshot().timelines.a!.at(-1)?.deliveryStatus, "refused");
+  assert.equal(f.controller.getSnapshot().feedback?.message, "This option is no longer available. Reply with text instead.");
+});
 test("running sessions can queue a draft, refresh the ordered queue and cancel an accepted item", async (t) => {
   let entries: Array<{ id: string; summary: string; state: "queued"; createdAt: number }> = [];
   const f = fixture({

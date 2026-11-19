@@ -12,6 +12,23 @@ import { WebDecisionError } from "../src/web/decisions.js";
 import type { WebAttentionDelivery } from "../src/web/attention.js";
 import { DirectoryRegistrationError } from "../src/bridge/sessions/directory-registry.js";
 import { WEB_ATTACHMENT_MAX_FILE_BYTES, WEB_ATTACHMENT_MAX_TOTAL_BYTES } from "../src/web/protocol-limits.js";
+import { AssistantReplyError } from "../src/bridge/interactions/assistant-replies.js";
+
+test("question tokens are strictly parsed and stale choices return a clear conflict without retry ambiguity", async (t) => {
+  const calls: unknown[] = [];
+  const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
+    sendText: async (input) => { calls.push(input); throw new AssistantReplyError(); } });
+  const input = { threadId: "thread", requestId: "choice", text: "Go", replyToken: "abcdefghijklmnop" };
+  assert.equal((await post(base, "/api/web/session/send", input)).status, 403);
+  const grant = await acquire(base, "window");
+  for (const replyToken of ["", "bad", 123, null]) {
+    assert.equal((await post(base, "/api/web/session/send", { ...input, replyToken }, grant)).status, 400);
+  }
+  const response = await post(base, "/api/web/session/send", input, grant);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "This option is no longer available for the current session. Reply with text instead.", reason: "stale_option" });
+  assert.equal(calls.length, 1);
+});
 
 test("decision endpoints require grants, strict native actions and JSON objects, not callbacks or custom source", async (t) => {
   const calls: unknown[] = [];

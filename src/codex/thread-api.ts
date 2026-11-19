@@ -1,3 +1,4 @@
+import { assistantPresentation } from "../shared/assistant-questions.js";
 import {
   extractContextLeftPercent,
   extractContextMaxTokens,
@@ -305,7 +306,7 @@ function extractResumeMessages(value: unknown): TranscriptMessage[] {
           ? role
           : payload?.type === "user_message" ? "user" : "system",
         text,
-        ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+        ...assistantPresentation(presented ?? {}),
         ...(presented?.sourceItemId ? { sourceItemId: presented.sourceItemId } : {})
       };
     })
@@ -345,7 +346,7 @@ function extractThreadTurnsPage(value: unknown): {
       const presented = role === "assistant" ? extractAssistantMessage(item) : null;
       const text = role === "assistant" ? presented?.text : extractMessageText(item);
       return text ? [{ role, text, turnId, itemId,
-        ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}) }] : [];
+        ...assistantPresentation(presented ?? {}) }] : [];
     });
   });
   return {

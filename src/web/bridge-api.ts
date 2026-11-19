@@ -1,3 +1,5 @@
+import { assistantPresentation } from "../shared/assistant-questions.js";
+import { AssistantReplyError, type AssistantReplyService } from "../bridge/interactions/assistant-replies.js";
 import type { SessionCatalog, SessionCatalogService } from "../bridge/sessions/catalog.js";
 import type { SessionBindingEvent, SessionBindingService, SessionBindingResult } from "../bridge/sessions/binding.js";
 import { SessionAccessError, type SessionAccessService } from "../bridge/sessions/access.js";
@@ -36,6 +38,7 @@ export type WebSessionHistory = {
 /** The final guard is internal, and must run immediately before HTTP delivery. */
 export type WebSessionHistoryResult = { history: WebSessionHistory; assertCurrent: () => void };
 export type WebTextInput = { threadId: string; leaseVersion?: number; requestId: string; text: string;
+  replyToken?: string;
   attachments?: WebUploadFile[] };
 export type WebSendResult = { accepted: boolean; requestId: string; prompt?: WebMessageSpec;
   /** Internal content guard for routing refusals; never serialized to HTTP. */
@@ -101,6 +104,7 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     private readonly conversation?: { access: SessionAccessService; reader: Pick<SessionReader, "readSessionTranscript">;
       sender?: Pick<IncomingTurnService, "route">; transport?: WebMessageTransport;
       attention?: WebAttentionService;
+      assistantReplies?: AssistantReplyService;
       isRuntimeConnected?: () => boolean; store?: Pick<BridgeStore, "hasTelegramMessage" | "listOpenDecisions"> },
     private readonly decisions?: WebDecisionService,
     private readonly directories?: WebDirectoryRegistry,
@@ -147,8 +151,8 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     const messages = transcript.recentMessages
       .filter((message): message is TranscriptMessage & { role: "user" | "assistant" } =>
         message.role === "user" || message.role === "assistant")
-      .slice(-5).map(({ role, text, assistantDisplay, sourceItemId }) => ({ role, text,
-        ...(assistantDisplay ? { assistantDisplay } : {}), ...(sourceItemId ? { sourceItemId } : {}) }));
+      .slice(-5).map(({ role, text, sourceItemId, ...presentation }) => ({ role, text,
+        ...assistantPresentation(presentation), ...(sourceItemId ? { sourceItemId } : {}) }));
     return { history: { threadId, sessionId: access.session.id, leaseVersion: access.leaseVersion, messages },
       assertCurrent: access.assertCurrent };
   }
@@ -163,6 +167,11 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     if (!this.conversation?.sender || !this.conversation.store || !this.conversation.isRuntimeConnected) throw new Error("Web send API is unavailable.");
     const { access: accessService, sender, store, isRuntimeConnected } = this.conversation;
     const access = await accessService.requireOwned(input.threadId, WEB_SOURCE_ID, input.leaseVersion, assertCurrent);
+    if (input.replyToken) {
+      if (!this.conversation.assistantReplies || input.attachments?.length) throw new AssistantReplyError();
+      input = { ...input, text: this.conversation.assistantReplies.resolve(input.replyToken, access.session.id, WEB_SOURCE_ID).text };
+    }
+    let consumed = false;
     const beforeSend = async (): Promise<void> => {
       access.assertCurrent();
       if (!isRuntimeConnected()) throw new WebSendError("disconnected");
@@ -171,7 +180,12 @@ export class LocalWebBridgeApi implements WebBridgeApi {
       if (decisions.length) throw new WebSendError("waiting");
     };
     await beforeSend();
-    return this.sendInput(input, access, sender, store, beforeSend, false);
+    return this.sendInput(input, access, sender, store, async () => {
+      await beforeSend();
+      if (input.replyToken && !consumed) {
+        this.conversation!.assistantReplies!.consume(input.replyToken, access.session.id, WEB_SOURCE_ID); consumed = true;
+      }
+    }, false);
   }
 
   subscribeMessages(listener: (delivery: WebMessageDelivery) => void): () => void {
@@ -262,6 +276,7 @@ export class LocalWebBridgeApi implements WebBridgeApi {
   }
 
   async queueText(input: WebTextInput, assertCurrent: () => void): Promise<WebSendResult> {
+    if (input.replyToken !== undefined) throw new AssistantReplyError();
     if (!this.operations) throw new Error("Web session operations are unavailable.");
     const access = await this.operations.access.requireOwned(input.threadId, WEB_SOURCE_ID, input.leaseVersion, assertCurrent);
     const beforeSend = async (): Promise<void> => {

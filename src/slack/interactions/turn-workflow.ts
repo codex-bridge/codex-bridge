@@ -3,10 +3,14 @@ import { helpAction, sessionAction } from "../../bridge/messages/actions.js";
 import { createMessage, messageContextForSession } from "../../bridge/messages/factory.js";
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { SlackMessageTransport } from "../transport.js";
+import { parseAssistantReplyCallback } from "../../bridge/interactions/assistant-replies.js";
 
-type TurnWorkflowAction = { type: "queue.open" } | { type: "turn.continue"; text: "go" | "next" };
+type TurnWorkflowAction = { type: "queue.open" } | { type: "turn.continue"; text: "go" | "next" }
+  | { type: "turn.reply"; token: string };
 
 export function parseTurnWorkflowAction(value: string): TurnWorkflowAction | null {
+  const token = parseAssistantReplyCallback(value);
+  if (token) return { type: "turn.reply", token };
   if (value === "quick:queue") return { type: "queue.open" };
   if (value === "quick:go" || value === "quick:next") {
     return { type: "turn.continue", text: value === "quick:go" ? "go" : "next" };
@@ -45,12 +49,12 @@ export async function handleSlackTurnWorkflow(input: {
     return true;
   }
 
-  const result = await service.handleIncomingUserText({
+  const result = action.type === "turn.reply" ? await service.replyToAssistantOption(chatId, action.token) : await service.handleIncomingUserText({
     telegramChatId: chatId,
     telegramMessageId: context.sourceMessageId ?? `slack-callback:${Date.now()}`,
     text: action.text
   });
-  if (input.messageText) {
+  if (input.messageText && action.type !== "turn.reply") {
     const messageSpec = createMessage({
       kind: "system",
       titleLabel: "Codex",

@@ -3,14 +3,14 @@ import type { BindingReceipt, Catalog, DecisionReceipt, Decisions, DirectoryRece
 import { WEB_REQUEST_BODY_LIMIT_BYTES } from "../../../src/web/protocol-limits";
 
 const encoder = new TextEncoder();
-const sendRequestBody = (threadId: string, text: string, requestId: string, leaseVersion: number) =>
-  ({ threadId, text, requestId, leaseVersion });
+const sendRequestBody = (threadId: string, text: string, requestId: string, leaseVersion: number, replyToken?: string) =>
+  ({ threadId, text, requestId, leaseVersion, ...(replyToken ? { replyToken } : {}) });
 const decisionRequestBody = (threadId: string, decisionId: string, action: string, leaseVersion: number,
   content?: Record<string, unknown>) => ({ threadId, decisionId, action, leaseVersion, ...(content ? { content } : {}) });
 const requestFits = (body: unknown): boolean => encoder.encode(JSON.stringify(body)).byteLength <= WEB_REQUEST_BODY_LIMIT_BYTES;
 
-export const sendRequestFits = (threadId: string, text: string, requestId: string, leaseVersion: number): boolean =>
-  requestFits(sendRequestBody(threadId, text, requestId, leaseVersion));
+export const sendRequestFits = (threadId: string, text: string, requestId: string, leaseVersion: number, replyToken?: string): boolean =>
+  requestFits(sendRequestBody(threadId, text, requestId, leaseVersion, replyToken));
 export const decisionRequestFits = (threadId: string, decisionId: string, action: string, leaseVersion: number,
   content?: Record<string, unknown>): boolean => requestFits(decisionRequestBody(threadId, decisionId, action, leaseVersion, content));
 
@@ -59,7 +59,7 @@ export interface WorkbenchApi {
   decisions(grant: Grant, threadId: string, signal?: AbortSignal): Promise<Decisions>;
   binding(grant: Grant, threadId: string, action: "request" | "cancel", leaseVersion?: number, signal?: AbortSignal): Promise<BindingReceipt>;
   send(grant: Grant, threadId: string, text: string, requestId: string, leaseVersion: number,
-    attachments?: readonly File[], signal?: AbortSignal): Promise<SendReceipt>;
+    attachments?: readonly File[], signal?: AbortSignal, replyToken?: string): Promise<SendReceipt>;
   decision(grant: Grant, threadId: string, decisionId: string, action: string, leaseVersion: number,
     content?: Record<string, unknown>, signal?: AbortSignal): Promise<DecisionReceipt>;
   createSession(grant: Grant, directory: string, requestId: string, signal?: AbortSignal): Promise<SessionCreateReceipt>;
@@ -124,11 +124,12 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     return this.json<BindingReceipt>(`session/${action}`, grant, { threadId, leaseVersion }, signal);
   }
   send(grant: Grant, threadId: string, text: string, requestId: string, leaseVersion: number,
-    attachments: readonly File[] = [], signal?: AbortSignal) {
+    attachments: readonly File[] = [], signal?: AbortSignal, replyToken?: string) {
+    if (replyToken && attachments.length) throw new Error("Send images separately from a question option.");
     return attachments.length
       ? this.multipart<SendReceipt>("session/send", grant,
         this.sendBody(threadId, text, requestId, leaseVersion, attachments), signal, true)
-      : this.json<SendReceipt>("session/send", grant, sendRequestBody(threadId, text, requestId, leaseVersion), signal, true);
+      : this.json<SendReceipt>("session/send", grant, sendRequestBody(threadId, text, requestId, leaseVersion, replyToken), signal, true);
   }
   decision(grant: Grant, threadId: string, decisionId: string, action: string, leaseVersion: number,
     content?: Record<string, unknown>, signal?: AbortSignal) {

@@ -518,8 +518,13 @@ export class WorkbenchController {
   }
   async actMessage(action: WebActionSpec): Promise<void> {
     switch (action.execution.type) {
-      case "send-text": await this.sendText(action.execution.text, false);
+      case "send-text": {
+        const reply = action.execution.reply;
+        if (reply && (reply.threadId !== this.state.selected || !(this.state.timelines[reply.threadId] ?? [])
+          .some(item => item.origin === "live" && item.message.actions.includes(action)))) return;
+        await this.sendText(action.execution.text, false, [], reply?.token);
         break;
+      }
       case "session-tool": await this.runSessionTool(action.execution.tool, action.execution.full);
     }
   }
@@ -611,7 +616,7 @@ export class WorkbenchController {
       }
     } finally { this.finishOperation(operation); }
   }
-  private async sendText(text: string, fromDraft: boolean, attachments: readonly File[] = []): Promise<void> {
+  private async sendText(text: string, fromDraft: boolean, attachments: readonly File[] = [], replyToken?: string): Promise<void> {
     const grant = this.grant, generation = this.generation, entry = selectedEntry(this.state);
     if (!grant || !entry || !canInteract(this.state) ||
         (!text.trim() && !attachments.length) || text.length > 6000) return;
@@ -619,13 +624,22 @@ export class WorkbenchController {
     if (open) { this.update({ feedback: { source: "composer", surface: "conversation", tone: "error",
       threadId: entry.threadId, message: "Resolve the pending approval or input request before sending a message." } }); return; }
     const requestId = createClientId();
-    if (!attachments.length && !sendRequestFits(entry.threadId, text, requestId, entry.ownership!.version)) {
+    if (!attachments.length && !sendRequestFits(entry.threadId, text, requestId, entry.ownership!.version, replyToken)) {
       this.update({ feedback: { source: "composer", surface: "conversation", tone: "error", threadId: entry.threadId,
         message: "The message is too long after UTF-8 encoding and was not sent. Shorten it and try again." } });
       return;
     }
     const operation = this.beginOperation({ kind: "send", threadId: entry.threadId });
     if (!operation) return;
+    if (replyToken) {
+      const items = this.state.timelines[entry.threadId] ?? [];
+      const selected = items.flatMap(item => item.message.actions).find(action =>
+        action.execution.type === "send-text" && action.execution.reply?.token === replyToken);
+      const questionId = selected?.execution.type === "send-text" ? selected.execution.reply?.questionId : undefined;
+      if (questionId) this.timeline(entry.threadId, items.map(item => ({ ...item, message: { ...item.message,
+        actions: item.message.actions.filter(action => action.execution.type !== "send-text" ||
+          action.execution.reply?.questionId !== questionId) } })));
+    }
     const localId = `local-${requestId}`;
     const visibleText = [text.trim(), attachments.length ? `Images: ${attachments.map((file) => file.name).join(", ")}` : ""]
       .filter(Boolean).join("\n\n");
@@ -635,7 +649,7 @@ export class WorkbenchController {
       (this.state.timelines[entry.threadId] ?? []).map((item) => item.id === localId ? { ...item, deliveryStatus } : item));
     try {
       const receipt = await this.mutation((signal) =>
-        this.api.send(grant, entry.threadId, text, requestId, entry.ownership!.version, attachments, signal));
+        this.api.send(grant, entry.threadId, text, requestId, entry.ownership!.version, attachments, signal, replyToken));
       // Even after takeover, an accepted send is a receipt, not completion.
       if (receipt.accepted) {
         delivery("accepted");
@@ -654,10 +668,12 @@ export class WorkbenchController {
           threadId: entry.threadId, message: fromDraft ? "Bridge did not accept the message. The draft was preserved." : "Bridge did not accept this action." } });
       }
     } catch (error) {
-      delivery("unknown");
+      const refused = error instanceof ApiError && error.reason === "stale_option";
+      delivery(refused ? "refused" : "unknown");
       if (this.valid(grant, generation)) {
         if (this.sameSelection(entry)) this.update({ feedback: { source: "operation", surface: "conversation", tone: "error",
-          threadId: entry.threadId, message: `${error instanceof Error ? error.message : "The send result is unknown."} The message may have been delivered${fromDraft ? "; the draft was preserved" : ""}. Check the conversation before deciding what to do; it will not resend automatically.` } });
+          threadId: entry.threadId, message: refused ? error.message
+            : `${error instanceof Error ? error.message : "The send result is unknown."} The message may have been delivered${fromDraft ? "; the draft was preserved" : ""}. Check the conversation before deciding what to do; it will not resend automatically.` } });
         this.handlePermission(error);
       }
     } finally { this.finishOperation(operation); }

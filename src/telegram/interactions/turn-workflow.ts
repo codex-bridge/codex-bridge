@@ -4,6 +4,7 @@ import { createMessage, messageContextForSession } from "../../bridge/messages/f
 import type { BridgeChatPort, BridgeTelegramTurnWorkflowPort } from "../../bridge/contracts.js";
 import { createTelegramHelpMessage } from "./help.js";
 import type { TelegramInteractionResponder } from "./responder.js";
+import { parseAssistantReplyCallback } from "../../bridge/interactions/assistant-replies.js";
 
 async function sendPrompt(
   service: Pick<BridgeChatPort, "getActiveSessionContext">,
@@ -49,10 +50,11 @@ export async function handleTelegramTurnWorkflow(input: {
     await sendPrompt(service, responder, chatId, "Send /queue followed by the message to run after the current turn.");
     return true;
   }
-  if (action !== "quick:go" && action !== "quick:next") return false;
+  const token = parseAssistantReplyCallback(action);
+  if (!token && action !== "quick:go" && action !== "quick:next") return false;
 
   await input.acknowledge();
-  const result = await service.handleIncomingUserText({
+  const result = token ? await service.replyToAssistantOption(chatId, token) : await service.handleIncomingUserText({
     telegramChatId: chatId,
     telegramMessageId: `telegram-callback:${input.callbackId}`,
     text: action === "quick:go" ? "go" : "next"

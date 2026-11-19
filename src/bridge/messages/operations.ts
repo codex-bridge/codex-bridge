@@ -1,3 +1,4 @@
+import { assistantPresentation } from "../../shared/assistant-questions.js";
 import type { TelegramTextChunk } from "../../telegram/text.js";
 import type { MessageRecord, TranscriptMessage, SessionRecord } from "../../shared/types.js";
 import type { BridgeMessageOptions, BridgeSentMessage } from "../transport.js";
@@ -23,6 +24,7 @@ export type BridgeMessageOperationsDependencies = {
   formatCodexTelegramHtml: (text: string) => TelegramTextChunk[] | null;
   getSessionDirectory: (session: SessionRecord) => string;
   rememberLastAssistantMessage: (threadId: string, message: LastAssistantMessage) => void;
+  createAssistantReplyActions?: (session: SessionRecord, message: TranscriptMessage) => MessageSpec["actions"];
 };
 
 export class BridgeMessageOperations {
@@ -101,10 +103,11 @@ export class BridgeMessageOperations {
       directory: this.deps.getSessionDirectory(session),
       role: message.role,
       text: message.text,
-      assistantDisplay: message.assistantDisplay,
+      ...assistantPresentation(message),
       sourceItemId: message.sourceItemId
     });
     messageSpec.session = { id: session.id, directory: this.deps.getSessionDirectory(session) };
+    messageSpec.actions = this.deps.createAssistantReplyActions?.(session, message) ?? [];
     if (this.deps.sender.requireTransport(session.telegramChatId).sendMessageSpec) {
       return this.sendSpecAndGetLastMessage(session.telegramChatId, messageSpec, { purpose });
     }

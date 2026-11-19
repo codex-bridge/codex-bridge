@@ -34,6 +34,7 @@ export interface BridgeChatPort {
 }
 
 export interface BridgeInputPort {
+  replyToAssistantOption(chatId: string, token: string): Promise<TurnRouteResult>;
   handleIncomingUserPayload(input: {
     attachments: IncomingAttachment[];
     queue?: boolean;

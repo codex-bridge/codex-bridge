@@ -9,7 +9,7 @@ import {
 } from "./extractors/approval.js";
 import { asRecord, firstString } from "./protocol-utils.js";
 import type { ThreadHistoryEntry } from "./thread-history.js";
-import type { AssistantDisplay } from "../shared/assistant-display.js";
+import type { AssistantDisplay, PresentedAssistantMessage } from "../shared/assistant-display.js";
 import type { TranscriptMessage } from "../shared/types.js";
 import {
   getAppServerMethodCapability,
@@ -125,7 +125,7 @@ export interface AppServerErrorEvent {
 }
 
 export type { CodexQueuedSubmission } from "./queue-api.js";
-export type AppServerHistoryMessage = {
+export type AppServerHistoryMessage = PresentedAssistantMessage & {
   assistantDisplay?: AssistantDisplay;
   role: "user" | "assistant";
   text: string;

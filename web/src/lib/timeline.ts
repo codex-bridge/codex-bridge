@@ -1,5 +1,6 @@
 import type { History, MessageEvent, MessageSpec } from "./protocol";
 import { protectPresentedAssistantText } from "../../../src/shared/assistant-display";
+import { assistantPresentation } from "../../../src/shared/assistant-questions";
 export type TimelineItem = { id: string; message: MessageSpec; origin: "history" | "live" | "local" | "cache";
   deliveryStatus?: "sending" | "accepted" | "unknown" | "refused"; openDecision?: boolean };
 export function hasOpenDecision(item: TimelineItem): boolean {
@@ -13,9 +14,11 @@ export function dialogueText(message: MessageSpec): string {
 export function isDialogue(message: MessageSpec): boolean { return message.kind === "user" || message.kind === "codex"; }
 function protectMessage(message: MessageSpec, previous?: MessageSpec): MessageSpec {
   const presented = protectPresentedAssistantText("", message.assistantDisplay, previous?.assistantDisplay);
-  if (!presented.assistantDisplay) return message;
+  if (!presented.assistantDisplay && !message.questions && !message.assistantDelivery) return message;
+  const metadata = assistantPresentation({ ...presented, delivery: message.assistantDelivery, questions: message.questions });
   return { ...message, assistantDisplay: presented.assistantDisplay,
-    ...(presented.assistantDisplay?.mode !== "show"
+    questions: metadata.questions, assistantDelivery: metadata.delivery,
+    ...(presented.assistantDisplay && presented.assistantDisplay.mode !== "show"
       ? { body: [{ type: "text", text: presented.text }], actions: [] } : {}) };
 }
 export function historyBoundaryIndex(items: TimelineItem[]): number {
@@ -36,14 +39,19 @@ export function restoreHistory(items: TimelineItem[], history: History): Timelin
   // Keep interleaved stats/cards in place.
   const known = new Map(items.flatMap((item) => item.message.sourceItemId
     ? [[item.message.sourceItemId, item.message] as const] : []));
-  const messages = history.messages.slice(-5).map((message) => message.role === "assistant"
-    ? { ...message, ...protectPresentedAssistantText(message.text, message.assistantDisplay,
-      message.sourceItemId ? known.get(message.sourceItemId)?.assistantDisplay : undefined) } : message);
+  const messages = history.messages.slice(-5).map((message) => {
+    if (message.role !== "assistant") return message;
+    const displayed = protectPresentedAssistantText(message.text, message.assistantDisplay,
+      message.sourceItemId ? known.get(message.sourceItemId)?.assistantDisplay : undefined);
+    const base = { ...message, questions: undefined, delivery: undefined };
+    return { ...base, ...displayed, ...assistantPresentation({ ...message, ...displayed }) };
+  });
   const byId = new Map(messages.flatMap((message) => message.sourceItemId ? [[message.sourceItemId, message] as const] : []));
   items = items.flatMap((item) => {
     const authoritative = item.message.sourceItemId ? byId.get(item.message.sourceItemId) : undefined;
     if (authoritative) return [{ ...item, message: protectMessage({ ...item.message,
       body: [{ type: "markdown", text: authoritative.text }], actions: [],
+      questions: authoritative.questions, assistantDelivery: authoritative.delivery,
       assistantDisplay: authoritative.assistantDisplay }) }];
     return [{ ...item, message: protectMessage(item.message) }];
   });
@@ -70,6 +78,8 @@ export function restoreHistory(items: TimelineItem[], history: History): Timelin
     return { id, origin: "history", message: { kind: message.role === "user" ? "user" : "codex",
       title: message.role === "user" ? "You" : "Codex", body: [{ type: "markdown", text: message.text }], actions: [],
       ...(message.assistantDisplay ? { assistantDisplay: message.assistantDisplay } : {}),
+      ...(message.questions ? { questions: message.questions } : {}),
+      ...(message.delivery ? { assistantDelivery: message.delivery } : {}),
       ...(message.sourceItemId ? { sourceItemId: message.sourceItemId } : {}) }
     };
   });

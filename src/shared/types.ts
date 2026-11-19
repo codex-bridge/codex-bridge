@@ -1,10 +1,7 @@
-import type { AssistantDisplay } from "./assistant-display.js";
+import type { PresentedAssistantMessage } from "./assistant-display.js";
 
-export type TranscriptMessage = {
+export type TranscriptMessage = PresentedAssistantMessage & {
   role: "user" | "assistant" | "system";
-  text: string;
-  assistantDisplay?: AssistantDisplay;
-  sourceItemId?: string;
 };
 
 export type DecisionAction =

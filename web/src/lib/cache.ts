@@ -1,6 +1,7 @@
 import type { MessageSpec } from "./protocol";
 import type { TimelineItem } from "./timeline";
 import { protectPresentedAssistantText } from "../../../src/shared/assistant-display";
+import { assistantPresentation } from "../../../src/shared/assistant-questions";
 
 export interface TimelineCache {
   load(threadId: string, sessionId: string): TimelineItem[];
@@ -23,6 +24,8 @@ function sanitize(item: unknown): TimelineItem | null {
       ["sending", "unknown", "refused"].includes(value.deliveryStatus ?? "")) return null;
   const presented = message.assistantDisplay !== undefined
     ? protectPresentedAssistantText("", message.assistantDisplay) : undefined;
+  const metadata = assistantPresentation({ assistantDisplay: presented?.assistantDisplay,
+    delivery: message.assistantDelivery, questions: message.questions });
   const body: MessageSpec["body"] = [];
   let length = 0;
   const parts = presented && presented.assistantDisplay?.mode !== "show"
@@ -41,6 +44,8 @@ function sanitize(item: unknown): TimelineItem | null {
   if (!body.length) return null;
   return { id: value.id, origin: "cache", message: { kind: message.kind, title: message.title.slice(0, 300), body, actions: [],
     ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+    ...(metadata.delivery ? { assistantDelivery: metadata.delivery } : {}),
+    ...(metadata.questions ? { questions: metadata.questions } : {}),
     ...(typeof message.sourceItemId === "string" && message.sourceItemId.length <= 200 ? { sourceItemId: message.sourceItemId } : {}) } };
 }
 export class LocalTimelineCache implements TimelineCache {

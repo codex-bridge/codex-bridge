@@ -22,9 +22,11 @@ import { SessionActionGuardService } from "../src/bridge/sessions/action-guards.
 import { WebAttachmentStorage } from "../src/web/attachments.js";
 import type { CodexTurnInputPart } from "../src/codex/client.js";
 import { presentAssistantText } from "../src/shared/assistant-display.js";
+import { AssistantReplyService, parseAssistantReplyCallback } from "../src/bridge/interactions/assistant-replies.js";
 
 async function sendFixture(t: TestContext, attachmentRoot?: string) {
   const { store, session } = await historyFixture(t);
+  const assistantReplies = new AssistantReplyService(id => store.getSessionLease(id)?.version);
   const active = new Map<string, string>();
   const calls: string[] = [];
   const inputParts: Array<CodexTurnInputPart[] | undefined> = [];
@@ -55,14 +57,30 @@ async function sendFixture(t: TestContext, attachmentRoot?: string) {
   const api = new LocalWebBridgeApi(new SessionCatalogService({ store, getSessionDirectory: () => "/work",
     readEffectiveProvider: async () => null, codexClient: { listThreadsForCwd: async () => [], listArchivedThreadsForCwd: async () => [] } }),
   undefined, { access: new SessionAccessService(store), reader: { readSessionTranscript: async () => { throw new Error("not a send"); } },
-    sender, isRuntimeConnected: () => true, store: {
+    sender, assistantReplies, isRuntimeConnected: () => true, store: {
       hasTelegramMessage: (sessionId, messageId) => store.hasTelegramMessage(sessionId, messageId),
       listOpenDecisions: async () => pending ? [{} as never] : await store.listOpenDecisions(session.id)
     } }, undefined, undefined, undefined, attachmentRoot ? new WebAttachmentStorage(attachmentRoot) : undefined);
-  return { store, session, api, active, calls, inputParts, timeouts, turnRouteQueue,
+  return { store, session, api, active, calls, inputParts, timeouts, turnRouteQueue, assistantReplies,
     setMutate: (callback: () => Promise<void>) => { mutate = callback; },
     setPending: () => { pending = true; } };
 }
+
+test("Web options use the authoritative choice once and work as normal text while a turn is active", async (t) => {
+  const f = await sendFixture(t);
+  const actions = f.assistantReplies.createActions({ ...f.session, telegramChatId: "web:local" }, {
+    role: "assistant", text: "Which next?", sourceItemId: "choice", delivery: "async",
+    questions: [{ title: "Which next?", options: ["Go", "Next"] }]
+  });
+  const token = parseAssistantReplyCallback(actions[0]!.callback)!;
+  f.active.set("history-thread", "running");
+  const result = await f.api.sendText({ threadId: "history-thread", requestId: "reply", text: "tampered", replyToken: token }, () => {});
+  assert.equal(result.accepted, true); assert.deepEqual(f.calls, ["steer:Go"]);
+  await assert.rejects(f.api.sendText({ threadId: "history-thread", requestId: "again", text: "Go", replyToken: token }, () => {}), /no longer available/);
+  const other = parseAssistantReplyCallback(actions[1]!.callback)!;
+  await assert.rejects(f.api.sendText({ threadId: "history-thread", requestId: "other", text: "Next", replyToken: other }, () => {}), /no longer available/);
+  assert.equal(f.calls.length, 1);
+});
 
 test("a Web send awaiting the thread queue rechecks its window and pending decisions before upstream work", async (t) => {
   for (const mode of ["window", "pending"] as const) {

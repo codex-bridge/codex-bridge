@@ -1,5 +1,6 @@
 import type { DecisionAction, DecisionRecord } from "../../shared/types.js";
 import type { AssistantDisplay } from "../../shared/assistant-display.js";
+import type { AssistantQuestion } from "../../shared/assistant-questions.js";
 
 export type DecisionContext = {
   id: string;
@@ -51,7 +52,7 @@ export type ActionSpec = {
   label: string;
   callback: string;
   execution?:
-    | { type: "send-text"; text: string }
+    | { type: "send-text"; text: string; reply?: { threadId: string; token: string; questionId: string } }
     | { type: "session-tool"; tool: "help" | "status" | "compact" | "interrupt"; full?: boolean };
   style?: "default" | "primary" | "danger";
   group?: string;
@@ -64,6 +65,8 @@ export type DeliverySpec = {
 };
 
 export type MessageSpec = {
+  assistantDelivery?: "async";
+  questions?: AssistantQuestion[];
   assistantDisplay?: AssistantDisplay;
   sourceItemId?: string;
   kind: MessageKind;

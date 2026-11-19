@@ -7,6 +7,9 @@ import type { WebBridgeApi } from "../../src/web/bridge-api.js";
 import type { WebMessageDelivery } from "../../src/web/transport.js";
 import type { MessageSpec } from "../../src/bridge/messages/types.js";
 import { WebDirectoryRegistry } from "../../src/bridge/sessions/directory-registry.js";
+import { AssistantReplyService } from "../../src/bridge/interactions/assistant-replies.js";
+import { extractAssistantMessage } from "../../src/codex/assistant-message.js";
+import { createTranscriptMessageSpec } from "../../src/bridge/renderers/thread-history.js";
 
 const store = new BridgeStore(":memory:");
 await store.ensureChat("web:local");
@@ -19,6 +22,7 @@ store.claimSession(sessions[1]!.id, "slack:fixture");
 const binding = new SessionBindingService({ store, inFlightTurnIdByThread: new Map([["demo-b", "running-fixture-turn"]]),
   getSessionDirectory: (session) => session.currentCwd ?? session.pathKey, notify: async () => {} });
 const access = new SessionAccessService(store);
+const replies = new AssistantReplyService(id => store.getSessionLease(id)?.version);
 const directories = new WebDirectoryRegistry(store);
 const listeners = new Set<(delivery: WebMessageDelivery) => void>();
 const cards = new Map<string, MessageSpec>();
@@ -66,10 +70,28 @@ const api: WebBridgeApi = {
     return { snapshot: { threadId, sessionId: owned.session.id, leaseVersion: owned.leaseVersion,
       decisions: [...cards.values()].filter((card) => ["pending", "awaitingInput"].includes(card.decision!.state)) }, assertCurrent: owned.assertCurrent };
   },
+  readQueue: async (threadId, version, check) => {
+    const owned = await access.requireOwned(threadId, "web:local", version, check);
+    return { threadId, sessionId: owned.session.id, leaseVersion: owned.leaseVersion, running: false, entries: [] };
+  },
   sendText: async (input, check) => {
     const owned = await access.requireOwned(input.threadId, "web:local", input.leaseVersion, check); owned.assertCurrent();
+    if (input.replyToken) {
+      input = { ...input, text: replies.resolve(input.replyToken, owned.session.id, "web:local").text };
+      replies.consume(input.replyToken!, owned.session.id, "web:local");
+    }
     history.get(input.threadId)!.push({ role: "user", text: input.text });
-    if (input.text === "approval") {
+    if (input.text === "questions") {
+      const presented = extractAssistantMessage({ type: "agentMessage", id: `question-${sequence++}`, delivery: "async",
+        text: "Which next step?\n- Go\n- Next\n\nWhich level of detail?\n- Brief\n- Detailed\n\nAny other notes?",
+        questions: [{ title: "Which next step?", options: ["Go", "Next"] },
+          { title: "Which level of detail?", options: ["Brief", "Detailed"] }, { title: "Any other notes?", options: null }] })!;
+      const message = { role: "assistant" as const, ...presented };
+      history.get(input.threadId)!.push(message);
+      const spec = createTranscriptMessageSpec({ directory: "/fixture/workbench", ...message });
+      spec.actions = replies.createActions(owned.session, message);
+      publish(input.threadId, presented.sourceItemId!, spec);
+    } else if (input.text === "approval") {
       for (const [id, inputRequired] of [["command", false], ["mcp", true]] as const) {
         const card: MessageSpec = { kind: "decision", title: inputRequired ? "MCP input" : "Run approval", actions: [],
           body: [{ type: "text", text: inputRequired ? "Enter the value field." : "Request to run a test command." }],

@@ -1,3 +1,4 @@
+import { assistantPresentation } from "../../shared/assistant-questions.js";
 import type { BridgeMessageOptions } from "../transport.js";
 import type { DecisionRecord, TranscriptMessage, SessionRecord } from "../../shared/types.js";
 import { createTranscriptMessageSpec } from "../renderers/thread-history.js";
@@ -108,7 +109,7 @@ export class SessionTranscriptService {
             directory,
             role: message.role,
             text: message.text,
-            assistantDisplay: message.assistantDisplay,
+            ...assistantPresentation(message),
             sourceItemId: message.sourceItemId
           });
           return {

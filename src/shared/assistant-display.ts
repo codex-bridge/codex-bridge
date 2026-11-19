@@ -1,3 +1,5 @@
+import type { AssistantQuestion } from "./assistant-questions.js";
+
 // This payload contains display instructions only, never the original restricted answer.
 export type AssistantDisplay =
   | { version: 1; mode: "show"; trustedContacts: "check" | "skip";
@@ -6,7 +8,8 @@ export type AssistantDisplay =
   | { version: 1; mode: "block"; reason: { kind: "protection"; protectionType: string } | { kind: "cyber"; trustedAccess?: boolean } }
   | { version: number | null; mode: "restricted" };
 
-export type PresentedAssistantMessage = { text: string; assistantDisplay?: AssistantDisplay; sourceItemId?: string };
+export type PresentedAssistantMessage = { text: string; assistantDisplay?: AssistantDisplay; sourceItemId?: string;
+  delivery?: "async"; questions?: AssistantQuestion[] };
 
 const SUPPORT = "Support is available. Consider reaching out to someone you trust or a local crisis helpline. If there is immediate danger, contact local emergency services.";
 const BLOCKED = "This response is unavailable under Codex's display rules.";

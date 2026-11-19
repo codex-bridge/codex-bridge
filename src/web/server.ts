@@ -7,6 +7,7 @@ import { File } from "node:buffer";
 import { WebWindowLeaseManager, type WebWindowLease } from "./window-lease.js";
 import { WebSendError, type WebBridgeApi, type WebSessionManageInput, type WebSessionTool, type WebTextInput } from "./bridge-api.js";
 import { SessionAccessError } from "../bridge/sessions/access.js";
+import { AssistantReplyError } from "../bridge/interactions/assistant-replies.js";
 import { WebDecisionError, type WebDecisionInput } from "./decisions.js";
 import type { DecisionAction } from "../shared/types.js";
 import { serveWebAsset } from "./static.js";
@@ -99,6 +100,7 @@ function validSendInput(input: WebTextInput): boolean {
   return Boolean(input.threadId.trim()) && input.threadId.length <= 256 &&
     (input.leaseVersion === undefined || Number.isSafeInteger(input.leaseVersion) && input.leaseVersion >= 0) &&
     /^[A-Za-z0-9_-]{1,128}$/.test(input.requestId) && input.text.length <= 6000 &&
+    (input.replyToken === undefined || typeof input.replyToken === "string" && /^[A-Za-z0-9_-]{16}$/.test(input.replyToken)) &&
     (Boolean(input.text.trim()) || Boolean(input.attachments?.length));
 }
 
@@ -106,11 +108,11 @@ async function readSendInput(request: IncomingMessage): Promise<WebTextInput> {
   const contentType = request.headers["content-type"] ?? "";
   if (contentType.split(";")[0]?.trim() === "application/json") {
     const body = await readJson(request);
-    if (Object.keys(body).some((key) => !["threadId", "leaseVersion", "requestId", "text"].includes(key))) {
+    if (Object.keys(body).some((key) => !["threadId", "leaseVersion", "requestId", "text", "replyToken"].includes(key))) {
       throw new HttpError(400, "Expected threadId, optional leaseVersion, requestId and text only.");
     }
     const input = { threadId: body.threadId, leaseVersion: body.leaseVersion,
-      requestId: body.requestId, text: body.text } as Partial<WebTextInput>;
+      requestId: body.requestId, text: body.text, ...(body.replyToken !== undefined ? { replyToken: body.replyToken } : {}) } as Partial<WebTextInput>;
     if (typeof input.threadId !== "string" || typeof input.requestId !== "string" || typeof input.text !== "string" ||
         !validSendInput(input as WebTextInput)) {
       throw new HttpError(400, "Expected threadId, optional leaseVersion, requestId and non-empty text up to 6000 characters.");
@@ -175,6 +177,7 @@ export class WebServer {
           ? { stale: 409, not_owner: 403, unavailable: 404 }[error.reason]
           : error instanceof DirectoryRegistrationError
             ? { required: 400, not_found: 404, not_directory: 400, inaccessible: 403 }[error.reason]
+          : error instanceof AssistantReplyError ? 409
           : error instanceof WebSendError ? (error.reason === "waiting" ? 409 : 503)
             : error instanceof WebDecisionError ? { inactive: 409, invalid_action: 400, disconnected: 503, unavailable: 404 }[error.reason] : 500;
         const fallbackMessage = request.method === "POST" && ["/api/web/session/send", "/api/web/session/decision", "/api/web/session/create",
@@ -182,9 +185,9 @@ export class WebServer {
           ? "Internal Web server error. Operation outcome may be unknown; do not retry automatically."
           : "Internal Web server error.";
         json(response, status, {
-          error: error instanceof HttpError || error instanceof SessionAccessError || error instanceof DirectoryRegistrationError || error instanceof WebSendError || error instanceof WebDecisionError ? error.message
+          error: error instanceof HttpError || error instanceof AssistantReplyError || error instanceof SessionAccessError || error instanceof DirectoryRegistrationError || error instanceof WebSendError || error instanceof WebDecisionError ? error.message
             : error instanceof Error && error.message.trim() ? error.message.trim() : fallbackMessage,
-          ...(error instanceof SessionAccessError || error instanceof DirectoryRegistrationError || error instanceof WebSendError || error instanceof WebDecisionError ? { reason: error.reason } : {})
+          ...(error instanceof AssistantReplyError || error instanceof SessionAccessError || error instanceof DirectoryRegistrationError || error instanceof WebSendError || error instanceof WebDecisionError ? { reason: error.reason } : {})
         });
       } else {
         response.end();

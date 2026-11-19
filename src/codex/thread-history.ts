@@ -1,3 +1,4 @@
+import { assistantPresentation, type AssistantQuestion } from "../shared/assistant-questions.js";
 import type { AppServerProgressEvent } from "./client.js";
 import { extractProgressEventFromItem } from "./extractors/progress.js";
 import { asRecord, extractMessageText, firstString } from "./protocol-utils.js";
@@ -10,6 +11,8 @@ export type ThreadHistoryEntry =
   | {
       kind: "message";
       assistantDisplay?: AssistantDisplay;
+      delivery?: "async";
+      questions?: AssistantQuestion[];
       itemId: string;
       role: "user" | "assistant";
       text: string;
@@ -120,7 +123,7 @@ export function normalizeFullThreadTurnsPage(
             itemId,
             role: item.type === "userMessage" ? "user" : "assistant",
             text,
-            ...(presented?.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+            ...assistantPresentation(presented ?? {}),
             turnId
           });
         }

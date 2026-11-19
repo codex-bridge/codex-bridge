@@ -4,6 +4,7 @@ import { createActivityMessage, createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 import { protectPresentedAssistantText, type AssistantDisplay, type PresentedAssistantMessage } from "../../shared/assistant-display.js";
+import { assistantPresentation, type AssistantQuestion } from "../../shared/assistant-questions.js";
 
 export type ThreadHistoryReplayBlock = {
   entry: ThreadHistoryEntry | null;
@@ -104,14 +105,19 @@ export function createTranscriptMessageSpec(input: {
   text: string;
   assistantDisplay?: AssistantDisplay;
   sourceItemId?: string;
+  questions?: AssistantQuestion[];
+  delivery?: "async";
 }): MessageSpec {
   const presented: PresentedAssistantMessage = input.role === "assistant"
     ? protectPresentedAssistantText(input.text, input.assistantDisplay) : { text: input.text };
+  const metadata = input.role === "assistant" ? assistantPresentation({ ...input, ...presented }) : {};
   return createMessage({
     kind: input.role === "user" ? "user" : input.role === "assistant" ? "codex" : "system",
     session: { id: null, directory: input.directory },
     body: [{ type: input.role === "assistant" ? "markdown" : "text", text: presented.text.trim() }],
     ...(presented.assistantDisplay ? { assistantDisplay: presented.assistantDisplay } : {}),
+    ...(metadata.delivery ? { assistantDelivery: metadata.delivery } : {}),
+    ...(metadata.questions ? { questions: metadata.questions } : {}),
     ...(input.sourceItemId ? { sourceItemId: input.sourceItemId } : {})
   });
 }
@@ -123,7 +129,7 @@ export function createThreadHistoryEntrySpec(input: {
   const { directory, entry } = input;
   if (entry.kind === "message") {
     return createTranscriptMessageSpec({ directory, role: entry.role, text: entry.text,
-      assistantDisplay: entry.assistantDisplay, sourceItemId: entry.itemId });
+      ...assistantPresentation(entry), sourceItemId: entry.itemId });
   }
   if (entry.kind === "progress") {
     return createProgressHistoryMessageSpec({ directory, event: entry.event });
