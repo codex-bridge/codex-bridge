@@ -35,19 +35,26 @@ Bridge 进程和 Codex Runtime。
 ## 兼容性
 
 Codex App Server 的 Schema 与具体版本相关。当前 Bridge 基线验证日期为
-2026-10-20：
+2026-11-19：
 
-**本项目最新验证的 Codex CLI 版本：`0.163.0`。**
+**本项目最新验证的 Codex CLI 基线：`0.170.0`。**
 
 | 组件 | 支持范围 | 已验证版本 |
 | --- | --- | --- |
-| Codex CLI | `>=0.158.0 <0.164.0` | `0.163.0` |
-| Node.js | `22.22.x` | `22.22.0` |
+| Codex CLI | `>=0.170.0 <0.171.0`（推荐） | `0.170.0` |
+| Node.js | `>=22.23.5 <23` | `22.23.5` |
 | Yarn | `4.8.x` | `4.8.1` |
 
-下限来自代码中保留的 Codex `0.158` 兼容行为，最新的实际协议验证使用
-`0.163.0`，并包含一次临时 Turn 与命令审批链路。范围外版本应先通过协议检查
-和项目测试，再视为已经验证。
+Node 安全基线已在 2026-11-12 根据
+[11 月安全更新](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases)
+提高至 `22.23.5`。本地命令和 CI 使用 `package.json` 固定的 Node 版本。
+PM2 会明确解析并验证该解释器，并把其目录放到子进程 PATH 前面，避免继承
+daemon 中的旧 Node。参见 [PM2 生命周期](docs/operations.md#pm2-lifecycle)。
+
+推荐范围采用当前 `0.170` 协议系列，实际测试的仅为表中版本。旧版本兼容路径
+仍保留，但没有为每项新功能逐一重测。验证包括真实本地 CLI 配合确定性本地模型、
+隔离的 Bridge 测试和 Web 浏览器检查，不代表所有远程提供商或 Slack/Telegram
+投递路径均已认证。参见[验证范围与已知限制](docs/codex-compatibility.md)。
 
 官方资料：[安装 Codex CLI](https://developers.openai.com/codex/cli/)；
 [Codex App Server](https://developers.openai.com/codex/app-server/)。

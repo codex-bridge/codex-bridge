@@ -77,8 +77,13 @@ node --import tsx tests/fixtures/web-workbench-server.ts
 ```
 
 The fixture binds a random loopback port and uses an in-memory database and fake
-runtime. Sending `approval` creates test decision cards; other text demonstrates
-Markdown and SSE behavior.
+runtime. Sending `approval` creates test decision cards; `native-question` and
+`questions` exercise native and asynchronous question controls. `activities`
+runs the actual progress service with controlled events. Service notices can be
+exercised with `service-warning`, `thread-warning`, `mcp-failed` and `mcp-ready`.
+Other text demonstrates Markdown and SSE behavior. Set `WEB_FIXTURE_HOST`,
+`WEB_FIXTURE_PORT` and `WEB_FIXTURE_STATIC_ROOT` to use an explicit test listener
+and built frontend; never reuse a production database for this fixture.
 
 ## Codex verification CLI
 
@@ -103,8 +108,10 @@ provider filtering and samples rows that omit a provider through read-only
 
 ## Compatibility policy
 
-The README contains the current supported range and latest live-verified Codex
-CLI version. When Codex changes:
+Both README versions contain the recommended range and latest verified Codex CLI
+baseline. [Compatibility scope](codex-compatibility.md) distinguishes real local
+CLI checks, synthetic/controlled integration and browser evidence from remote
+provider or platform validation. When Codex changes:
 
 1. run `codex --version` and the protocol scenario;
 2. review method-registry additions and removals;

@@ -38,27 +38,29 @@ clients share one Bridge process and one Codex runtime.
 ## Compatibility
 
 Codex App Server schemas are version-specific. The Bridge baseline verified on
-2026-10-20 is:
+2026-11-19 is:
 
-**Latest Codex CLI version verified by this project: `0.163.0`.**
+**Latest verified Codex CLI baseline: `0.170.0`.**
 
 | Component | Supported range | Verified version |
 | --- | --- | --- |
-| Codex CLI | `>=0.158.0 <0.164.0` | `0.163.0` |
+| Codex CLI | `>=0.170.0 <0.171.0` (recommended) | `0.170.0` |
 | Node.js | `>=22.23.5 <23` | `22.23.5` |
 | Yarn | `4.8.x` | `4.8.1` |
 
 The Node security baseline was raised to `22.23.5` on 2026-11-12 after the
-[November security release](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases); the Codex
-protocol baseline above is unchanged. Local commands and CI take the Node pin
+[November security release](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases).
+Local commands and CI take the Node pin
 from `package.json`. PM2 resolves and verifies that interpreter explicitly and
 prepends its directory to the child-process PATH, rather than inheriting an old
 Node from its daemon. See [PM2 lifecycle](docs/operations.md#pm2-lifecycle).
 
-The lower bound reflects retained Codex `0.158` compatibility behavior; the
-latest live protocol, ephemeral turn, and command-approval verification used
-`0.163.0`. Treat versions outside this range as unverified until both the
-protocol check and project tests pass.
+The recommended range follows the current `0.170` protocol family; only the
+listed version was tested. Older compatibility paths remain, but were not
+revalidated for every new feature. Verification includes a real local CLI with
+a deterministic local model, isolated Bridge tests, and Web browser checks;
+it does not certify every remote provider or Slack/Telegram delivery path.
+See [verification scope and known limits](docs/codex-compatibility.md).
 
 Official references: [install Codex CLI](https://developers.openai.com/codex/cli/)
 and [Codex App Server](https://developers.openai.com/codex/app-server/).
