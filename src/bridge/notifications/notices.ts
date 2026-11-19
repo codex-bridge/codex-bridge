@@ -5,7 +5,8 @@ import type { BridgeStore } from "../../store/index.js";
 import type { SessionRecord } from "../../shared/types.js";
 import { logger } from "../../logging/logger.js";
 import { createMessage } from "../messages/factory.js";
-import type { MessageSpec } from "../messages/types.js";
+import type { MessageBodyPart, MessageSpec } from "../messages/types.js";
+import { messageBodyPartText } from "../messages/content.js";
 import { McpStartupTracker, mcpStartupKey, isMcpFailure } from "../status/mcp-startup.js";
 import { SessionAccessService } from "../sessions/access.js";
 import { canDeliverSession } from "./delivery-target.js";
@@ -14,11 +15,22 @@ const labels: Record<AppServerWarningEvent["kind"], string> = {
   warning: "Codex warning", guardianWarning: "Guardian warning", configWarning: "Configuration warning", deprecationNotice: "Deprecation notice"
 };
 
+type NoticeIdentity = { type: "warning"; key: string; global: boolean }
+  | { type: "mcp"; name: string; origin: string; outcome: "failure" | "recovery"; recoveryFor?: Set<string> };
+type PendingNotice = { spec: MessageSpec; identity: NoticeIdentity };
+type McpReceipt = { sessionId: string; name: string; origins: Set<string> };
+
+function bodyKey(body: MessageBodyPart[]): string {
+  return createHash("sha256").update(body.map(messageBodyPartText).join("\n")).digest("hex");
+}
+
 /** Public notices only. Global snapshots are service state, never copies in every conversation. */
 export class NotificationNoticeService {
-  private readonly seenWarnings = new Set<string>();
+  private readonly globalWarnings = new Set<string>();
+  private readonly seenWarnings = new Map<string, Set<string>>();
+  private readonly mcpReceipts = new Map<string, McpReceipt>();
   private readonly globalNotices = new Map<string, MessageSpec>();
-  private readonly pendingNotices = new Map<string, MessageSpec>();
+  private readonly pendingNotices = new Map<string, PendingNotice>();
   private flushing = false;
   constructor(private readonly deps: {
     store: BridgeStore;
@@ -29,7 +41,10 @@ export class NotificationNoticeService {
   }) {}
 
   snapshot(): MessageSpec[] { return structuredClone([...this.globalNotices.values()]); }
-  clear(): void { this.seenWarnings.clear(); this.globalNotices.clear(); this.pendingNotices.clear(); }
+  clear(): void {
+    this.globalWarnings.clear(); this.seenWarnings.clear(); this.mcpReceipts.clear();
+    this.globalNotices.clear(); this.pendingNotices.clear();
+  }
 
   /** One conversation takes the pending batch; reading service state never consumes it. */
   async flushPending(session: SessionRecord, sourceId: string, assertRequestCurrent: () => void = () => {}): Promise<void> {
@@ -41,15 +56,13 @@ export class NotificationNoticeService {
     if (this.flushing) return;
     this.flushing = true;
     try {
-      for (const [key, spec] of [...this.pendingNotices]) {
+      for (const [key, notice] of [...this.pendingNotices]) {
         try { access.assertCurrent(); } catch { break; }
         // An MCP incident can resolve or change while earlier notices are being sent.
-        if (this.pendingNotices.get(key) !== spec) continue;
+        if (this.pendingNotices.get(key) !== notice) continue;
         this.pendingNotices.delete(key);
         try {
-          await this.deps.sendLongSpec(sourceId, createMessage({ kind: spec.kind, titleLabel: spec.title,
-            session: { id: access.session.id, directory: this.deps.getSessionDirectory(access.session) },
-            presentation: "activity", body: spec.body }));
+          await this.sendNotice(access.session, sourceId, notice);
         } catch {
           // The write may have reached the transport; do not retry an unknown outcome.
           logger.warn("bridge.notice.service_delivery_failed", { sourceId });
@@ -59,37 +72,92 @@ export class NotificationNoticeService {
   }
 
   async handleWarning(event: AppServerWarningEvent): Promise<void> {
-    const key = createHash("sha256").update(JSON.stringify(event)).digest("hex");
-    if (this.seenWarnings.has(key)) return;
-    this.seenWarnings.add(key);
-    if (this.seenWarnings.size > 512) this.seenWarnings.delete(this.seenWarnings.values().next().value!);
-    await this.deliver(event.threadId, key, labels[event.kind], [event.message, event.details, event.path ? `File: ${event.path}` : null]);
+    const lines = [event.message, event.details, event.path ? `File: ${event.path}` : null];
+    // Display content is the identity across equivalent warning methods. Guardian warnings remain separate.
+    const key = `${event.kind === "guardianWarning" ? "guardian" : "warning"}:${bodyKey(this.body(lines))}`;
+    const global = event.threadId === null;
+    if (global) {
+      if (this.globalWarnings.has(key)) return;
+      this.globalWarnings.add(key);
+      if (this.globalWarnings.size > 512) this.globalWarnings.delete(this.globalWarnings.values().next().value!);
+    }
+    await this.deliver(event.threadId, key, labels[event.kind], lines,
+      { identity: { type: "warning", key, global }, notify: !global || !this.seenWarnings.has(key) });
   }
 
   async handleMcpStartup(event: AppServerMcpStartupStatusEvent): Promise<void> {
     const transition = this.deps.mcpStartup.remember(event);
     const key = `mcp:${mcpStartupKey(event)}`;
+    logger.info("bridge.notice.mcp_observed", { threadId: event.threadId, name: event.name, status: event.status,
+      source: event.source, failureReason: event.failureReason, newFailure: transition.failed, recovered: transition.recovered });
     if (transition.recovered) {
+      const recoveryFor = this.releaseMcpFailure(key, event.name);
       if (event.threadId === null) {
         this.globalNotices.delete(key);
         // Nothing was pushed about this incident, so there is nothing to announce as recovered.
         if (this.pendingNotices.delete(key)) return;
       }
-      await this.deliver(event.threadId, key, "MCP recovered", [`${event.name} is ready.`], { active: false });
+      if (!recoveryFor.size) return;
+      await this.deliver(event.threadId, key, "MCP recovered", [`${event.name} is ready.`], { active: false,
+        identity: { type: "mcp", name: event.name, origin: key, outcome: "recovery", ...(event.threadId === null ? {} : { recoveryFor }) } });
     } else if (isMcpFailure(event)) {
+      const attempted = [...this.mcpReceipts.values()].some(receipt => receipt.origins.has(key));
       await this.deliver(event.threadId, key, "MCP connection failed", [event.name,
         event.error ? `Error: ${event.error}` : null, event.failureReason ? `Reason: ${event.failureReason}` : null,
-        event.failureReason === "reauthenticationRequired" ? "Sign in again with Codex to reconnect this MCP server." : null], { notify: transition.failed });
+        event.failureReason === "reauthenticationRequired" ? "Sign in again with Codex to reconnect this MCP server." : null],
+        { notify: transition.failed || !attempted, identity: { type: "mcp", name: event.name, origin: key, outcome: "failure" } });
     }
   }
 
-  private async deliver(threadId: string | null, key: string, title: string, lines: Array<string | null>, options: { notify?: boolean; active?: boolean } = {}): Promise<void> {
+  private body(lines: Array<string | null>): MessageBodyPart[] {
+    return lines.filter((line): line is string => !!line).map(text => ({ type: "text", text }));
+  }
+
+  private async sendNotice(session: SessionRecord, sourceId: string, notice: PendingNotice): Promise<void> {
+    const { spec, identity } = notice;
+    if (identity.type === "warning") {
+      const seen = this.seenWarnings.get(identity.key) ?? new Set<string>();
+      if (identity.global ? seen.size > 0 : this.globalWarnings.has(identity.key) || seen.has(session.id)) return;
+      seen.add(session.id);
+      if (seen.size > 512) seen.delete(seen.values().next().value!);
+      this.seenWarnings.set(identity.key, seen);
+      if (this.seenWarnings.size > 512) this.seenWarnings.delete(this.seenWarnings.keys().next().value!);
+    } else if (identity.recoveryFor) {
+      if (!identity.recoveryFor.has(session.id)) return;
+    } else if (identity.outcome === "failure") {
+      const key = JSON.stringify([session.id, identity.name, bodyKey(spec.body)]);
+      const receipt = this.mcpReceipts.get(key);
+      if (receipt) {
+        receipt.origins.add(identity.origin);
+        if (receipt.origins.size > 2048) receipt.origins.delete(receipt.origins.values().next().value!);
+        logger.info("bridge.notice.mcp_duplicate_suppressed", { sessionId: session.id, name: identity.name, origin: identity.origin });
+        return;
+      }
+      this.mcpReceipts.set(key, { sessionId: session.id, name: identity.name, origins: new Set([identity.origin]) });
+      if (this.mcpReceipts.size > 512) this.mcpReceipts.delete(this.mcpReceipts.keys().next().value!);
+    }
+    await this.deps.sendLongSpec(sourceId, createMessage({ kind: spec.kind, titleLabel: spec.title,
+      session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
+      presentation: "activity", body: spec.body }));
+  }
+
+  private releaseMcpFailure(origin: string, name: string): Set<string> {
+    const cleared = new Set<string>();
+    for (const [key, receipt] of this.mcpReceipts) {
+      if (receipt.name !== name || !receipt.origins.delete(origin) || receipt.origins.size) continue;
+      this.mcpReceipts.delete(key); cleared.add(receipt.sessionId);
+    }
+    for (const receipt of this.mcpReceipts.values()) if (receipt.name === name) cleared.delete(receipt.sessionId);
+    return cleared;
+  }
+
+  private async deliver(threadId: string | null, key: string, title: string, lines: Array<string | null>, options: { identity: NoticeIdentity; notify?: boolean; active?: boolean }): Promise<void> {
     const notify = options.notify ?? true;
-    const body = lines.filter((line): line is string => !!line).map(text => ({ type: "text" as const, text }));
+    const body = this.body(lines);
     if (threadId === null) {
       const spec = createMessage({ kind: "system", scope: "global", titleLabel: title, presentation: "activity", body });
       if (options.active !== false) this.globalNotices.set(key, spec);
-      if (notify || this.pendingNotices.has(key)) this.pendingNotices.set(key, spec);
+      if (notify || this.pendingNotices.has(key)) this.pendingNotices.set(key, { spec, identity: options.identity });
       if (this.globalNotices.size > 64) {
         const oldest = this.globalNotices.keys().next().value!;
         this.globalNotices.delete(oldest); this.pendingNotices.delete(oldest);
@@ -103,9 +171,11 @@ export class NotificationNoticeService {
       logger.info("bridge.notice.unrouted", { threadId, title });
       return;
     }
-    try { await new SessionAccessService(this.deps.store).requireOwned(session.codexThreadId, session.telegramChatId, undefined, () => {}); }
+    let access;
+    try { access = await new SessionAccessService(this.deps.store).requireOwned(session.codexThreadId, session.telegramChatId, undefined, () => {}); }
     catch { logger.info("bridge.notice.not_owned", { threadId }); return; }
-    await this.deps.sendLongSpec(session.telegramChatId, createMessage({ kind: "system", titleLabel: title, presentation: "activity",
-      session: { id: session.id, directory: this.deps.getSessionDirectory(session) }, body }));
+    access.assertCurrent();
+    await this.sendNotice(access.session, session.telegramChatId,
+      { spec: createMessage({ kind: "system", scope: "global", titleLabel: title, body }), identity: options.identity });
   }
 }

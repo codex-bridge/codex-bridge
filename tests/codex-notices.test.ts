@@ -71,6 +71,135 @@ async function fixture(t: TestContext) {
   return { store, sent, tracker, service };
 }
 
+test("equivalent warning methods share one global notice in either observation order", async t => {
+  for (const globalFirst of [true, false]) {
+    const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+    const global = extractWarningEvent({ method: "configWarning", params: { summary: "A deprecated setting" } })!;
+    const scoped = extractWarningEvent({ method: "warning", params: { threadId: "a", message: "A deprecated setting" } })!;
+    for (const event of globalFirst ? [global, scoped] : [scoped, global]) await f.service.handleWarning(event);
+    await f.service.handleWarning({ ...global, kind: "deprecationNotice" });
+    await f.service.flushPending(session, "web:local");
+    await f.service.handleWarning({ ...scoped, threadId: "b" });
+    assert.equal(f.sent.length, 1);
+    assert.equal(f.sent[0]!.spec.session!.id, session.id);
+    assert.equal(f.service.snapshot().length, 1);
+    assert.equal(f.service.snapshot()[0]!.title, "Configuration warning");
+  }
+});
+
+test("warning deduplication keeps different details, config paths and independent session warnings", async t => {
+  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+  const global = extractWarningEvent({ method: "configWarning", params: { summary: "Invalid setting", details: "First detail", path: "/one.toml" } })!;
+  await f.service.handleWarning(global);
+  await f.service.handleWarning({ ...global, details: "Second detail" });
+  await f.service.handleWarning({ ...global, path: "/two.toml" });
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 3);
+  const local = extractWarningEvent({ method: "warning", params: { threadId: "a", message: "Local warning" } })!;
+  await f.service.handleWarning(local);
+  await f.service.handleWarning({ ...local, kind: "deprecationNotice" });
+  await f.service.handleWarning({ ...local, threadId: "b" });
+  assert.equal(f.sent.length, 5);
+  assert.deepEqual(f.sent.slice(-2).map(s => s.spec.session!.directory), ["/work/a", "/work/b"]);
+  await f.service.handleWarning({ ...global, kind: "guardianWarning", threadId: "a" });
+  assert.equal(f.sent.length, 6, "a Guardian warning is not an alias for a configuration diagnostic");
+});
+
+test("failed authorization does not consume warning deduplication; concurrent aliases do not duplicate", async t => {
+  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+  const local = extractWarningEvent({ method: "warning", params: { threadId: "a", message: "Authorization-sensitive warning" } })!;
+  f.store.markSessionExternalUnknown(session.id);
+  await f.service.handleWarning(local);
+  assert.equal(f.sent.length, 0);
+  f.store.clearSessionExternalUnknown(session.id); f.store.claimSession(session.id, "web:local");
+  await Promise.all([f.service.handleWarning(local), f.service.handleWarning(local)]);
+  assert.equal(f.sent.length, 1);
+  await f.service.handleWarning({ ...local, threadId: null, kind: "configWarning" });
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 1);
+});
+
+test("MCP global and session copies notify once per receiving session in either delivery order", async t => {
+  for (const globalFirst of [true, false]) {
+    const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+    await f.service.handleMcpStartup(failure);
+    if (globalFirst) await f.service.flushPending(session, "web:local");
+    await f.service.handleMcpStartup({ ...failure, threadId: "a" });
+    await f.service.flushPending(session, "web:local");
+    assert.equal(f.sent.length, 1);
+    assert.equal(f.service.snapshot().length, 1);
+    await f.service.handleMcpStartup({ ...failure, threadId: "b" });
+    assert.equal(f.sent.length, 2, "an independent session still receives its own failure");
+    assert.equal(f.tracker.forThread("b").get("tools")!.failureActive, true);
+    await f.service.handleMcpStartup(ready);
+    await f.service.flushPending(session, "web:local");
+    assert.equal(f.sent.length, 2, "global recovery does not clear an ongoing session failure");
+    await f.service.handleMcpStartup({ ...ready, threadId: "a" });
+    assert.equal(f.sent.length, 3);
+    assert.match(f.sent.at(-1)!.spec.title, /^MCP recovered/);
+    await f.service.handleMcpStartup({ ...failure, threadId: "a" });
+    assert.equal(f.sent.length, 4, "a new incident after recovery can notify again");
+    assert.equal(f.tracker.forThread("b").get("tools")!.failureActive, true);
+  }
+});
+
+test("different MCP errors or servers are retained and recovery waits for remaining matching scopes", async t => {
+  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+  await f.service.handleMcpStartup(failure); await f.service.flushPending(session, "web:local");
+  await f.service.handleMcpStartup({ ...failure, threadId: "a", error: "Different error" });
+  await f.service.handleMcpStartup({ ...failure, threadId: "a", name: "other-tools" });
+  assert.equal(f.sent.length, 3);
+  await f.service.handleMcpStartup(ready); await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 3);
+  await f.service.handleMcpStartup({ ...ready, threadId: "a" });
+  assert.equal(f.sent.length, 4);
+  assert.equal(f.tracker.forThread("a").get("other-tools")!.failureActive, true);
+});
+
+test("direct-child copies deduplicate in their actual parent and recover only after all observed copies recover", async t => {
+  const f = await fixture(t), parent = (await f.store.getSessionByThreadId("a"))!;
+  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+    resolveNotificationSession: async () => parent, getSessionDirectory: s => s.pathKey,
+    sendLongSpec: async (sourceId, spec) => { f.sent.push({ sourceId, spec }); } });
+  const warning = extractWarningEvent({ method: "warning", params: { threadId: "child-1", message: "Same parent warning" } })!;
+  await service.handleWarning(warning); await service.handleWarning({ ...warning, threadId: "child-2" });
+  assert.equal(f.sent.length, 1);
+  for (const threadId of ["child-1", "child-2"]) await service.handleMcpStartup({ ...failure, threadId });
+  assert.equal(f.sent.length, 2);
+  await service.handleMcpStartup({ ...ready, threadId: "child-1" });
+  assert.equal(f.sent.length, 2);
+  await service.handleMcpStartup({ ...ready, threadId: "child-2" });
+  assert.equal(f.sent.length, 3);
+  assert.match(f.sent.at(-1)!.spec.title, /^MCP recovered/);
+  service.clear(); f.tracker.clear();
+  await service.handleWarning(warning); await service.handleMcpStartup({ ...failure, threadId: "child-1" });
+  assert.equal(f.sent.length, 5, "runtime cleanup resets both delivery histories");
+});
+
+test("unknown MCP write outcomes do not retry through a global alias", async t => {
+  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+  let writes = 0;
+  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+    resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
+    sendLongSpec: async () => { writes++; throw new Error("outcome unknown"); } });
+  await assert.rejects(service.handleMcpStartup({ ...failure, threadId: "a" }), /unknown/);
+  await service.handleMcpStartup(failure); await service.flushPending(session, "web:local");
+  assert.equal(writes, 1);
+});
+
+test("MCP failure observed without ownership can notify on a later authorized observation", async t => {
+  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+  f.store.markSessionExternalUnknown(session.id);
+  await f.service.handleMcpStartup({ ...failure, threadId: "a" });
+  assert.equal(f.sent.length, 0);
+  f.store.clearSessionExternalUnknown(session.id); f.store.claimSession(session.id, "web:local");
+  await f.service.handleMcpStartup({ ...failure, threadId: "a", error: "Latest detail" });
+  assert.equal(f.sent.length, 1);
+  assert.match(JSON.stringify(f.sent[0]!.spec.body), /Latest detail/);
+  await f.service.handleMcpStartup({ ...failure, threadId: "a", error: "Later detail in the same incident" });
+  assert.equal(f.sent.length, 1, "a continuing incident does not resend changing detail");
+});
+
 test("global notices wait for a conversation, deduplicate service-wide and keep their read-only snapshot", async t => {
   const f = await fixture(t);
   const session = (await f.store.getSessionByThreadId("a"))!;

@@ -553,6 +553,7 @@
       "src/web/server.ts"
     ],
     "guardianWarning": [
+      "src/bridge/notifications/notices.ts",
       "src/codex/notification-events.ts"
     ],
     "hook/completed": [
@@ -770,6 +771,7 @@
       "src/codex/turn-api.ts"
     ],
     "warning": [
+      "src/bridge/notifications/notices.ts",
       "src/bridge/notifications/rate-limit-notifier.ts",
       "src/codex/activity-events.ts",
       "src/codex/notification-events.ts"

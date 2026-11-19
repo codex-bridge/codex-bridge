@@ -48,6 +48,9 @@ not certification of every provider, operating system or network path.
   there is no historical-entry broadcast. Web also refreshes the service snapshot
   with the existing catalog poll, normally every 8 seconds. State is memory-only;
   failed/unknown writes do not block the conversation or retry automatically.
+- Identical ordinary warning bodies deduplicate across configuration and generic
+  warning methods. MCP copies deduplicate within their receiving session while
+  preserving independently scoped status, other sessions and distinct errors.
 - MCP login success alone is not connection readiness. Continuing failures do
   not repeat the same notice; reported readiness allows a later failure to
   notify again. Bridge does not reconnect or change configuration automatically.
