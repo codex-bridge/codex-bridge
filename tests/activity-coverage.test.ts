@@ -11,6 +11,8 @@ import { renderLegacyMessage } from "../src/bridge/messages/legacy-adapter.js";
 import { renderSlackMessageSpec } from "../src/slack/message-renderer.js";
 import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
 import { NotificationDispatcher } from "../src/bridge/notifications/dispatcher.js";
+import { messageAppearance } from "../web/src/lib/message-appearance.js";
+import { createProgressMessageSpec } from "../src/bridge/renderers/progress.js";
 
 function item(type: string, id: string, extra: object = {}, completed = true): AppServerNotification {
   return { method: completed ? "item/completed" : "item/started", params: { threadId: "thread", turnId: "turn", item: { type, id, ...extra } } };
@@ -23,7 +25,7 @@ function hook(id: string, completed: boolean, extra: object = {}): AppServerNoti
 test("activity extraction preserves actual plan, review, image and wait fields without guessing completion", () => {
   const plan = extractProgressEvent({ method: "turn/plan/updated", params: { threadId: "thread", turnId: "turn", explanation: "Next steps",
     plan: [{ step: "Inspect", status: "completed" }, { step: "Fix", status: "inProgress" }] } })!;
-  assert.deepEqual(plan.activity!.lines, ["Next steps", "1. [completed] Inspect", "2. [inProgress] Fix"]);
+  assert.deepEqual(plan.activity!.lines, ["Next steps", "1. [Completed] Inspect", "2. [In progress] Fix"]);
   assert.equal(plan.activity!.terminal, false);
   assert.deepEqual(extractProgressEvent(item("plan", "p", { text: "Actual model plan" }))!.activity!.lines, ["Actual model plan"]);
   assert.deepEqual(extractProgressEvent(item("sleep", "w", { durationMs: 300 }))!.activity!.lines, ["Requested duration: 300 ms"]);
@@ -48,6 +50,57 @@ test("Hook and automated review include public outcomes without Hook context, to
   assert.deepEqual(review.activity!.lines, ["Public rationale"]);
   assert.equal(review.activity!.status, "denied");
   assert.equal(extractProgressEvent({ method: "item/plan/delta", params: { threadId: "thread", delta: "partial" } }), null);
+});
+
+test("failed activities keep their title, subdued transport presentation and Web error tone through finalization", async t => {
+  const store = new BridgeStore(":memory:"); t.after(() => store.close());
+  const session = await store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId: "thread", pathKey: "/workspace/src/_appio/_inbox/codex-bridge" });
+  const sent: MessageSpec[] = [];
+  const service = fixtureProgressService(store, (_id, spec) => sent.push(spec));
+  await service.sendProgressMessage(session, extractProgressEvent(hook("failed", true, { status: "blocked", statusMessage: "Manual confirmation needed" }))!, "turn");
+  await service.clearProgressMessageForThread("thread", { turnId: "turn" });
+  assert.ok(sent.length >= 2, "both the preview and final edit must be observed");
+  for (const spec of sent) {
+    assert.equal(spec.title, "Hook · .../_inbox/codex-bridge");
+    assert.equal(spec.kind, "failed");
+    assert.equal(spec.presentation, "activity");
+    assert.deepEqual(messageAppearance(spec), { appearance: "activity", tone: "error" });
+    assert.deepEqual(spec.body, [{ type: "text", text: "preCompact · Blocked" }, { type: "text", text: "Manual confirmation needed" }]);
+    assert.equal(renderSlackMessageSpec("slack:T:C:1", spec, null).every(block => block.type === "context"), true);
+    assert.match(renderTelegramMessageSpec(spec).markdown, /^<footer>/);
+  }
+});
+
+test("plan steps share readable status labels without rewriting user content or repeating the Plan heading", async t => {
+  const store = new BridgeStore(":memory:"); t.after(() => store.close());
+  const session = await store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId: "thread", pathKey: "/work" });
+  const sent: MessageSpec[] = [];
+  const service = fixtureProgressService(store, (_id, spec) => sent.push(spec));
+  const event = extractProgressEvent({ method: "turn/plan/updated", params: { threadId: "thread", turnId: "turn",
+    plan: [{ step: "Inspect", status: "completed" }, { step: "Keep the literal [inProgress] token", status: "inProgress" },
+      { step: "Verify", status: "pending" }, { step: "Future state", status: "futureStatus" }] } })!;
+  await service.sendProgressMessage(session, event, "turn");
+  await service.clearProgressMessageForThread("thread", { turnId: "turn" });
+  for (const spec of sent) {
+    assert.equal(spec.title, "Plan · /work");
+    assert.deepEqual(spec.body.map(part => "text" in part ? part.text : part.value), ["Updated",
+      "1. [Completed] Inspect", "2. [In progress] Keep the literal [inProgress] token", "3. [Pending] Verify", "4. [futureStatus] Future state"]);
+  }
+});
+
+test("activity status labels preserve review meaning and unknown values across the shared renderer", () => {
+  for (const [status, label] of [["inProgress", "In progress"], ["approved", "Approved"], ["denied", "Denied"],
+    ["timedOut", "Timed out"], ["aborted", "Aborted"], ["API_ONLY", "API_ONLY"], ["toString", "toString"]]) {
+    const event = extractProgressEvent({ method: "item/autoApprovalReview/completed", params: { threadId: "thread", turnId: "turn",
+      reviewId: "review", review: { status, rationale: "Original rationale" } } })!;
+    const spec = createProgressMessageSpec({ directory: "/work", event });
+    assert.equal(event.activity!.status, status, "the upstream status remains unchanged");
+    assert.equal(spec.kind, "progress", "review outcomes are not tool execution failures");
+    assert.deepEqual(spec.body, [{ type: "text", text: `Approval review · ${label}` }, { type: "text", text: "Original rationale" }]);
+  }
+  const event = extractProgressEvent(item("exitedReviewMode", "review", { review: "Actual review content" }))!;
+  assert.deepEqual(createProgressMessageSpec({ directory: "/work", event }).body,
+    [{ type: "text", text: "Result" }, { type: "text", text: "Actual review content" }]);
 });
 
 test("dynamic tools show the declared name and explicit result, while raw output and Hook prompts remain internal", () => {

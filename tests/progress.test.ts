@@ -490,6 +490,7 @@ test("normal phase summaries omit the completion phrase and retain a nonempty ag
         }
       });
       assert.equal(summary.title, "Run · /workspace/project");
+      assert.equal(summary.kind, "failed");
       assert.deepEqual(summary.body, [
         { type: "text", text: "Run ×1 · Succeeded ×0 · Failed ×1" },
         ...(failureReason === "timeout" ? [{ type: "text", text: "Reason: timeout" }] : []),

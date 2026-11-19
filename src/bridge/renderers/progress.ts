@@ -5,6 +5,7 @@ import { createActivityMessage, createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageBodyPart, MessageSpec } from "../messages/types.js";
 import { formatSessionMarker } from "../../shared/session-tag.js";
+import { formatActivityStatus } from "../../shared/activity-status.js";
 import type {
   ProgressFailureReason,
   ProgressPhaseMessageRecord,
@@ -104,7 +105,7 @@ export function createProgressPhaseSummarySpec(input: {
   record: ProgressPhaseMessageRecord;
 }): MessageSpec {
   return createActivityMessage({
-    kind: input.record.state === "failed" ? "failed" : "progress",
+    kind: input.record.state === "failed" || input.record.state === "step_failed" ? "failed" : "progress",
     titleLabel: phaseTitle(input.record.phaseKind),
     session: { id: input.record.sessionId, directory: input.directory },
     body: summaryLines(input.record).map((text) => ({ type: "text" as const, text }))
@@ -186,8 +187,9 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
 }
 
 function activityLines(activity: import("../../shared/types.js").ProgressActivity): string[] {
-  const status = ({ inProgress: "In progress", timedOut: "Timed out" } as Record<string, string>)[activity.status] ?? activity.status;
-  return [`${activity.name} · ${status}`, ...activity.lines];
+  const status = formatActivityStatus(activity.status);
+  const heading = activity.name === phaseTitle(activity.kind) ? status : `${activity.name} · ${status}`;
+  return [heading, ...activity.lines];
 }
 
 function formatCalledOperation({ name, count, failed }: ProgressPhaseOperationGroup): string {

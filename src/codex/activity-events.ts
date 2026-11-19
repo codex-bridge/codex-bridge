@@ -1,5 +1,6 @@
 import type { AppServerNotification, AppServerProgressEvent } from "./client.js";
 import type { ProgressActivity } from "../shared/types.js";
+import { formatActivityStatus } from "../shared/activity-status.js";
 import { asRecord, firstString } from "./protocol-utils.js";
 
 function event(threadId: string, turnId: string | undefined, activity: ProgressActivity, failed = false): AppServerProgressEvent {
@@ -20,7 +21,7 @@ export function extractActivityEvent(notification: AppServerNotification): AppSe
     for (const [index, raw] of p.plan.entries()) {
       const step = asRecord(raw), text = firstString(step?.step), status = firstString(step?.status);
       if (!text || !status) return null;
-      lines.push(`${index + 1}. [${status}] ${text}`);
+      lines.push(`${index + 1}. [${formatActivityStatus(status)}] ${text}`);
     }
     if (!lines.length) return null;
     return event(threadId, turnId, { key: `turn-plan:${turnId}`, kind: "plan", name: "Plan", status: "Updated", lines, terminal: false, updateMode: "snapshot" });
