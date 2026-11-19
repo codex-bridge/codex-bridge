@@ -73,6 +73,20 @@ export function extractProgressInput(item: Record<string, unknown>): string | nu
   return input ? summarizeProgressInput(input) : null;
 }
 
+/** Actual tool inputs only; do not infer arguments from outputs or item metadata. */
+export function extractProgressInputPreview(item: Record<string, unknown>): string | undefined {
+  for (const source of [item, asRecord(item.payload)]) {
+    if (!source) continue;
+    for (const key of ["input", "arguments", "params"]) {
+      if (!Object.hasOwn(source, key) || source[key] === undefined) continue;
+      try {
+        return typeof source[key] === "string" ? source[key] : JSON.stringify(source[key], null, 2);
+      } catch { return undefined; }
+    }
+  }
+  return undefined;
+}
+
 function extractProgressInputRecord(item: Record<string, unknown>): Record<string, unknown> | null {
   const payload = asRecord(item.payload);
   const structuredInput = (

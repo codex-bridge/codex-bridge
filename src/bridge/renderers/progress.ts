@@ -20,6 +20,7 @@ export type ProgressRenderEvent = {
   toolName: string | null;
   target: string | null;
   input: string | null;
+  inputPreview?: string;
   changes: AppServerProgressFileChange[] | null;
   failed: boolean;
   text: string;
@@ -36,8 +37,8 @@ export function formatProgressMessageLines(input: {
 type ProgressMessageInput = {
   directory: string;
   event: ProgressRenderEvent;
-  // Opt in for active cards; history replay keeps file statistics only.
-  includeDiffPreview?: boolean;
+  // Opt in for active cards; history replay omits detailed inputs and diffs.
+  includeLivePreview?: boolean;
 };
 
 export function createProgressMessageSpec(input: ProgressMessageInput): MessageSpec {
@@ -70,7 +71,7 @@ function buildProgressMessageSpec(input: ProgressMessageInput, create: typeof cr
       body: fileChangeBody({
         changes: input.event.changes,
         directory: input.directory,
-        includeDiffPreview: input.includeDiffPreview
+        includeLivePreview: input.includeLivePreview
       })
     });
   }
@@ -78,11 +79,13 @@ function buildProgressMessageSpec(input: ProgressMessageInput, create: typeof cr
   const subject = formatProgressSubject(input.event);
   const failedCall = input.event.failed &&
     (input.event.label === "Called" || input.event.label.startsWith("Called "));
-  const body = [{
-    type: "text" as const,
+  const body: MessageBodyPart[] = [{
+    type: "text",
     text: failedCall ? formatCalledOperation({ name: subject, count: 1, failed: true }) : subject
   }];
-  if (input.event.input && input.event.input !== subject) {
+  if (input.includeLivePreview && input.event.inputPreview) {
+    body.push({ type: "code", text: input.event.inputPreview });
+  } else if (input.event.input && input.event.input !== subject) {
     body.push({ type: "text", text: input.event.input });
   }
   if (input.event.failed) {
@@ -224,7 +227,7 @@ function runFailureLines(reason: ProgressFailureReason | null | undefined): stri
 function fileChangeBody(input: {
   changes: AppServerProgressFileChange[];
   directory: string;
-  includeDiffPreview?: boolean;
+  includeLivePreview?: boolean;
 }): MessageBodyPart[] {
   const totals = input.changes.reduce(
     (acc, change) => ({
@@ -246,7 +249,7 @@ function fileChangeBody(input: {
   }
   for (const change of input.changes.slice(0, 3)) {
     body.push({ type: "text", text: `${formatProgressPath(change.path, input.directory)}${formatCounts(change)}` });
-    if (input.includeDiffPreview && change.diffPreview) body.push({ type: "code", text: change.diffPreview });
+    if (input.includeLivePreview && change.diffPreview) body.push({ type: "code", text: change.diffPreview });
   }
   const omitted = input.changes.length - 3;
   if (omitted > 0) {

@@ -57,6 +57,10 @@ not certification of every provider, operating system or network path.
 - Internal tool outputs, Hook context/feedback, raw deltas and telemetry are
   not promoted to user messages. Plan and Review retain public content within
   the normal temporary-message length limit.
+- Called live previews show supplied tool arguments as code, like Edited diffs,
+  within the same 800-visible-character body limit. Detailed arguments are omitted
+  from final phase summaries, phase records and restored history; missing inputs
+  are not reconstructed.
 - Resume responses need not contain legacy `initialMessages`. Bridge reads
   structured thread history separately; it does not require that old field.
 

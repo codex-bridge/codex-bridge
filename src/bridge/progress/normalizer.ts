@@ -11,6 +11,7 @@ export type ProgressNotificationEvent = {
   action: string | null;
   target: string | null;
   input: string | null;
+  inputPreview?: string;
   changes: AppServerProgressFileChange[] | null;
   failed: boolean;
   text: string;

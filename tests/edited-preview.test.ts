@@ -131,7 +131,7 @@ test("Edited shows each file's structured diff through Slack sections and TG cod
     ]
   } });
   assert.ok(event);
-  const spec = createProgressMessageSpec({ directory, event, includeDiffPreview: true });
+  const spec = createProgressMessageSpec({ directory, event, includeLivePreview: true });
   assert.equal(spec.title, "Edited · /workspace/project");
   assert.deepEqual(spec.body, [
     { type: "text", text: "2 files (+2 -1)" },
@@ -156,25 +156,25 @@ test("absent diff stays file-only and arbitrary output delta is not a diff previ
   } });
   assert.ok(event);
   assert.equal(event.changes?.[0]?.diffPreview, undefined);
-  assert.equal(createProgressMessageSpec({ directory, event, includeDiffPreview: true }).body.some((part) => part.type === "code"), false);
+  assert.equal(createProgressMessageSpec({ directory, event, includeLivePreview: true }).body.some((part) => part.type === "code"), false);
   const binary = extractProgressEvent({ method: "item/started", params: {
     threadId: "thread-1", item: { type: "fileChange", changes: [{ path: `${directory}/image.png` }] }
   } });
   assert.ok(binary);
-  assert.deepEqual(createProgressMessageSpec({ directory, event: binary, includeDiffPreview: true }).body, [
+  assert.deepEqual(createProgressMessageSpec({ directory, event: binary, includeLivePreview: true }).body, [
     { type: "text", text: "image.png" }
   ]);
 });
 
 test("long Unicode diff is capped at 800 body characters with no line limit", () => {
   const spec = truncateTemporaryMessageSpec(createProgressMessageSpec({
-    directory, event: patchEvent(`@@\n-old\n+${"😀".repeat(1000)}`), includeDiffPreview: true
+    directory, event: patchEvent(`@@\n-old\n+${"😀".repeat(1000)}`), includeLivePreview: true
   }));
   const texts = spec.body.map((part) => part.type === "field" ? part.value : part.text);
   assert.equal(texts.reduce((count, text) => count + Array.from(text).length, 0), 800);
   assert.equal(spec.body.at(-1)?.type, "code");
   assert.match(texts.at(-1) ?? "", /…$/);
-  const multiline = createProgressMessageSpec({ directory, event: patchEvent("@@\n+a\n+b\n+c\n+d\n+e"), includeDiffPreview: true });
+  const multiline = createProgressMessageSpec({ directory, event: patchEvent("@@\n+a\n+b\n+c\n+d\n+e"), includeLivePreview: true });
   assert.deepEqual(truncateTemporaryMessageSpec(multiline), multiline);
 });
 

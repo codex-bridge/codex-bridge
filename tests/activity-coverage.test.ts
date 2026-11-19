@@ -105,9 +105,10 @@ test("activity status labels preserve review meaning and unknown values across t
 
 test("dynamic tools show the declared name and explicit result, while raw output and Hook prompts remain internal", () => {
   const dynamic = extractProgressEvent(item("dynamicToolCall", "d", { namespace: null, tool: "probe", status: "failed", success: false,
-    arguments: { private: "private arguments" }, contentItems: [{ text: "private output" }] }))!;
+    arguments: { query: "Actual tool argument" }, contentItems: [{ text: "private output" }] }))!;
   assert.equal(normalizeProgressEvent(dynamic)!.operation, "probe");
   assert.equal(dynamic.failed, true);
+  assert.match(dynamic.inputPreview!, /Actual tool argument/);
   assert.equal(JSON.stringify(dynamic).includes("private"), false);
   for (const type of ["functionCallOutput", "hookPrompt"]) {
     assert.equal(extractProgressEvent(item(type, "internal", { name: "mcp__secret__read", server: "secret", tool: "read", output: "private output" })), null);

@@ -290,6 +290,8 @@ export interface AppServerProgressEvent {
   action: string | null;
   target: string | null;
   input: string | null;
+  // Live preview only; phase aggregates and restored history omit detailed arguments.
+  inputPreview?: string;
   changes: AppServerProgressFileChange[] | null;
   failed: boolean;
   text: string;

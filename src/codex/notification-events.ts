@@ -6,7 +6,7 @@ import {
   extractStatusLabel,
   extractThreadCompactedEvent as extractCompactedThread
 } from "./extractors/events.js";
-import { extractProgressEventFromItem } from "./extractors/progress.js";
+import { extractProgressEventFromItem, extractProgressInputPreview } from "./extractors/progress.js";
 import { extractAssistantMessage } from "./assistant-message.js";
 import { extractActivityEvent } from "./activity-events.js";
 import { classifyItemKind } from "./item-kind.js";
@@ -219,9 +219,11 @@ export function extractProgressEvent(notification: AppServerNotification): AppSe
     threadId,
     toolName: isFileChangeProgress ? null : undefined
   });
-  return event
-    ? { ...event, ...(turnId ? { turnId } : {}), ...(itemId ? { itemId } : {}), completed: notification.method === "item/completed" }
-    : null;
+  if (!event) return null;
+  const inputPreview = event.label === "Called" || event.label.startsWith("Called ")
+    ? extractProgressInputPreview(item) ?? extractProgressInputPreview(params ?? {}) : undefined;
+  return { ...event, ...(inputPreview ? { inputPreview } : {}), ...(turnId ? { turnId } : {}),
+    ...(itemId ? { itemId } : {}), completed: notification.method === "item/completed" };
 }
 
 export function extractStatusUpdate(notification: AppServerNotification): AppServerStatusUpdate | null {

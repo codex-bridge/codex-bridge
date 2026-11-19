@@ -3313,7 +3313,10 @@ test("late progress and terminal events from an old turn do not alter the newer 
     assert.equal(store.getActiveProgressPhaseMessage("thread-progress", "turn-1"), null);
     assert.ok(edits.some((text) => /^Called · .+\nInterrupted/.test(text)));
     assert.ok(edits.every((text) => !/Working · Done/.test(text)));
-    assert.equal(sends.filter((text) => /notion\.fetch\nkeys=id/.test(text)).length, 1);
+    const currentCalls = sends.filter((text) => /notion\.fetch/.test(text));
+    assert.equal(currentCalls.length, 1);
+    assert.match(currentCalls[0]!, /"id": "new"/);
+    assert.doesNotMatch(currentCalls[0]!, /"id": "old"/);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });

@@ -104,7 +104,7 @@ export class ProgressService {
     const preview = truncateTemporaryMessageSpec(createProgressMessageSpec({
       directory: this.deps.getSessionDirectory(session),
       event: { ...event, failureReason: normalized.failureReason },
-      includeDiffPreview: true
+      includeLivePreview: true
     }));
     preview.session = { id: session.id, directory: this.deps.getSessionDirectory(session) };
     const text = renderLegacyMessage(preview);
