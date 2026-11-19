@@ -24,7 +24,7 @@ import { WebDecisionService } from "../web/decisions.js";
 import { WebAttachmentStorage } from "../web/attachments.js";
 import { NotificationDeliveryTargets } from "./notifications/delivery-target.js";
 import { SessionBindingService, bindingEventText } from "./sessions/binding.js";
-import { WEB_SOURCE_ID, messageTransportPlatform } from "../shared/source-address.js";
+import { WEB_SOURCE_ID } from "../shared/source-address.js";
 import { SessionReader } from "./sessions/reader.js";
 import { ExternalSessionRecoveryService } from "./sessions/external-recovery.js";
 import { SessionViewService } from "./sessions/view.js";
@@ -582,8 +582,7 @@ export class BridgeService {
         return child ? store.getSessionById(child.sessionId) : this.notificationDeliveryTargets.resolve(threadId);
       },
       getSessionDirectory: (session) => this.getSessionDirectory(session),
-      sendLongSpec: (sourceId, spec) => this.messageOperations.sendLongSpec(sourceId, spec),
-      sendGlobalNotice: (spec) => this.sendServiceNotice(spec)
+      sendLongSpec: (sourceId, spec) => this.messageOperations.sendLongSpec(sourceId, spec)
     });
     this.notificationAuxiliaryService = new NotificationAuxiliaryService({
       store,
@@ -670,6 +669,7 @@ export class BridgeService {
       renderSessionMenu: (chatId, page, options) => this.renderSessionMenu(chatId, page, options)
     });
     this.incomingTurnService = new IncomingTurnService({
+      deliverPendingNotices: (session, sourceId, assertCurrent) => this.notificationNoticeService.flushPending(session, sourceId, assertCurrent),
       preserveTurnLease: (id, change) => this.assistantReplies.preserveForTurnTransition(id, change),
       store,
       codexClient,
@@ -1423,20 +1423,6 @@ export class BridgeService {
 
   private getDiscoveryChatIds(): string[] {
     return this.config.telegramAllowedChatIds ? [...this.config.telegramAllowedChatIds] : [];
-  }
-
-  private async sendServiceNotice(spec: MessageSpec): Promise<void> {
-    const roots = new Set((await this.store.listChatIds()).concat(this.getDiscoveryChatIds())
-      .filter(sourceId => {
-        const platform = messageTransportPlatform(sourceId);
-        return platform === "slack" ? this.config.slackEnabled : platform === "telegram" && !!this.config.telegramBotToken;
-      }).map(getSessionSelectorChatId));
-    for (const sourceId of roots) {
-      try {
-        await this.ensureChatAllowed(sourceId);
-        await this.messageOperations.sendLongSpec(sourceId, spec);
-      } catch { logger.warn("bridge.notice.service_delivery_failed", { sourceId }); }
-    }
   }
 
   private attachCodexListeners(): void {

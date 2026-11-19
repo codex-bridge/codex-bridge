@@ -43,8 +43,11 @@ not certification of every provider, operating system or network path.
   feature flags, collaboration mode or global approval defaults to expose them.
   Ordinary `Go` text does not answer a pending native RPC.
 - Thread warnings stay with an authorized session. Global notices use service
-  scope rather than being copied into every session; Web refreshes its service
-  notices with the existing catalog poll, normally every 8 seconds.
+  scope. Pending global notices push once service-wide at the next authorized
+  conversation input, with that session directory and subdued activity styling;
+  there is no historical-entry broadcast. Web also refreshes the service snapshot
+  with the existing catalog poll, normally every 8 seconds. State is memory-only;
+  failed/unknown writes do not block the conversation or retry automatically.
 - MCP login success alone is not connection readiness. Continuing failures do
   not repeat the same notice; reported readiness allows a later failure to
   notify again. Bridge does not reconnect or change configuration automatically.

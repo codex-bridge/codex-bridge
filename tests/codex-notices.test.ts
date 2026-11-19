@@ -14,6 +14,7 @@ import { BridgeService } from "../src/bridge/service.js";
 import { testConfig } from "./bridge-test-config.js";
 import { NotificationListener } from "../src/bridge/notifications/listener.js";
 import { SubagentTracker } from "../src/bridge/notifications/subagent-tracker.js";
+import { WebMessageTransport } from "../src/web/transport.js";
 import { KeyedQueue } from "../src/shared/keyed-queue.js";
 
 const failure: AppServerMcpStartupStatusEvent = { threadId: null, source: "startup", name: "tools", status: "failed",
@@ -62,33 +63,84 @@ async function fixture(t: TestContext) {
     const session = await store.upsertDiscoveredSession({ telegramChatId: "web:local", codexThreadId: thread, pathKey: `/work/${thread}` });
     store.claimSession(session.id, "web:local");
   }
-  const sent: Array<{ sourceId: string; spec: MessageSpec }> = [], global: MessageSpec[] = [];
+  const sent: Array<{ sourceId: string; spec: MessageSpec }> = [];
   const tracker = new McpStartupTracker();
   const service = new NotificationNoticeService({ store, mcpStartup: tracker,
     resolveNotificationSession: id => store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
-    sendLongSpec: async (sourceId, spec) => { sent.push({ sourceId, spec }); }, sendGlobalNotice: async spec => { global.push(spec); } });
-  return { store, sent, global, tracker, service };
+    sendLongSpec: async (sourceId, spec) => { sent.push({ sourceId, spec }); } });
+  return { store, sent, tracker, service };
 }
 
-test("global notices stay at service scope; repeated warnings and ongoing MCP failure do not duplicate", async t => {
+test("global notices wait for a conversation, deduplicate service-wide and keep their read-only snapshot", async t => {
   const f = await fixture(t);
+  const session = (await f.store.getSessionByThreadId("a"))!;
+  const other = (await f.store.getSessionByThreadId("b"))!;
   const event = extractWarningEvent({ method: "deprecationNotice", params: { summary: "Deprecated feature", details: "Use the new setting" } })!;
   await f.service.handleWarning(event); await f.service.handleWarning(event);
-  assert.equal(f.global.length, 1); assert.equal(f.sent.length, 0);
+  assert.equal(f.sent.length, 0);
   assert.equal(f.service.snapshot()[0]!.session, undefined);
   assert.equal(f.service.snapshot()[0]!.title, "Deprecation notice");
   const copy = f.service.snapshot(); copy[0]!.body = [];
   assert.equal(f.service.snapshot()[0]!.body.length, 2);
-  await f.service.handleMcpStartup(failure); await f.service.handleMcpStartup(failure);
-  assert.equal(f.global.length, 2); assert.equal(f.service.snapshot().length, 2);
-  await f.service.handleMcpStartup({ ...failure, error: "Latest connection detail" });
-  assert.equal(f.global.length, 2);
-  assert.match(JSON.stringify(f.service.snapshot()), /Latest connection detail/);
-  await f.service.handleMcpStartup(ready);
-  assert.equal(f.service.snapshot().length, 1); assert.equal(f.global.at(-1)!.title, "MCP recovered");
   await f.service.handleMcpStartup(failure);
-  assert.equal(f.global.length, 4); assert.equal(f.service.snapshot().length, 2);
-  f.service.clear(); assert.deepEqual(f.service.snapshot(), []);
+  await f.service.handleMcpStartup({ ...failure, error: "Latest connection detail" });
+  await Promise.all([f.service.flushPending(session, "web:local"), f.service.flushPending(other, "web:local")]);
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent.every(s => s.spec.session!.id === session.id), true);
+  assert.match(f.sent[0]!.spec.title, /^Deprecation notice · /);
+  assert.match(f.sent[1]!.spec.body.map(p => "text" in p ? p.text : "").join("\n"), /Latest connection detail/);
+  assert.equal(f.sent.every(s => s.spec.presentation === "activity"), true);
+  const slack = renderSlackMessageSpec("slack:T:C:1", f.sent[0]!.spec, null);
+  assert.equal(slack.every(b => b.type === "context"), true);
+  assert.match(JSON.stringify(slack), /Deprecation notice · .*work.*a ·/);
+  const telegram = renderTelegramMessageSpec(f.sent[0]!.spec);
+  assert.match(telegram.markdown, /<footer>/);
+  assert.equal(telegram.html.includes("<b>"), false);
+  await f.service.handleWarning(event);
+  await f.service.flushPending(other, "web:local");
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.service.snapshot().length, 2, "pushing does not clear the status snapshot");
+  await f.service.handleMcpStartup(ready);
+  assert.equal(f.service.snapshot().length, 1);
+  await f.service.flushPending(other, "web:local");
+  assert.match(f.sent.at(-1)!.spec.title, /^MCP recovered · /);
+  await f.service.handleMcpStartup(failure);
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 4);
+  f.service.clear(); f.tracker.clear();
+  assert.deepEqual(f.service.snapshot(), []);
+  await f.service.handleWarning(event);
+  await f.service.flushPending(other, "web:local");
+  assert.equal(f.sent.length, 5, "runtime cleanup allows the warning to notify again");
+});
+
+test("an MCP incident resolved before the next conversation does not push an obsolete failure or recovery", async t => {
+  const f = await fixture(t);
+  const session = (await f.store.getSessionByThreadId("a"))!;
+  await f.service.handleMcpStartup(failure);
+  await f.service.handleMcpStartup(ready);
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 0); assert.deepEqual(f.service.snapshot(), []);
+  await f.service.handleMcpStartup(failure);
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 1);
+});
+
+test("unauthorized or revoked inputs do not consume pending warnings; only one transport receives each batch", async t => {
+  const f = await fixture(t);
+  const session = (await f.store.getSessionByThreadId("a"))!;
+  const event = extractWarningEvent({ method: "configWarning", params: { summary: "Check config" } })!;
+  await f.service.handleWarning(event);
+  await f.service.flushPending(session, "slack:T:C:old");
+  await f.service.flushPending(session, "web:local", () => { throw new Error("window revoked"); });
+  assert.equal(f.sent.length, 0);
+  const other = await f.store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId: "tg", pathKey: "/work/tg" });
+  f.store.claimSession(other.id, "123");
+  await Promise.all([f.service.flushPending(other, "123"), f.service.flushPending(session, "web:local")]);
+  assert.deepEqual(f.sent.map(s => s.sourceId), ["123"]);
+  await f.service.handleWarning({ ...event, message: "New config warning" });
+  await f.service.flushPending(session, "web:local");
+  assert.deepEqual(f.sent.map(s => s.sourceId), ["123", "web:local"]);
 });
 
 test("scoped warnings and MCP failures follow their owned session and never fall back to global", async t => {
@@ -99,7 +151,7 @@ test("scoped warnings and MCP failures follow their owned session and never fall
   await f.service.handleWarning({ ...warning, threadId: "unmapped" });
   await f.service.handleMcpStartup({ ...failure, threadId: "a" });
   assert.deepEqual(f.sent.map(s => s.spec.session!.directory), ["/work/a", "/work/b", "/work/a"]);
-  assert.equal(f.global.length, 0); assert.deepEqual(f.service.snapshot(), []);
+  assert.deepEqual(f.service.snapshot(), []);
   const session = (await f.store.getSessionByThreadId("a"))!;
   f.store.markSessionExternalUnknown(session.id);
   await f.service.handleWarning({ ...warning, message: "After ownership loss" });
@@ -118,15 +170,41 @@ test("scoped warnings and MCP failures follow their owned session and never fall
   }
 });
 
-test("warning write errors are not automatically retried or converted to successful delivery", async t => {
+test("warning write failures do not block conversation or retry unknown outcomes; new warnings remain pending", async t => {
   const f = await fixture(t); let writes = 0;
+  const session = (await f.store.getSessionByThreadId("a"))!;
+  const event = extractWarningEvent({ method: "warning", params: { threadId: null, message: "Public warning" } })!;
   const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
-    sendLongSpec: async () => {}, sendGlobalNotice: async () => { writes++; throw new Error("write outcome unknown"); } });
-  const event = extractWarningEvent({ method: "warning", params: { threadId: null, message: "Public warning" } })!;
-  await assert.rejects(service.handleWarning(event), /unknown/);
+    sendLongSpec: async () => {
+      writes++;
+      if (writes === 1) { await service.handleWarning({ ...event, message: "Arrived during delivery" }); throw new Error("write outcome unknown"); }
+    } });
   await service.handleWarning(event);
-  assert.equal(writes, 1); assert.equal(service.snapshot().length, 1);
+  await service.flushPending(session, "web:local");
+  assert.equal(writes, 1);
+  await service.handleWarning(event);
+  await service.flushPending(session, "web:local");
+  assert.equal(writes, 2);
+  await service.flushPending(session, "web:local");
+  assert.equal(writes, 2); assert.equal(service.snapshot().length, 2);
+});
+
+test("ownership loss during a batch preserves unsent notices for a later valid conversation", async t => {
+  const f = await fixture(t);
+  const session = (await f.store.getSessionByThreadId("a"))!;
+  const writes: MessageSpec[] = [];
+  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+    resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
+    sendLongSpec: async (_source, spec) => { writes.push(spec); f.store.markSessionExternalUnknown(session.id); } });
+  for (const message of ["First warning", "Second warning"]) await service.handleWarning({ kind: "warning", threadId: null, message, details: null, path: null });
+  await service.flushPending(session, "web:local");
+  assert.equal(writes.length, 1);
+  assert.equal(f.store.clearSessionExternalUnknown(session.id), true);
+  assert.equal(f.store.claimSession(session.id, "123").owned, true);
+  await service.flushPending(session, "123");
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[1]!.body, [{ type: "text", text: "Second warning" }]);
 });
 
 test("notification dispatcher reaches notice handling without changing the task lifecycle", async t => {
@@ -134,7 +212,8 @@ test("notification dispatcher reaches notice handling without changing the task 
   const dispatcher = new NotificationDispatcher({ notices: f.service } as ConstructorParameters<typeof NotificationDispatcher>[0]);
   await dispatcher.handle({ method: "warning", params: { threadId: null, message: "Low-level warning" } });
   await dispatcher.handle({ method: "mcpServer/startupStatus/updated", params: failure });
-  assert.equal(f.global.length, 2);
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.service.snapshot().length, 2);
   assert.equal(dispatcher.getQueueKey({ method: "guardianWarning", params: { threadId: "a", message: "Review issue" } }), "a");
 });
 
@@ -143,30 +222,59 @@ test("status rendering uses structured auth reason and does not classify notStar
   assert.equal(formatMcpStartupFailureDetails(new Map([["tools", failure]])), "tools: Could not connect (reauthenticationRequired) Run: codex mcp login tools");
 });
 
-test("live global warnings reach each authorized chat root once and appear in Web service state", { timeout: 5000 }, async t => {
+test("Bridge queues global warnings without historical fanout and flushes them on a real Web send", { timeout: 5000 }, async t => {
   const store = new BridgeStore(":memory:");
   await store.ensureSeedChats(["slack:T:C:1", "slack:T:C:2", "slack:T:X:1", "123", "999", "web:local"]);
+  const session = await store.upsertDiscoveredSession({ telegramChatId: "web:local", codexThreadId: "web-thread", pathKey: "/workspace/src/_appio/_inbox/codex-bridge" });
+  store.claimSession(session.id, "web:local");
   let notify!: (event: AppServerNotification) => void;
+  let turns = 0;
   const service = new BridgeService({ ...testConfig(":memory:"), codexAppServerCommand: process.execPath,
     slackEnabled: true, slackAllowedChannelIds: new Set(["C"]), telegramAllowedChatIds: new Set(["123"]) }, store, {
     connect: async () => {}, onNotification: listener => { notify = listener; return () => {}; },
+    sendTurn: async () => { turns++; return { turnId: "turn" }; }, steerTurn: async () => { turns++; return { turnId: "turn" }; },
     onApprovalRequest: () => () => {}, onUserInputRequest: () => () => {}
-  } as CodexAppServerClient);
+  } as unknown as CodexAppServerClient);
   t.after(async () => { await service.shutdown(); store.close(); });
   const sent: Array<{ sourceId: string; spec: MessageSpec }> = [];
-  let finished!: () => void;
-  const delivered = new Promise<void>(resolve => { finished = resolve; });
   service.registerMessageTransport({ name: "isolated-notices", canHandle: () => true, wholeMessageSpecs: true,
-    sendMessageSpec: async (sourceId, spec) => { sent.push({ sourceId, spec }); if (sent.length === 2) finished(); return { message_id: String(sent.length) }; },
+    sendMessageSpec: async (sourceId, spec) => { sent.push({ sourceId, spec }); return { message_id: String(sent.length) }; },
     sendMessage: async () => null, editMessageText: async () => true, clearMessageActions: async () => true,
     deleteMessage: async () => true, sendTyping: async () => {} });
   await service.bootstrap();
   notify({ method: "configWarning", params: { summary: "Public configuration warning", details: "Check the option" } });
-  await delivered;
-  assert.deepEqual(sent.map(s => s.sourceId).sort(), ["123", "slack:T:C"]);
-  assert.equal(sent.every(s => s.spec.session === undefined), true);
+  // Drain the asynchronous notification listener before observing its snapshot.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sent.length, 0);
   const api = service.createWebApi();
   assert.equal(api.readServiceNotices()[0]!.title, "Configuration warning");
+  await assert.rejects(api.sendText({ threadId: session.codexThreadId, requestId: "invalid", text: "hello" }, () => { throw new Error("revoked"); }));
+  assert.equal(sent.length, 0);
+  assert.equal((await api.sendText({ threadId: session.codexThreadId, requestId: "one", text: "hello" }, () => {})).accepted, true);
+  assert.deepEqual(sent.map(s => s.sourceId), ["web:local"]);
+  assert.equal(sent[0]!.spec.session!.id, session.id);
+  assert.equal(sent[0]!.spec.title, "Configuration warning · .../_inbox/codex-bridge");
+  assert.equal(sent[0]!.spec.presentation, "activity");
+  notify({ method: "configWarning", params: { summary: "Another warning" } });
+  await new Promise(resolve => setImmediate(resolve));
+  await api.sendText({ threadId: session.codexThreadId, requestId: "one", text: "hello" }, () => {});
+  assert.equal(sent.length, 1, "duplicate input must not consume a newly pending warning");
+  await api.sendText({ threadId: session.codexThreadId, requestId: "two", text: "again" }, () => {});
+  assert.equal(sent.length, 2); assert.equal(turns, 2);
+  assert.equal(api.readServiceNotices().length, 2);
+});
+
+test("pending global warnings carry a usable Web delivery identity", async t => {
+  const f = await fixture(t);
+  const transport = new WebMessageTransport(f.store);
+  const delivered: string[] = [];
+  transport.subscribe(({ event }) => { delivered.push(event.threadId); });
+  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+    resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
+    sendLongSpec: async (source, spec) => { assert.ok(await transport.sendMessageSpec(source, spec)); } });
+  await service.handleWarning(extractWarningEvent({ method: "configWarning", params: { summary: "Check config" } })!);
+  await service.flushPending((await f.store.getSessionByThreadId("a"))!, "web:local");
+  assert.deepEqual(delivered, ["a"]);
 });
 
 test("direct-child notices reach their parent session instead of being swallowed by the subagent tracker", async t => {
@@ -178,7 +286,7 @@ test("direct-child notices reach their parent session instead of being swallowed
     item: { id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child", agentPath: "/root/check" } } });
   const notices = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: async id => subagents.route(id) ? parent : null, getSessionDirectory: s => s.pathKey,
-    sendLongSpec: async (sourceId, spec) => { f.sent.push({ sourceId, spec }); }, sendGlobalNotice: async () => assert.fail("not global") });
+    sendLongSpec: async (sourceId, spec) => { f.sent.push({ sourceId, spec }); } });
   const dispatcher = new NotificationDispatcher({ notices } as ConstructorParameters<typeof NotificationDispatcher>[0]);
   const queue = new KeyedQueue();
   let notify!: (event: AppServerNotification) => void;

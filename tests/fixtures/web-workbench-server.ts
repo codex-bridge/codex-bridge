@@ -45,7 +45,7 @@ const activities = fixtureProgressService(store, (id, spec, edit) => {
 });
 const notices = new NotificationNoticeService({ store, mcpStartup: new McpStartupTracker(),
   resolveNotificationSession: thread => store.getSessionByThreadId(thread), getSessionDirectory: s => s.pathKey,
-  sendGlobalNotice: async () => {}, sendLongSpec: async (_source, spec) => {
+  sendLongSpec: async (_source, spec) => {
     const session = sessions.find(s => s.id === spec.session?.id)!;
     publish(session.codexThreadId, `notice-${sequence++}`, spec);
   } });
@@ -99,6 +99,7 @@ const api: WebBridgeApi = {
   },
   sendText: async (input, check) => {
     const owned = await access.requireOwned(input.threadId, "web:local", input.leaseVersion, check); owned.assertCurrent();
+    await notices.flushPending(owned.session, "web:local", owned.assertCurrent);
     if (input.replyToken) {
       input = { ...input, text: replies.resolve(input.replyToken, owned.session.id, "web:local").text };
       replies.consume(input.replyToken!, owned.session.id, "web:local");

@@ -32,6 +32,7 @@ function formatConfigSyncError(error: unknown): string {
 }
 
 export type IncomingTurnDependencies = {
+  deliverPendingNotices?: (session: SessionRecord, sourceId: string, assertCurrent?: () => void) => Promise<void>;
   preserveTurnLease?: (sessionId: string, change: () => boolean) => boolean;
   store: BridgeStore;
   codexClient: CodexAppServerClient;
@@ -103,6 +104,8 @@ export class IncomingTurnService {
             prompt: this.deps.createIncomingPromptSpec("queue", "Queue is only available while Codex is working. Send the message normally when the session is idle.", routedSession)
           };
         }
+        await this.deps.deliverPendingNotices?.(routedSession, input.telegramChatId, options?.assertCurrent);
+        options?.assertCurrent();
         const clientUserMessageId = `bridge-queue-${crypto.randomUUID()}`;
         const inputParts = input.inputParts?.length ? input.inputParts : [{ type: "text" as const, text: input.text }];
         const record = await this.deps.store.createQueuedSubmission({
@@ -190,6 +193,8 @@ export class IncomingTurnService {
         }
       }
       await options?.beforeSend();
+      options?.assertCurrent();
+      await this.deps.deliverPendingNotices?.(routedSession, input.telegramChatId, options?.assertCurrent);
       options?.assertCurrent();
       try {
         if (activeTurnId) {
