@@ -86,10 +86,16 @@ do not create new entry points. Those retain thread-only delivery and explicitly
 allowed minimal root reminders. A failed edit of an individual message does not
 by itself prove that the parent thread is unavailable.
 
-Bridge checks parents and verifies Slack's returned destination. If deletion
-races the check and content lands at root, Bridge attempts to retract that exact
-message before continuing. This is not an atomic delivery guarantee. Unverified
-parents and uncertain write outcomes are not blindly retried. An uncertain root
+Normal thread sends go directly to Slack, then Bridge verifies the returned
+channel and thread. A definite missing-thread rejection triggers recovery. If
+content instead lands at root, Bridge must confirm retraction of that exact
+message before continuing. Content can be briefly visible at root; retraction
+can fail and cannot guarantee removal of notifications. This is not an atomic
+delivery guarantee. Unknown locations or uncertain write outcomes are not blindly
+retried. Normal edits use the known message ID; a missing-message error triggers
+a parent check to distinguish a lost child from an unavailable thread. Root
+cards retain a separate role check so stale selectors cannot overwrite a session
+status card. An uncertain root
 creation is reconciled using an operation marker in Slack message metadata before
 reuse; if it cannot be confirmed, recovery remains pending instead of creating
 duplicates. An uncertain replacement-card send is also held for investigation.
@@ -193,7 +199,9 @@ Successful startup calls Slack `auth.test` and logs `slack.app.ready`. Verify:
   reconnect is enabled; do not run a second Bridge with the same Slack tokens.
 - **Help or other buttons respond slowly:** inspect `slack.delivery.timing`.
   Each send/edit records `queueWaitMs`, `operationMs`, and `totalMs`, plus
-  `apiCalls` for parent lookups and Slack writes. `messageLabel` identifies menus
+  `apiCalls` for Slack writes and any exceptional parent lookups or root-card role
+  checks. Healthy thread sends and child edits do not query parents first.
+  `messageLabel` identifies menus
   such as Help. SDK-call durations include internal SDK scheduling; they are not
   pure network timings. `retryWaitMs` measures the existing bounded rate-limit
   wait separately. Total time already includes the queue, API calls and waits;

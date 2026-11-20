@@ -31,25 +31,12 @@ function slackErrorCode(error: unknown): string | null {
     ? data.error : null;
 }
 
-/** Fail closed for conversation content. Preflight is not atomic with Slack writes. */
+/** Verify actual write destinations; recover only from confirmed failures. */
 export class SlackThreadDelivery {
   constructor(private readonly client: WebClient, private readonly recovery?: SlackRecoveryHooks) {}
 
   async send(chatId: string, target: SlackDeliveryTarget, content: SlackContent,
     options?: BridgeMessageOptions, allowRecovery = true, replacementId?: string): Promise<BridgeSentMessage | null> {
-    if (target.threadTs) {
-      const available = await this.messageAvailability(chatId, target, target.threadTs);
-      if (available.state !== "available") {
-        if (replacementId) this.recovery?.rejectReplacement(chatId, replacementId);
-        if (available.state === "missing") {
-          const next = allowRecovery ? await this.recovery?.recover(chatId, target, options?.messageSpec?.session?.id) : null;
-          if (next === "pending") return null;
-          if (next) return this.send(chatId, next, content, options, false, replacementId);
-          await this.sendNotice(chatId, target, options);
-        }
-        return null;
-      }
-    }
     try {
       const response = await slackApiCall(() => timeSlackApi("chat.postMessage", () => this.client.chat.postMessage({ channel: target.channelId,
         thread_ts: target.threadTs ?? undefined, ...content })));
@@ -59,10 +46,8 @@ export class SlackThreadDelivery {
         return response.ts ? { message_id: response.ts } : null;
       }
       if (verified === "missing") {
-        const next = allowRecovery ? await this.recovery?.recover(chatId, target, options?.messageSpec?.session?.id) : null;
-        if (next === "pending") return null;
+        const next = await this.recoverSendTarget(chatId, target, options, allowRecovery);
         if (next) return this.send(chatId, next, content, options, false, replacementId);
-        await this.sendNotice(chatId, target, options);
       }
       return null;
     } catch (error) {
@@ -76,10 +61,8 @@ export class SlackThreadDelivery {
       }
       // A definite Slack rejection is safe to degrade; timeouts/unknown outcomes are not.
       if (target.threadTs && slackErrorCode(error) === "thread_not_found") {
-        const next = allowRecovery ? await this.recovery?.recover(chatId, target, options?.messageSpec?.session?.id) : null;
-        if (next === "pending") return null;
+        const next = await this.recoverSendTarget(chatId, target, options, allowRecovery);
         if (next) return this.send(chatId, next, content, options, false, replacementId);
-        await this.sendNotice(chatId, target, options);
       }
       return null;
     }
@@ -91,18 +74,15 @@ export class SlackThreadDelivery {
     // Parent-card edits intentionally target the existing root anchor, never a new one.
     const destination = messageId === target.threadTs ? { ...target, threadTs: null } : target;
     const incomingSurface = readSlackSurface(content.blocks);
-    // A selector click can arrive after its root message became a status card.
-    // Reuse the parent preflight; root selectors check their own exact message.
-    const checkedMessageId = target.threadTs ?? (incomingSurface === "session-selector" ? messageId : null);
+    // Root anchors have a role guard, independent of parent existence checks.
+    // A stale selector must not overwrite a root that became a status card.
+    const checkedMessageId = messageId === target.threadTs || (!target.threadTs && incomingSurface === "session-selector")
+      ? messageId : null;
     if (checkedMessageId) {
       const available = await this.messageAvailability(chatId, target, checkedMessageId);
       if (available.state === "unknown") throw available.error ?? new Error("Slack message availability is unknown.");
       if (available.state !== "available") {
-        // A status-only refresh never creates an entry point by itself.
-        if (incomingSurface === "session-status") return false;
-        const next = await this.recovery?.recover(chatId, target, options?.messageSpec?.session?.id);
-        if (!next || next === "pending") return false;
-        return this.replace(chatId, next, messageId, content, options);
+        return this.recoverEdit(chatId, target, messageId, content, options);
       }
       if (messageId === checkedMessageId && available.surface === "session-status" && incomingSurface !== "session-status") {
         logger.info("slack.message.surface_edit_skipped", { chatId, messageId, incomingSurface: incomingSurface ?? null });
@@ -111,9 +91,38 @@ export class SlackThreadDelivery {
     }
     // chat.update does not promise thread_ts in its response. Its immutable ts addresses
     // the message already verified on send; do not interpret absent metadata as root.
-    await slackApiCall(() => timeSlackApi("chat.update", () => this.client.chat.update({ channel: destination.channelId, ts: messageId, ...content })));
+    try {
+      await slackApiCall(() => timeSlackApi("chat.update", () => this.client.chat.update({ channel: destination.channelId, ts: messageId, ...content })));
+    } catch (error) {
+      const code = slackErrorCode(error);
+      if (!target.threadTs || (code !== "message_not_found" && code !== "thread_not_found")) throw error;
+      if (code === "message_not_found") {
+        // Losing a child message is not evidence that the whole thread is gone.
+        const available = await this.messageAvailability(chatId, target, target.threadTs);
+        if (available.state === "unknown") throw available.error ?? new Error("Slack message availability is unknown.");
+        if (available.state === "available") throw error;
+      }
+      return this.recoverEdit(chatId, target, messageId, content, options);
+    }
     logger.info("slack.message.edit", { chatId, ...destination, messageId, purpose: options?.purpose ?? null });
     return true;
+  }
+
+  private async recoverSendTarget(chatId: string, target: SlackDeliveryTarget,
+    options: BridgeMessageOptions | undefined, allowRecovery: boolean): Promise<SlackDeliveryTarget | null> {
+    const next = allowRecovery ? await this.recovery?.recover(chatId, target, options?.messageSpec?.session?.id) : null;
+    if (next === "pending") return null;
+    if (next) return next;
+    await this.sendNotice(chatId, target, options);
+    return null;
+  }
+
+  private async recoverEdit(chatId: string, target: SlackDeliveryTarget, messageId: string,
+    content: SlackContent, options?: BridgeMessageOptions): Promise<boolean> {
+    if (readSlackSurface(content.blocks) === "session-status") return false;
+    const next = await this.recovery?.recover(chatId, target, options?.messageSpec?.session?.id);
+    if (!next || next === "pending") return false;
+    return this.replace(chatId, next, messageId, content, options);
   }
 
   private async replace(chatId: string, target: SlackDeliveryTarget, messageId: string,

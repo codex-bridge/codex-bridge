@@ -29,6 +29,7 @@ function fixture() {
     response: "thread" as "thread" | "root" | "unknown" | "other-channel" | "no-id",
     postError: null as unknown,
     parentError: null as unknown,
+    editError: null as unknown,
     deleteFails: false
   };
   const client = {
@@ -48,6 +49,9 @@ function fixture() {
           behavior.postError = null;
           throw error;
         }
+        if (input.thread_ts && (behavior.parent === "missing" || behavior.parent === "tombstone")) {
+          throw { data: { error: "thread_not_found" } };
+        }
         if (behavior.response === "unknown") return { ts: "2.0001" };
         return { ts: behavior.response === "no-id" ? undefined : "2.0001",
           channel: behavior.response === "other-channel" ? "OTHER" : input.channel,
@@ -58,13 +62,18 @@ function fixture() {
         if (behavior.deleteFails) throw new Error("cant_delete_message");
         return { ok: true };
       },
-      update: async (input: typeof edits[number]) => { edits.push(input); return { ok: true }; }
+      update: async (input: typeof edits[number]) => {
+        edits.push(input);
+        if (behavior.editError) throw behavior.editError;
+        if (behavior.parent === "missing" || behavior.parent === "tombstone") throw { data: { error: "message_not_found" } };
+        return { ok: true };
+      }
     }
   } as unknown as WebClient;
   return { transport: new SlackMessageTransport(client), behavior, posts, deletes, reads, edits };
 }
 
-test("a verified parent receives content and controls in the intended thread", async () => {
+test("a verified write receives content and controls without a parent lookup", async () => {
   const f = fixture();
   const sent = await f.transport.sendMessageSpec(chatId, createMessage({ scope: "global", kind: "decision",
     body: [{ type: "text", text: "PRIVATE REQUEST" }],
@@ -74,28 +83,30 @@ test("a verified parent receives content and controls in the intended thread", a
   assert.equal(f.posts[0]?.thread_ts, "1.0001");
   assert.match(JSON.stringify(f.posts), /PRIVATE REQUEST/);
   assert.match(JSON.stringify(f.posts), /actions/);
-  assert.deepEqual(f.reads, [{ channel: "C", oldest: "1.0001", latest: "1.0001", inclusive: true, limit: 1 }]);
+  assert.deepEqual(f.reads, []);
   assert.deepEqual(f.deletes, []);
 });
 
 for (const kind of ["user", "codex", "progress", "edited", "error", "system", "refresh", "decision"] as const) {
-  test(`missing parent cannot forward ${kind} content by default`, async () => {
+  test(`a rejected missing thread cannot forward ${kind} content to root`, async () => {
     const f = fixture(); f.behavior.parent = "missing";
     const sent = await f.transport.sendMessageSpec(chatId, createMessage({ scope: "global", kind,
       body: [{ type: "text", text: "PRIVATE CONTENT" }] }));
     assert.equal(sent, null);
-    assert.deepEqual(f.posts, []);
+    assert.equal(f.posts.length, 1);
+    assert.equal(f.posts[0]?.thread_ts, "1.0001");
+    assert.deepEqual(f.reads, []);
   });
 }
 
 test("missing parent permits a separately authored management notice only", async () => {
   const f = fixture(); f.behavior.parent = "missing";
   assert.equal(await f.transport.sendMessage(chatId, "PRIVATE ORIGINAL", management), null);
-  assert.equal(f.posts.length, 1);
-  assert.equal(f.posts[0]?.thread_ts, undefined);
-  assert.match(f.posts[0]!.text, /Original Slack thread 1.0001 is unavailable/);
-  assert.match(f.posts[0]!.text, /Session was transferred/);
-  assert.doesNotMatch(JSON.stringify(f.posts), /PRIVATE ORIGINAL|actions|callback/);
+  assert.equal(f.posts.length, 2);
+  assert.equal(f.posts[1]?.thread_ts, undefined);
+  assert.match(f.posts[1]!.text, /Original Slack thread 1.0001 is unavailable/);
+  assert.match(f.posts[1]!.text, /Session was transferred/);
+  assert.doesNotMatch(JSON.stringify(f.posts[1]), /PRIVATE ORIGINAL|actions|callback/);
 });
 
 test("approval and input fallback carries no title, details or original controls", async () => {
@@ -105,24 +116,27 @@ test("approval and input fallback carries no title, details or original controls
     body: [{ type: "text", text: "PRIVATE PAYLOAD" }],
     actions: [{ id: "approve", label: "Approve", callback: "decision:PRIVATE:a" }] }), actionRequired);
   assert.equal(sent, null);
-  assert.equal(f.posts.length, 1);
-  assert.match(f.posts[0]!.text, /needs approval or input/);
-  assert.match(f.posts[0]!.text, /Rebind/);
-  assert.doesNotMatch(JSON.stringify(f.posts), /PRIVATE|actions|callback/);
+  assert.equal(f.posts.length, 2);
+  assert.match(f.posts[1]!.text, /needs approval or input/);
+  assert.match(f.posts[1]!.text, /Rebind/);
+  assert.doesNotMatch(JSON.stringify(f.posts[1]), /PRIVATE|actions|callback/);
 });
 
 for (const parent of ["unknown", "denied"] as const) {
-  test(`unverified parent (${parent}) does not send original content or fallback`, async () => {
+  test(`a valid thread write does not depend on parent history access (${parent})`, async () => {
     const f = fixture(); f.behavior.parent = parent;
-    assert.equal(await f.transport.sendMessage(chatId, "PRIVATE", management), null);
-    assert.deepEqual(f.posts, []);
+    assert.deepEqual(await f.transport.sendMessage(chatId, "PRIVATE", management), { message_id: "2.0001" });
+    assert.equal(f.posts.length, 1);
+    assert.equal(f.posts[0]?.thread_ts, "1.0001");
+    assert.deepEqual(f.reads, []);
   });
 }
 
-test("a tombstone parent is unavailable", async () => {
+test("a rejected tombstone thread is not retried or forwarded to root", async () => {
   const f = fixture(); f.behavior.parent = "tombstone";
   assert.equal(await f.transport.sendMessage(chatId, "PRIVATE"), null);
-  assert.deepEqual(f.posts, []);
+  assert.equal(f.posts.length, 1);
+  assert.equal(f.posts[0]?.thread_ts, "1.0001");
 });
 
 test("parent-deletion race retracts the exact root message without resending original content", async () => {
@@ -209,11 +223,12 @@ test("intentional root notifications do not require a thread parent", async () =
   assert.deepEqual(f.deletes, []);
 });
 
-test("an unavailable thread edit is skipped without recreating a parent or sending to root", async () => {
+test("a missing edit checks its parent afterward without recreating a root", async () => {
   const f = fixture(); f.behavior.parent = "missing";
   assert.equal(await f.transport.editMessageText(chatId, "2.0001", "PRIVATE", management), false);
   assert.deepEqual(f.posts, []);
-  assert.deepEqual(f.edits, []);
+  assert.equal(f.edits.length, 1);
+  assert.equal(f.reads.length, 1);
 });
 
 test("progress edits distinguish uncertain Slack parent checks from definite permission failures", async () => {
@@ -225,13 +240,41 @@ test("progress edits distinguish uncertain Slack parent checks from definite per
     ["missing", null, "unavailable"]
   ] as const) {
     const f = fixture(); f.behavior.parent = parent; f.behavior.parentError = error;
+    f.behavior.editError = { data: { error: "message_not_found" } };
     const adapter = new PhaseDeliveryAdapter({
       editMessageSpec: (...args) => f.transport.editMessageSpec(...args),
       sendTemporaryMessageSpec: async () => assert.fail("unexpected send")
     });
     assert.equal(await adapter.editResult(chatId, "2.0001", spec), expected);
-    assert.deepEqual(f.edits, []);
+    assert.equal(f.edits.length, 1);
     assert.deepEqual(f.posts, [], "unverified edits never fall back to root");
+  }
+});
+
+test("successful child edits skip parent queries even when history access is unavailable", async () => {
+  const f = fixture(); f.behavior.parentError = new Error("history unavailable");
+  assert.equal(await f.transport.editMessageText(chatId, "child", "Updated"), true);
+  assert.equal(f.edits.length, 1);
+  assert.deepEqual(f.reads, []);
+});
+
+test("a missing child in an available parent preserves the rejection without creating a new entry", async () => {
+  const f = fixture();
+  const error = { data: { error: "message_not_found" } };
+  f.behavior.editError = error;
+  await assert.rejects(f.transport.editMessageText(chatId, "child", "Updated"), value => value === error);
+  assert.equal(f.edits.length, 1);
+  assert.equal(f.reads.length, 1);
+  assert.deepEqual(f.posts, []);
+});
+
+test("edit timeouts and permission failures do not query parents or create new entries", async () => {
+  for (const error of [new Error("request timeout"), { data: { error: "no_permission" } }]) {
+    const f = fixture(); f.behavior.editError = error;
+    await assert.rejects(f.transport.editMessageText(chatId, "child", "Updated"), value => value === error);
+    assert.deepEqual(f.reads, []);
+    assert.deepEqual(f.posts, []);
+    assert.equal(f.edits.length, 1);
   }
 });
 
@@ -242,8 +285,8 @@ test("split messages stop after fallback and do not associate a root notice ID w
   const sent = await sender.sendSpecAndGetLastMessage(chatId, createMessage({ scope: "global", kind: "decision",
     body: [{ type: "text", text: "PRIVATE ".repeat(10000) }] }), actionRequired);
   assert.equal(sent, null);
-  assert.equal(f.posts.length, 1);
-  assert.doesNotMatch(JSON.stringify(f.posts), /PRIVATE/);
+  assert.equal(f.posts.length, 2);
+  assert.doesNotMatch(JSON.stringify(f.posts[1]), /PRIVATE/);
 });
 
 test("explicit status cards are protected, while selectors at the same position remain editable", async () => {

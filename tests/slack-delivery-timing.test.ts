@@ -26,11 +26,11 @@ function capture(t: TestContext): Timing[] {
 }
 const reply = () => createMessage({ kind: "codex", directory: "/project", body: [{ type: "text", text: "PRIVATE BODY" }] });
 
-test("Help timing measures its parent lookup and Slack write without recording body, tokens or API arguments", async t => {
+test("Help timing contains only its write, with no parent lookup, body, tokens or API arguments", async t => {
   const records = capture(t); let now = 0;
   t.mock.method(performance, "now", () => now);
   const client = {
-    conversations: { history: async () => { now += 20; return { ok: true, messages: [{ ts: "1" }] }; } },
+    conversations: { history: async () => assert.fail("Help must not query its parent") },
     chat: { postMessage: async () => { now += 80; return { channel: "C", ts: "2", message: { thread_ts: "1" } }; } }
   } as unknown as WebClient;
   await dispatchSlackInteraction({ action: "quick:help", context: { platform: "slack", conversationId: source, surfaceId: source },
@@ -41,27 +41,25 @@ test("Help timing measures its parent lookup and Slack write without recording b
   assert.equal(records.length, 1);
   assert.equal(records[0]!.messageLabel, "Help");
   assert.equal(records[0]!.queueWaitMs, 0);
-  assert.equal(records[0]!.operationMs, 100);
-  assert.equal(records[0]!.totalMs, 100);
+  assert.equal(records[0]!.operationMs, 80);
+  assert.equal(records[0]!.totalMs, 80);
   assert.deepEqual(records[0]!.apiCalls, [
-    { method: "conversations.history", elapsedMs: 20, outcome: "returned" },
     { method: "chat.postMessage", elapsedMs: 80, outcome: "returned" }
   ]);
   assert.doesNotMatch(JSON.stringify(records), /PRIVATE|blocks|headers|Authorization/);
 });
 
 test("same-conversation queue wait is separate from API time and concurrent traces do not mix", async t => {
-  const records = capture(t); let now = 0, histories = 0;
+  const records = capture(t); let now = 0, writes = 0;
   t.mock.method(performance, "now", () => now);
   let entered!: () => void, release!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
   const blocked = new Promise<void>(resolve => { release = resolve; });
   const client = {
-    conversations: { history: async () => {
-      if (++histories === 1) { entered(); await blocked; }
-      return { ok: true, messages: [{ ts: "1" }] };
-    } },
-    chat: { postMessage: async () => { now += 5; return { channel: "C", ts: "2", message: { thread_ts: "1" } }; } }
+    chat: { postMessage: async () => {
+      if (++writes === 1) { entered(); await blocked; }
+      now += 5; return { channel: "C", ts: "2", message: { thread_ts: "1" } };
+    } }
   } as unknown as WebClient;
   const continuations = { resolveSource: (id: string) => id, target: () => ({ channelId: "C", threadTs: "1" }),
     remember: () => {} } as unknown as SlackContinuations;
@@ -76,19 +74,21 @@ test("same-conversation queue wait is separate from API time and concurrent trac
   assert.equal(records.length, 2);
   assert.notEqual(records[0]!.deliveryId, records[1]!.deliveryId);
   assert.deepEqual(records.map(r => [r.queueWaitMs, r.operationMs, r.totalMs]), [[0, 55, 55], [45, 5, 50]]);
-  assert.deepEqual(records.map(r => r.apiCalls.map(a => a.elapsedMs)), [[50, 5], [0, 5]]);
+  assert.deepEqual(records.map(r => r.apiCalls.map(a => a.elapsedMs)), [[55], [5]]);
 });
 
-test("failed parent lookup is timed, remains unconfirmed and never posts a fallback", async t => {
+test("a failed edit's deferred parent lookup is timed and never posts a fallback", async t => {
   const records = capture(t); let now = 0;
   t.mock.method(performance, "now", () => now);
   const client = { conversations: { history: async () => {
     now += 10_000; throw Object.assign(new Error("request timeout"), { code: "ETIMEDOUT" });
-  } }, chat: { postMessage: async () => assert.fail("unexpected post") } } as unknown as WebClient;
-  assert.equal(await new SlackMessageTransport(client).sendMessageSpec(source, reply()), null);
-  assert.equal(records[0]!.outcome, "unconfirmed");
+  } }, chat: { update: async () => { throw { data: { error: "message_not_found" } }; },
+    postMessage: async () => assert.fail("unexpected post") } } as unknown as WebClient;
+  await assert.rejects(new SlackMessageTransport(client).editMessageSpec(source, "child", reply()), /request timeout/);
+  assert.equal(records[0]!.outcome, "threw");
   assert.equal(records[0]!.totalMs, 10_000);
-  assert.deepEqual(records[0]!.apiCalls, [{ method: "conversations.history", elapsedMs: 10_000,
+  assert.deepEqual(records[0]!.apiCalls, [{ method: "chat.update", elapsedMs: 0, outcome: "threw", errorCode: "message_not_found" },
+    { method: "conversations.history", elapsedMs: 10_000,
     outcome: "threw", errorCode: "ETIMEDOUT" }]);
 });
 
@@ -137,7 +137,9 @@ test("thread continuation APIs remain within the triggering delivery's timing re
     } },
     chat: {
       postMessage: async (input: { thread_ts?: string }) => {
-        now += 3; return { ok: true, channel: "C", ts: String(++posts + 1),
+        now += 3;
+        if (input.thread_ts === "1") throw { data: { error: "thread_not_found" } };
+        return { ok: true, channel: "C", ts: String(++posts + 1),
           message: input.thread_ts ? { thread_ts: input.thread_ts } : {} };
       },
       update: async () => { now += 4; return { ok: true }; }
@@ -149,9 +151,9 @@ test("thread continuation APIs remain within the triggering delivery's timing re
     createMessage({ kind: "codex", session: { id: "thread", directory: "/project" } }));
   assert.equal(posts, 2);
   assert.equal(records.length, 1);
-  assert.equal(records[0]!.totalMs, 14);
+  assert.equal(records[0]!.totalMs, 13);
   assert.deepEqual(records[0]!.apiCalls.map(a => a.method),
-    ["conversations.history", "chat.postMessage", "chat.update", "conversations.history", "chat.postMessage"]);
+    ["chat.postMessage", "chat.postMessage", "chat.update", "chat.postMessage"]);
 });
 
 test("a diagnostic logging failure cannot convert a successful write into an error", async t => {

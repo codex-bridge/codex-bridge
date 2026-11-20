@@ -29,7 +29,7 @@ function fixture(file = ":memory:") {
   const missing = new Set(["1.0001"]);
   const behavior = { createError: null as unknown, createAfterWrite: false,
     parentError: null as unknown, eligible: true, editError: null as unknown, wrongDestination: false,
-    rootRefreshes: 0, ready: 0, replyError: null as unknown, raceToRoot: false };
+    rootRefreshes: 0, ready: 0, replyError: null as unknown, raceToRoot: false, deleteError: null as unknown };
   const client = {
     conversations: { history: async (input: { oldest: string; latest?: string; cursor?: string }) => {
       if (behavior.parentError) throw behavior.parentError;
@@ -38,13 +38,14 @@ function fixture(file = ":memory:") {
     } },
     chat: {
       postMessage: async (input: Omit<Posted, "ts" | "user">) => {
-        if (input.thread_ts && behavior.replyError) throw behavior.replyError;
         if (!input.thread_ts && behavior.createError && !behavior.createAfterWrite) throw behavior.createError;
         if (input.thread_ts && behavior.raceToRoot) {
           behavior.raceToRoot = false;
           missing.add(input.thread_ts);
           input = { ...input, thread_ts: undefined };
         }
+        if (input.thread_ts && missing.has(input.thread_ts)) throw { data: { error: "thread_not_found" } };
+        if (input.thread_ts && behavior.replyError) throw behavior.replyError;
         const p = { ...input, ts: `${posts.length + 2}.0001`, user: "UBOT" };
         posts.push(p);
         if (!input.thread_ts && behavior.createError) throw behavior.createError;
@@ -53,9 +54,17 @@ function fixture(file = ":memory:") {
       },
       update: async (input: typeof edits[number]) => {
         if (behavior.editError) throw behavior.editError;
+        const posted = posts.find(p => p.ts === input.ts);
+        if (missing.has(input.ts) || (posted?.thread_ts && missing.has(posted.thread_ts)) || (!posted && missing.has("1.0001"))) {
+          throw { data: { error: "message_not_found" } };
+        }
         edits.push(input); return { ok: true };
       },
-      delete: async (input: typeof deletes[number]) => { deletes.push(input); return { ok: true }; }
+      delete: async (input: typeof deletes[number]) => {
+        deletes.push(input);
+        if (behavior.deleteError) throw behavior.deleteError;
+        return { ok: true };
+      }
     }
   } as unknown as WebClient;
   let continuations: SlackContinuations;
@@ -137,20 +146,22 @@ test("state-only root refresh never recreates an entry point, and later refresh 
   } finally { f.close(); }
 });
 
-test("unknown parent reads, ineligible sessions, and child edit failures do not create a root", async () => {
+test("healthy sends skip parent reads, while ineligible sessions and child edit failures cannot create a root", async () => {
   const f = fixture();
   try {
     f.behavior.parentError = new Error("timeout");
+    f.missing.clear();
     await f.transport.sendMessageSpec(source, reply());
-    assert.equal(f.posts.length, 0);
+    assert.equal(f.posts.length, 1);
     f.behavior.parentError = null;
+    f.missing.add("1.0001");
     f.behavior.eligible = false;
     await f.transport.sendMessageSpec(source, reply());
-    assert.equal(f.posts.length, 0);
+    assert.equal(f.posts.length, 1);
     f.missing.clear(); f.behavior.eligible = true;
     f.behavior.editError = { data: { error: "message_not_found" } };
     await assert.rejects(f.transport.editMessageSpec(source, "child", reply()));
-    assert.equal(f.posts.length, 0);
+    assert.equal(f.posts.length, 1);
   } finally { f.close(); }
 });
 
@@ -246,6 +257,17 @@ test("a parent deletion racing a send is recovered only after confirmed retracti
     assert.equal(f.deletes[0]?.ts, f.posts[0]?.ts);
     assert.equal(f.posts[1]?.thread_ts, undefined);
     assert.equal(f.posts[2]?.thread_ts, f.posts[1]?.ts);
+  } finally { f.close(); }
+});
+
+test("a failed misroute retraction never creates a continuation or repeats the original", async () => {
+  const f = fixture();
+  try {
+    f.missing.clear(); f.behavior.raceToRoot = true; f.behavior.deleteError = new Error("delete timeout");
+    assert.equal(await f.transport.sendMessageSpec(source, reply()), null);
+    assert.equal(f.posts.length, 1);
+    assert.equal(f.deletes.length, 1);
+    assert.equal(f.store.slackContinuations.get(source), null);
   } finally { f.close(); }
 });
 
