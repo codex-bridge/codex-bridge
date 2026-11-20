@@ -1856,6 +1856,8 @@ __metadata:
     drizzle-orm: "npm:^0.44.5"
     eslint: "npm:^10.4.1"
     grammy: "npm:^1.45.1"
+    mdast-util-from-markdown: "npm:2.0.3"
+    mdast-util-to-string: "npm:4.0.0"
     react: "npm:^19.3.0"
     react-dom: "npm:^19.3.0"
     react-markdown: "npm:^10.1.0"
@@ -3637,7 +3639,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mdast-util-from-markdown@npm:^2.0.0":
+"mdast-util-from-markdown@npm:2.0.3, mdast-util-from-markdown@npm:^2.0.0":
   version: 2.0.3
   resolution: "mdast-util-from-markdown@npm:2.0.3"
   dependencies:
@@ -3828,7 +3830,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mdast-util-to-string@npm:^4.0.0":
+"mdast-util-to-string@npm:4.0.0, mdast-util-to-string@npm:^4.0.0":
   version: 4.0.0
   resolution: "mdast-util-to-string@npm:4.0.0"
   dependencies:

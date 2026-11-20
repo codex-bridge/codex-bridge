@@ -107,6 +107,7 @@ export function phaseTitle(kind: ProgressPhaseKind): string {
     case "waiting": return "Waiting";
     case "viewed": return "Viewed";
     case "review": return "Review";
+    case "thinking": return "Thinking";
     // Old records are not reclassified, and should not become a new Progress card.
     case "other": return "Historical activity";
   }

@@ -131,6 +131,8 @@ export class ProgressService {
       const now = Date.now();
       const previous = this.lastProgressByTurn.get(key);
       const duplicatePreview = previous?.text === text && previous.failed === event.failed && now - previous.sentAt < 30_000;
+      const throttlePreview = normalized.kind === "thinking" && active?.phaseKind === "thinking" &&
+        event.completed !== true && previous && now - previous.sentAt < 5_000;
       // Edited completion/identity must reach the aggregate even when the preview is unchanged.
       if (duplicatePreview && normalized.kind !== "edited" && !event.activity) return;
       if (normalized.kind === "called" && event.operationKind !== "dynamicTool" && !event.failed && this.deps.shouldSkipCalledProgress(session, now)) return;
@@ -150,7 +152,7 @@ export class ProgressService {
           aggregate
         });
         record = updated ?? active;
-        if (!duplicatePreview && await this.delivery.edit(record.sourceId, record.platformMessageId, preview)) {
+        if (!duplicatePreview && !throttlePreview && await this.delivery.edit(record.sourceId, record.platformMessageId, preview)) {
           this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: now });
           if (record.phaseKind === "run") record = this.deps.recordSuccessfulRunContentUpdate(record.id) ?? record;
         }

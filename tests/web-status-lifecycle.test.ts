@@ -43,7 +43,7 @@ test("production lifecycle projects every status phase as activity, not assistan
   }
   assert.deepEqual(sent[0]!.actions.map(action => action.callback), ["quick:queue", "quick:interrupt"]);
   assert.match(dialogueText(presentWebMessage(sent[0]!)), /Queued: 2/);
-  assert.match(dialogueText(presentWebMessage(edited[0]!)), /Reviewing/);
+  assert.doesNotMatch(dialogueText(presentWebMessage(edited[0]!)), /Reviewing/);
   assert.deepEqual(edited[1]!.actions, []);
   assert.match(dialogueText(presentWebMessage(edited[1]!)), /Working · Done/);
   assert.match(dialogueText(presentWebMessage(edited[2]!)), /Runtime connection closed/);

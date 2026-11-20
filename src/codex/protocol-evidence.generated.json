@@ -1,6 +1,6 @@
 {
   "version": "0.170.0",
-  "generatedAt": "2026-11-19",
+  "generatedAt": "2026-11-20",
   "includesExperimental": true,
   "schemaMethods": {
     "request": [
@@ -586,7 +586,8 @@
     "item/completed": [
       "src/codex/activity-events.ts",
       "src/codex/extractors/events.ts",
-      "src/codex/notification-events.ts"
+      "src/codex/notification-events.ts",
+      "src/codex/reasoning-summary.ts"
     ],
     "item/fileChange/outputDelta": [
       "src/codex/notification-events.ts"
@@ -608,16 +609,19 @@
     ],
     "item/reasoning/summaryPartAdded": [
       "src/codex/extractors/events.ts",
-      "src/codex/notification-events.ts"
+      "src/codex/notification-events.ts",
+      "src/codex/reasoning-summary.ts"
     ],
     "item/reasoning/summaryTextDelta": [
       "src/codex/extractors/events.ts",
-      "src/codex/notification-events.ts"
+      "src/codex/notification-events.ts",
+      "src/codex/reasoning-summary.ts"
     ],
     "item/started": [
       "src/codex/activity-events.ts",
       "src/codex/extractors/events.ts",
-      "src/codex/notification-events.ts"
+      "src/codex/notification-events.ts",
+      "src/codex/reasoning-summary.ts"
     ],
     "item/tool/requestUserInput": [
       "src/shared/user-input.ts"

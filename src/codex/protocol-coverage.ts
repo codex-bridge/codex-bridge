@@ -35,7 +35,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
       "thread/settings/updated", "thread/queue/changed", "thread/tokenUsage/updated",
       "account/rateLimits/updated", "model/rerouted", "model/verification"
     ] },
-    { disposition: "handled", reason: "Reasoning summaries update the working status.", names: [
+    { disposition: "handled", reason: "Public reasoning summaries feed ordered Thinking activity; Working retains only the stage.", names: [
       "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded"
     ] },
     { disposition: "handled", reason: "Structured file-change progress is rendered without inferring edits from arbitrary text.", names: [
@@ -100,7 +100,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
       "commandExecution", "fileChange", "mcpToolCall", "webSearch", "contextCompaction"
     ] },
     { disposition: "partial", reason: "Dialogue, versioned display instructions and async question choices are supported; other native interactions remain separately classified.", names: ["agentMessage"] },
-    { disposition: "partial", reason: "Summaries feed live working status; raw reasoning and standalone replay are not exposed.", names: ["reasoning"] },
+    { disposition: "partial", reason: "Public summaries feed ordered Thinking activity; raw reasoning and standalone replay are not exposed.", names: ["reasoning"] },
     { disposition: "partial", reason: "Direct-child tracking/delivery is implemented; nested delegation remains bounded.", names: [
       "subAgentActivity", "collabAgentToolCall"
     ] },

@@ -24,6 +24,7 @@ import { NotificationRecoveryService } from "./recovery.js";
 import { NotificationTurnService } from "./turns.js";
 import type { ProgressNotificationEvent } from "../progress/service.js";
 import { canDeliverSession } from "./delivery-target.js";
+import { ReasoningSummaryTracker } from "../../codex/reasoning-summary.js";
 
 export type NotificationDispatcherDependencies = {
   notices: NotificationNoticeService;
@@ -40,10 +41,13 @@ export type NotificationDispatcherDependencies = {
 };
 
 export class NotificationDispatcher {
+  private readonly reasoningSummaries = new ReasoningSummaryTracker();
+
   constructor(private readonly deps: NotificationDispatcherDependencies) {}
 
   async handle(notification: AppServerNotification): Promise<void> {
     if (notification.method === "bridge/connection/lost") {
+      this.reasoningSummaries.reset();
       if ((notification.params as { expected?: boolean } | undefined)?.expected !== false) return;
       for (const route of this.deps.store.listActiveTurnRoutes()) {
         const session = await this.deps.store.getSessionById(route.sessionId);
@@ -85,6 +89,7 @@ export class NotificationDispatcher {
 
     const turnLifecycle = extractTurnLifecycleEvent(notification);
     if (turnLifecycle) {
+      if (turnLifecycle.kind === "completed") this.reasoningSummaries.reset(turnLifecycle.threadId, turnLifecycle.turnId);
       // Show the reason before clearing status; terminal notices must not start recovery.
       await this.deps.notificationRecoveryService.observeTurnLifecycle(turnLifecycle).catch((error) => {
         logger.warn("bridge.turn.error_delivery_failed", {
@@ -150,7 +155,9 @@ export class NotificationDispatcher {
       return;
     }
 
-    const progressEvent = extractProgressEvent(notification);
+    const threadId = extractNotificationThreadId(notification);
+    const progressEvent = extractProgressEvent(notification) ?? this.reasoningSummaries.observe(notification,
+      threadId ? this.deps.store.getActiveTurnRoute(threadId)?.turnId : undefined);
     if (progressEvent) {
       const session = await this.deps.resolveNotificationSession(progressEvent.threadId);
       const route = this.deps.store.getActiveTurnRoute(progressEvent.threadId);

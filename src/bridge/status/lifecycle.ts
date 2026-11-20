@@ -44,7 +44,7 @@ export class StatusLifecycleService {
     if (this.deps.isCompactStatusUpdate(update)) {
       await this.deps.notifyCompactStarted(session, "runtime");
     }
-    await this.setSessionStatus(session, update.label ?? "Working", update.label === "Thinking" ? update : undefined);
+    await this.setSessionStatus(session, update.label ?? "Working");
     await this.deps.sendTypingOnce(session);
   }
 
@@ -61,7 +61,7 @@ export class StatusLifecycleService {
       const previousLabel = this.deps.statusLabelBySession.get(session.id);
       const labelChanged = previousLabel !== label;
       const previousDetail = this.deps.statusDetailBySession.get(session.id) ?? "";
-      const detail = this.resolveStatusDetail(labelChanged ? "" : previousDetail, update);
+      const detail = label === "Thinking" ? "" : this.resolveStatusDetail(labelChanged ? "" : previousDetail, update);
       if (detail) this.deps.statusDetailBySession.set(session.id, detail);
       else this.deps.statusDetailBySession.delete(session.id);
 
@@ -181,7 +181,7 @@ export class StatusLifecycleService {
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       body: [
         { type: "text", text: `Working · ${stage} · ${formatElapsed(now - startedAt)}` },
-        ...(detail ? [{ type: stage === "Thinking" ? "markdown" as const : "text" as const, text: detail }] : []),
+        ...(detail ? [{ type: "text" as const, text: detail }] : []),
         ...(queueCount > 0 ? [{ type: "text" as const, text: `Queued: ${queueCount}` }] : [])
       ],
       actions: label.trim() === "Done"

@@ -13,6 +13,7 @@ import type {
   ProgressPhaseState
 } from "../../shared/types.js";
 import { phaseTitle } from "../progress/lifecycle.js";
+import { markdownToText } from "../../shared/markdown-text.js";
 
 export type ProgressRenderEvent = {
   activity?: import("../../shared/types.js").ProgressActivity;
@@ -108,7 +109,7 @@ export function createProgressPhaseSummarySpec(input: {
   record: ProgressPhaseMessageRecord;
 }): MessageSpec {
   return createActivityMessage({
-    kind: input.record.state === "failed" || input.record.state === "step_failed" ? "failed" : "progress",
+    kind: input.record.phaseKind !== "thinking" && (input.record.state === "failed" || input.record.state === "step_failed") ? "failed" : "progress",
     titleLabel: phaseTitle(input.record.phaseKind),
     session: { id: input.record.sessionId, directory: input.directory },
     body: summaryLines(input.record).map((text) => ({ type: "text" as const, text }))
@@ -119,7 +120,7 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   const aggregate = record.aggregate;
   if (aggregate.activities?.length) return [
     ...aggregate.activities.flatMap(activityLines),
-    ...(record.state === "interrupted" ? ["Interrupted"] : [])
+    ...(record.state === "interrupted" && record.phaseKind !== "thinking" ? ["Interrupted"] : [])
   ];
   const outcome = phaseOutcomeLine(record.state, record.failureReason);
   if (record.phaseKind === "called") {
@@ -190,6 +191,7 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
 }
 
 function activityLines(activity: import("../../shared/types.js").ProgressActivity): string[] {
+  if (activity.kind === "thinking") return [markdownToText(activity.lines.join("\n"))];
   const status = formatActivityStatus(activity.status);
   const heading = activity.name === phaseTitle(activity.kind) ? status : `${activity.name} · ${status}`;
   return [heading, ...activity.lines];

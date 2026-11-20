@@ -46,7 +46,7 @@ test("Working preserves its ID and clock across repeated timeouts, retries ident
   f.setEdit(async () => true);
   now += 5_000;
   await f.lifecycle.setSessionStatus(session, "Thinking");
-  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Thinking · 21s\n\*\*Planning\*\*/);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Thinking · 21s$/);
   now += 5_000;
   await f.lifecycle.clearSessionStatus(session);
   assert.equal(f.sent.length, 1);
@@ -114,20 +114,20 @@ test("a finalization timeout never sends another Working and the next turn start
   assert.equal(f.sent.length, 2);
 });
 
-test("Thinking summaries use Markdown on Slack, Telegram and Web while recovery detail stays literal", async () => {
+test("Working omits Thinking summaries on every transport while recovery detail stays literal", async () => {
   const f = fixture();
   await f.lifecycle.setSessionStatus(session, "Thinking", {
     detail: "**Planning separate acceptance scenario**", detailMode: "replace"
   });
   const spec = f.sent[0]!;
-  assert.deepEqual(spec.body[1], { type: "markdown", text: "**Planning separate acceptance scenario**" });
+  assert.equal(spec.body.length, 1);
   const slack = renderSlackMessageSpec(session.telegramChatId, spec, null)[0];
   assert.equal(slack?.type, "markdown");
-  assert.ok(slack?.type === "markdown" && slack.text.endsWith("\n**Planning separate acceptance scenario**"));
+  assert.ok(slack?.type === "markdown" && !slack.text.includes("Planning"));
   const telegram = renderTelegramMessageSpec(spec);
-  assert.ok(telegram.markdown.endsWith("**Planning separate acceptance scenario**"));
-  assert.ok(telegram.html.includes("<b>Planning separate acceptance scenario</b>"));
-  assert.equal(presentWebMessage(spec).body[1]?.type, "markdown");
+  assert.ok(!telegram.markdown.includes("Planning"));
+  assert.ok(!telegram.html.includes("Planning"));
+  assert.equal(presentWebMessage(spec).body.length, 1);
   await f.lifecycle.setSessionStatus(session, "Recovering", { detail: "Issue · `connection lost`", detailMode: "replace" });
   assert.deepEqual(f.edits[0]!.spec.body[1], { type: "text", text: "Issue · `connection lost`" });
 });

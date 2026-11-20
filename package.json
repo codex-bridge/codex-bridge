@@ -57,6 +57,8 @@
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.5",
     "grammy": "^1.45.1",
+    "mdast-util-from-markdown": "2.0.3",
+    "mdast-util-to-string": "4.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",

@@ -41,7 +41,7 @@ export type TurnRouteState = "active" | "completed" | "failed" | "interrupted";
 
 // `other` and `completed` are retained only for rows written by releases before
 // the phase-lifecycle model. New phases must never use either value.
-export type ActivityKind = "plan" | "hook" | "waiting" | "viewed" | "review";
+export type ActivityKind = "plan" | "hook" | "waiting" | "viewed" | "review" | "thinking";
 export type ProgressActivity = { key: string; kind: ActivityKind; name: string; status: string; lines: string[]; terminal: boolean;
   updateMode?: "snapshot" };
 export type ProgressPhaseKind = "run" | "called" | "edited" | "explored" | "system" | "other" | ActivityKind;
