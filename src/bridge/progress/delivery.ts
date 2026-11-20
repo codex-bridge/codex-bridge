@@ -1,6 +1,7 @@
 import { logger } from "../../logging/logger.js";
 import type { BridgeMessageOptions } from "../transport.js";
 import type { MessageSpec } from "../messages/types.js";
+import { classifyMessageEditError } from "../messages/edit-result.js";
 
 export type PhaseDeliveryDependencies = {
   editMessageSpec: (
@@ -17,20 +18,6 @@ export type PhaseDeliveryDependencies = {
 };
 
 export type PhaseEditResult = "synced" | "retryable" | "unavailable";
-
-function editErrorResult(error: unknown): PhaseEditResult {
-  if (typeof error !== "object" || error === null) return "retryable";
-  const value = error as { data?: { error?: string }; error_code?: number; description?: string; statusCode?: number };
-  // Unknown SDK/transport failures stay retryable; only definite rejections stop retries.
-  if (value.error_code === 400 && value.description?.includes("message is not modified")) return "synced";
-  const status = value.error_code ?? value.statusCode;
-  if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) return "unavailable";
-  const code = value.data?.error;
-  if (code && ["message_not_found", "thread_not_found", "channel_not_found", "cant_update_message",
-    "edit_window_closed", "not_in_channel", "is_archived", "missing_scope", "no_permission",
-    "not_authed", "invalid_auth", "account_inactive", "token_revoked"].includes(code)) return "unavailable";
-  return "retryable";
-}
 
 export class PhaseDeliveryAdapter {
   constructor(private readonly deps: PhaseDeliveryDependencies) {}
@@ -53,7 +40,9 @@ export class PhaseDeliveryAdapter {
         messageId,
         error: error instanceof Error ? error.message : String(error)
       });
-      return editErrorResult(error);
+      const result = classifyMessageEditError(error);
+      // Progress finalization never replaces a missing message.
+      return result === "missing" ? "unavailable" : result;
     }
   }
 }

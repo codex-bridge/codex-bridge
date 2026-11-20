@@ -4,6 +4,7 @@ import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { actionRow, interruptAction, messageAction } from "../messages/actions.js";
 import { createMessage } from "../messages/factory.js";
+import { classifyMessageEditError, type MessageEditResult } from "../messages/edit-result.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatStatusDetailPreview } from "../renderers/progress.js";
@@ -29,6 +30,8 @@ export type StatusLifecycleDependencies = {
 };
 
 export class StatusLifecycleService {
+  private readonly pendingEdits = new Set<string>();
+
   constructor(private readonly deps: StatusLifecycleDependencies) {}
 
   async applyStatusUpdate(session: SessionRecord, update: AppServerStatusUpdate): Promise<void> {
@@ -64,27 +67,41 @@ export class StatusLifecycleService {
 
       const detailChanged = detail !== previousDetail;
       const lastEditAt = this.deps.statusLastEditAtBySession.get(session.id) ?? 0;
-      if (!labelChanged && (!detailChanged || now - lastEditAt < 5_000)) return;
+      if (!labelChanged && ((!detailChanged && !this.pendingEdits.has(session.id)) || now - lastEditAt < 5_000)) return;
 
       const queueCount = await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId);
       const messageSpec = this.createSessionStatusMessageSpec(session, label, startedAt, now, detail, queueCount);
       const text = renderLegacyMessage(messageSpec);
       const existing = this.deps.statusMessageBySession.get(session.id);
-      if (existing?.text === text) return;
+      if (existing?.text === text && !this.pendingEdits.has(session.id)) return;
 
       if (existing) {
+        let result: MessageEditResult;
         try {
-          await this.deps.editMessageSpec(session.telegramChatId, existing.messageId, messageSpec);
-          this.rememberStatus(session.id, existing.messageId, text, label, now);
-          return;
+          result = await this.deps.editMessageSpec(session.telegramChatId, existing.messageId, messageSpec)
+            ? "synced" : "unavailable";
         } catch (error) {
+          result = classifyMessageEditError(error);
           logger.warn("bridge.status.edit_failed", {
             sessionId: session.id,
             messageId: existing.messageId,
+            result,
             error: error instanceof Error ? error.message : String(error)
           });
-          this.clearStatusState(session.id);
         }
+        if (result === "synced") {
+          this.rememberStatus(session.id, existing.messageId, text, label, now);
+          return;
+        }
+        if (result !== "missing") {
+          // Preserve the original ID and clock. Later status events retry the edit,
+          // including an unchanged detail, without flooding on every streamed delta.
+          this.pendingEdits.add(session.id);
+          this.deps.statusLabelBySession.set(session.id, label);
+          this.deps.statusLastEditAtBySession.set(session.id, now);
+          return;
+        }
+        this.deps.statusMessageBySession.delete(session.id);
       }
 
       const sent = await this.deps.sendMessageSpec(session.telegramChatId, messageSpec, { disable_notification: true });
@@ -164,7 +181,7 @@ export class StatusLifecycleService {
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       body: [
         { type: "text", text: `Working · ${stage} · ${formatElapsed(now - startedAt)}` },
-        ...(detail ? [{ type: "text" as const, text: detail }] : []),
+        ...(detail ? [{ type: stage === "Thinking" ? "markdown" as const : "text" as const, text: detail }] : []),
         ...(queueCount > 0 ? [{ type: "text" as const, text: `Queued: ${queueCount}` }] : [])
       ],
       actions: label.trim() === "Done"
@@ -180,12 +197,14 @@ export class StatusLifecycleService {
   }
 
   private rememberStatus(sessionId: string, messageId: string, text: string, label: string, now: number): void {
+    this.pendingEdits.delete(sessionId);
     this.deps.statusMessageBySession.set(sessionId, { messageId, text });
     this.deps.statusLabelBySession.set(sessionId, label);
     this.deps.statusLastEditAtBySession.set(sessionId, now);
   }
 
   private clearStatusState(sessionId: string): void {
+    this.pendingEdits.delete(sessionId);
     this.deps.statusMessageBySession.delete(sessionId);
     this.deps.statusStartedAtBySession.delete(sessionId);
     this.deps.statusLabelBySession.delete(sessionId);
