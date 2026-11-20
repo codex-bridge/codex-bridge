@@ -181,8 +181,14 @@ Successful startup calls Slack `auth.test` and logs `slack.app.ready`. Verify:
   the channel, and check `SLACK_ALLOWED_CHANNEL_IDS`.
 - **Buttons or queue modals do nothing:** enable Interactivity & Shortcuts and
   verify the app token has `connections:write`.
-- **Attachment download fails:** add `files:read`, reinstall the app, and retry
-  with a supported image or audio file.
+- **Attachment download fails:** check the failure category and the
+  `slack.attachment.download_failed` log entry. Network errors concern the Bridge
+  host's connection to `files.slack.com`, even if Slack API calls work. HTTP
+  401/403 indicates a token or file-access problem; verify `files:read` before
+  changing scopes, and reinstall only after a scope change. HTTP 404/410 means
+  Slack could not provide the file; HTTP 429 means rate limiting. Local save
+  errors concern Bridge storage and filesystem permissions. The same checks
+  apply to direct messages and channels.
 - **Socket Mode disconnects:** inspect the Bolt/WebSocket error first. Native
   reconnect is enabled; do not run a second Bridge with the same Slack tokens.
 - **A direct-message free-form prompt is ignored:** start with `sessions` or

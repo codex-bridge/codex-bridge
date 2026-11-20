@@ -13,6 +13,7 @@ import type { AppConfig } from "../config/index.js";
 import { logger } from "../logging/logger.js";
 import {
   classifySlackFile,
+  describeSlackAttachmentFailure,
   downloadSlackAttachments,
   type SlackDownloadedAttachment,
   type SlackFile
@@ -199,15 +200,13 @@ export function buildSlackBot(config: AppConfig, service: BridgeSlackBotPort, co
         receivedAt: message.ts ? new Date(Number(message.ts.split(".")[0]) * 1000) : undefined
       });
     } catch (error) {
+      const failure = describeSlackAttachmentFailure(error);
       logger.error("slack.attachment.download_failed", {
         channel: message.channel,
-        error: error instanceof Error ? error.message : String(error),
+        ...failure.diagnostics,
         ts: message.ts
       });
-      await sendPrompt(
-        makeChatId(handleInput),
-        "Attachment download failed. Check that the Slack app has the `files:read` bot scope and has been reinstalled."
-      );
+      await sendPrompt(makeChatId(handleInput), failure.message);
       return;
     }
     await handleText({

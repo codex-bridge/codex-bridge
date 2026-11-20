@@ -22,6 +22,54 @@ export type SlackFile = {
 
 export type SlackAttachmentKind = "audio" | "image";
 
+type AttachmentFailurePhase = "network" | "http" | "storage";
+
+export class SlackAttachmentDownloadError extends Error {
+  constructor(readonly phase: AttachmentFailurePhase, readonly fileId: string, readonly httpStatus: number | null,
+    options?: ErrorOptions) {
+    super(httpStatus === null ? `Slack attachment ${phase} operation failed.` : `Slack attachment download returned HTTP ${httpStatus}.`, options);
+    this.name = "SlackAttachmentDownloadError";
+  }
+}
+
+function attachmentErrorCode(error: unknown): string | null {
+  const seen = new Set<unknown>();
+  while (error && typeof error === "object" && !seen.has(error)) {
+    seen.add(error);
+    const current = error as { code?: unknown; cause?: unknown };
+    if (typeof current.code === "string" && /^[A-Z0-9_]{1,64}$/.test(current.code)) return current.code;
+    error = current.cause;
+  }
+  return null;
+}
+
+/** Public diagnostics only: never expose private URLs, authorization headers or raw response bodies. */
+export function describeSlackAttachmentFailure(error: unknown): {
+  message: string;
+  diagnostics: { phase: AttachmentFailurePhase | "unknown"; fileId: string | null; httpStatus: number | null; causeCode: string | null };
+} {
+  const failure = error instanceof SlackAttachmentDownloadError ? error : null;
+  const code = attachmentErrorCode(error);
+  const status = failure?.httpStatus ?? null;
+  let message = "Attachment download failed. Check the Bridge logs for details.";
+  if (failure?.phase === "network") {
+    message = `Attachment download failed: network error${code ? ` (${code})` : ""}. Check the Bridge host's connection to Slack's file service.`;
+  } else if (failure?.phase === "storage") {
+    message = `The attachment was downloaded, but Bridge could not finish saving it locally${code ? ` (${code})` : ""}. Check local storage and file permissions.`;
+  } else if (failure?.phase === "http") {
+    if (status === 401 || status === 403) {
+      message = `Slack rejected the attachment download (HTTP ${status}). Check the bot token and file access.`;
+    } else if (status === 404 || status === 410) {
+      message = `Slack could not provide this attachment (HTTP ${status}). Check whether the file is still available to this bot.`;
+    } else if (status === 429) {
+      message = "Slack rate-limited the attachment download (HTTP 429). Try again later.";
+    } else {
+      message = `Attachment download failed: Slack returned HTTP ${status}.`;
+    }
+  }
+  return { message, diagnostics: { phase: failure?.phase ?? "unknown", fileId: failure?.fileId ?? null, httpStatus: status, causeCode: code } };
+}
+
 export type SlackDownloadedAttachment = {
   createdAt: string;
   expiresAt: string;
@@ -191,17 +239,22 @@ export async function downloadSlackAttachments(
       continue;
     }
     const target = buildSlackAttachmentPath(file, index, receivedAt);
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${botToken}`
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to download Slack file ${target.id}: HTTP ${response.status}`);
+    let response: Response;
+    try {
+      response = await fetch(url, { headers: { Authorization: `Bearer ${botToken}` } });
+    } catch (cause) {
+      throw new SlackAttachmentDownloadError("network", target.id, null, { cause });
     }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    await mkdir(join(getSlackAttachmentStorageRoot(), target.dateDir), { recursive: true });
-    await writeFile(target.path, bytes);
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw new SlackAttachmentDownloadError("http", target.id, response.status);
+    }
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(await response.arrayBuffer());
+    } catch (cause) {
+      throw new SlackAttachmentDownloadError("network", target.id, null, { cause });
+    }
     const attachment: SlackDownloadedAttachment = {
       createdAt: receivedAt.toISOString(),
       expiresAt: new Date(receivedAt.getTime() + SLACK_ATTACHMENT_SENT_RETENTION_MS).toISOString(),
@@ -212,11 +265,17 @@ export async function downloadSlackAttachments(
       path: target.path,
       size: file.size ?? bytes.length
     };
-    await writeSlackAttachmentMetadata(attachment, {
-      chatId: context?.chatId,
-      messageId: context?.messageId,
-      status: "downloaded"
-    });
+    try {
+      await mkdir(join(getSlackAttachmentStorageRoot(), target.dateDir), { recursive: true });
+      await writeFile(target.path, bytes);
+      await writeSlackAttachmentMetadata(attachment, {
+        chatId: context?.chatId,
+        messageId: context?.messageId,
+        status: "downloaded"
+      });
+    } catch (cause) {
+      throw new SlackAttachmentDownloadError("storage", target.id, null, { cause });
+    }
     downloaded.push(attachment);
   }
   return downloaded;
