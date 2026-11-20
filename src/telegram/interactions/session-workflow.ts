@@ -1,8 +1,7 @@
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { BridgeTelegramSessionWorkflowPort } from "../../bridge/contracts.js";
-import { SessionActivationError } from "../../bridge/sessions/ownership.js";
 import { parseSessionActionCallback } from "../../bridge/sessions/action-callbacks.js";
-import { logger } from "../../logging/logger.js";
+import { SessionActivationError } from "../../bridge/sessions/ownership.js";
 import type { TelegramInteractionResponder } from "./responder.js";
 
 export async function handleTelegramSessionWorkflow(input: {
@@ -41,37 +40,8 @@ export async function handleTelegramSessionWorkflow(input: {
   const callback = parseSessionActionCallback(action);
   if (callback?.kind !== "refresh") return false;
 
-  const startedAt = Date.now();
-  const { sessionId, expectedLeaseVersion } = callback;
-  logger.info("telegram.session.refresh_action_received", {
-    chatId,
-    sessionId,
-    messageId: context.sourceMessageId ?? null,
-    expectedLeaseVersion: expectedLeaseVersion ?? null
-  });
-  await input.acknowledge("Refreshing...");
-  let refreshed;
-  try { refreshed = await service.refreshSessionView(chatId, sessionId, expectedLeaseVersion); }
-  catch (error) {
-    if (!(error instanceof SessionActivationError)) throw error;
-    await responder.edit(error.messageSpec);
-    return true;
-  }
-  await responder.clearActions();
-  logger.info("telegram.session.refresh_original_actions_cleared", {
-    chatId,
-    sessionId: refreshed.session.id,
-    messageId: context.sourceMessageId ?? null
-  });
-  await service.removeSessionRefreshStatus(chatId, refreshed.session.id);
-  await service.postSessionSwitchTranscript(chatId, refreshed.session, refreshed.recentMessages, {
-    purpose: "session_refresh"
-  });
-  logger.info("telegram.session.refresh_delivery_completed", {
-    chatId,
-    sessionId: refreshed.session.id,
-    messageId: context.sourceMessageId ?? null,
-    elapsedMs: Date.now() - startedAt
-  });
+  await input.acknowledge();
+  const state = await service.refreshSessionView(chatId, callback.sessionId, callback.expectedLeaseVersion);
+  await responder.edit(state);
   return true;
 }

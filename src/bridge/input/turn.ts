@@ -5,7 +5,7 @@ import { BridgeStore } from "../../store/index.js";
 import { KeyedQueue } from "../../shared/keyed-queue.js";
 import { logger } from "../../logging/logger.js";
 import { createMessage } from "../messages/factory.js";
-import { helpAction, messageAction, refreshAction, sessionAction } from "../messages/actions.js";
+import { helpAction, messageAction, sessionAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionOwnershipService } from "../sessions/ownership.js";
 import type { SessionProviderMismatch } from "../sessions/provider-state.js";
@@ -47,7 +47,7 @@ export type IncomingTurnDependencies = {
   isMissingRuntimeThreadError: (error: unknown) => boolean;
   isActiveWriterConflictError: (error: unknown) => boolean;
   findProviderMismatch: (session: SessionRecord, snapshot?: CodexConfigSnapshot) => Promise<SessionProviderMismatch | null>;
-  sessionRefreshCallback: (sessionId: string, leaseVersion?: number) => string;
+  sessionHandoffCallback: (sessionId: string, leaseVersion?: number) => string;
   createIncomingPromptSpec: (kind: MessageSpec["kind"], text: string, session: SessionRecord | null) => MessageSpec;
   createSessionActionSpec: (
     session: SessionRecord,
@@ -238,8 +238,8 @@ export class IncomingTurnService {
             prompt: this.deps.createSessionActionSpec(
               routedSession,
               "error",
-              "This Codex session could not be restored. No replacement session was created, so its history remains unchanged. Refresh the session or choose New session from the session menu.",
-              [refreshAction(this.deps.sessionRefreshCallback(routedSession.id)), sessionAction(), helpAction()]
+              "This Codex session could not be restored. No replacement session was created, so its history remains unchanged. Select the session again or choose New session from the session menu.",
+              [messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(routedSession.id)), sessionAction(), helpAction()]
             )
           };
         } else if (this.deps.isActiveWriterConflictError(error)) {
@@ -251,9 +251,9 @@ export class IncomingTurnService {
             error: error instanceof Error ? error.message : String(error)
           });
           const ownershipPrompt = options ? null : await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(routedSession, input.telegramChatId, { retryExternal: false });
-          const fallbackText = "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, then refresh.";
+          const fallbackText = "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, try Use this session next again.";
           const fallbackSpec = this.deps.createSessionActionSpec(routedSession, "error", fallbackText, [
-            refreshAction(this.deps.sessionRefreshCallback(routedSession.id, lease.version))
+            messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(routedSession.id, lease.version))
           ]);
           return { routed: false, prompt: ownershipPrompt ?? fallbackSpec };
         } else {

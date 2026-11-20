@@ -397,6 +397,12 @@ export class SessionRepository {
     return chat?.activeSessionId ? this.getById(chat.activeSessionId) : null;
   }
 
+  /** Synchronous intent check for guards immediately preceding ownership transactions. */
+  getSelectedSessionId(sourceId: string): string | null {
+    return this.db.select({ id: chatsTable.activeSessionId }).from(chatsTable)
+      .where(eq(chatsTable.telegramChatId, sourceId)).get()?.id ?? null;
+  }
+
   async getLatestActiveSessionForChatPrefix(chatIdPrefix: string): Promise<SessionRecord | null> {
     const row = this.sqlite.prepare(`
       SELECT s.*

@@ -122,6 +122,7 @@ test("handlers declare selector navigation separately from action results, retai
   const result = createMessage({ scope: "global", kind: "system", body: [{ type: "text", text: "Result" }] });
   const service = {
     renderSessionMenu: async () => menu, renderSessionSectionMenu: async () => menu, renderArchivedSessionMenu: async () => menu,
+    postSessionHandoffHistory: async () => {},
     requestSessionHandoff: async () => result, archiveSession: async () => result, requestDeleteSession: async () => result,
     deleteSession: async () => result, releaseBridgeSessionLock: async () => result, releaseCodexSession: async () => result,
     requestCreateSessionFromDirectorySelector: async () => result, unarchiveSession: async () => result

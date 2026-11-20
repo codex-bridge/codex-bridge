@@ -1,6 +1,6 @@
 import { createMessage } from "../messages/factory.js";
 import { sourceLabel } from "./binding.js";
-import { actionRow, helpAction, messageAction, refreshAction, sessionAction } from "../messages/actions.js";
+import { actionRow, helpAction, messageAction, sessionAction } from "../messages/actions.js";
 import type { MessageKind, MessageSpec } from "../messages/types.js";
 import { CodexAppServerClient } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
@@ -31,7 +31,6 @@ export type SessionOwnershipDependencies = {
     body: string,
     actions: MessageSpec["actions"]
   ) => MessageSpec;
-  sessionRefreshCallback: (sessionId: string, leaseVersion?: number) => string;
   sessionHandoffCallback: (sessionId: string, leaseVersion?: number) => string;
 };
 
@@ -55,45 +54,35 @@ export class SessionOwnershipService {
     const ownership = this.deps.store.claimSession(session.id, telegramChatId);
     if (ownership.owned) return null;
 
-    const owner = ownership.lease.ownerBindingId
-      ? this.deps.store.getSessionBindingById(ownership.lease.ownerBindingId)
-      : null;
-    const ownerLabel = owner
-      ? sourceLabel(owner.sourceId)
-      : "another conversation";
-    if (ownership.lease.state === "external_unknown") {
-      const text = [
-        "This session is occupied outside the Bridge.",
-        "Wait for the external Codex operation to finish, then refresh.",
-        "A handoff cannot be requested while external work is active."
-      ].join("\n");
-      return createMessage({
-        kind: "error",
-        session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-        body: [{ type: "text", text }],
-        actions: actionRow(
-          refreshAction(this.deps.sessionRefreshCallback(session.id, ownership.lease.version)),
-          helpAction()
-        )
-      });
-    }
-    const text = [
-      `Session is currently in use by ${ownerLabel}.`,
-      "This conversation is read-only until it owns the next turn.",
-      ownership.lease.state === "handoff_pending"
-        ? "A handoff request is already pending; the latest request wins."
-        : "Use the button below to request the next turn."
-    ].join("\n");
+    return this.getSessionStatePrompt(session, telegramChatId);
+  }
+
+  /** Presentation only: never claims, selects, resumes, or reconciles a lease. */
+  getSessionStatePrompt(session: SessionRecord, sourceId: string, notice?: string): MessageSpec {
+    const lease = this.deps.store.getSessionLease(session.id);
+    const binding = this.deps.store.getSessionBinding(session.id, sourceId);
+    const owner = lease?.ownerBindingId ? this.deps.store.getSessionBindingById(lease.ownerBindingId) : null;
+    const isOwner = Boolean(binding && owner?.id === binding.id);
+    const pendingHere = Boolean(binding && lease?.pendingBindingId === binding.id);
+    const available = session.codexArchivedAt === null &&
+      (!lease || ["unbound", "active", "handoff_pending", "external_unknown"].includes(lease.state));
+    let state: string;
+    if (session.codexArchivedAt !== null) state = "This session is archived.";
+    else if (lease?.state === "external_unknown") state = "This session is occupied outside the Bridge. Use this session next to try again after external work finishes.";
+    else if (isOwner) state = "Session is now bound to this conversation.";
+    else if (pendingHere) state = "Waiting for handoff. Recent conversation will appear automatically when accepted work finishes and this conversation acquires the session.";
+    else if (owner) state = `Session is currently in use by ${sourceLabel(owner.sourceId)}.` +
+      (lease?.pendingBindingId ? " Another conversation is waiting for handoff; the latest request wins." : "");
+    else state = available ? "This session is not bound. Use this session next to acquire it." : "This session is temporarily unavailable.";
     return createMessage({
-      kind: "error",
+      kind: isOwner || pendingHere ? "system" : "error",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-      body: [{ type: "text", text }],
+      body: [{ type: "text", text: [notice, state].filter(Boolean).join("\n") }],
       actions: actionRow(
-        ...(ownership.lease.state === "active" || ownership.lease.state === "handoff_pending"
-          ? [messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(session.id, ownership.lease.version))]
+        ...(available && !isOwner && !pendingHere
+          ? [messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(session.id, lease?.version))]
           : []),
-        refreshAction(this.deps.sessionRefreshCallback(session.id, ownership.lease.version)),
-        helpAction()
+        sessionAction(), helpAction()
       )
     });
   }

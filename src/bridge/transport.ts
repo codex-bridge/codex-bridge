@@ -6,6 +6,8 @@ export type UnavailableThreadNotice =
   | { kind: "action-required" };
 
 export type BridgeMessageOptions = {
+  /** Recheck revocable delivery authorization immediately before each send. */
+  canSend?: () => Promise<boolean>;
   disable_notification?: boolean;
   formattedText?: string;
   messageSpec?: MessageSpec;

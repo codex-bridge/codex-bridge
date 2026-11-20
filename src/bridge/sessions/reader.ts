@@ -10,7 +10,6 @@ export type SessionReaderDependencies = {
   store: BridgeStore;
   codexClient: CodexAppServerClient;
   isRuntimeConnected: () => boolean;
-  recoverExternalSession: (session: SessionRecord) => Promise<number | null>;
   getSessionDirectory: (session: SessionRecord) => string;
   readDisplayPathFromRollout: (rolloutPath: string) => Promise<string | null>;
   pickDirectory: (...values: Array<string | null | undefined>) => string | null;
@@ -129,7 +128,4 @@ export class SessionReader {
     return { session, recentMessages };
   }
 
-  async reconcileExternalSessionLease(session: SessionRecord): Promise<boolean> {
-    return (await this.deps.recoverExternalSession(session)) !== null;
-  }
 }

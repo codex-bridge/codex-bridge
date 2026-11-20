@@ -13,6 +13,14 @@ export type SessionTranscriptHistoryBlock = {
   messageSpec: MessageSpec | null;
 };
 
+export function createSessionHistoryBlocks(directory: string, messages: TranscriptMessage[]): SessionTranscriptHistoryBlock[] {
+  return messages.filter((message) => message.role === "user" || message.role === "assistant").slice(-5).map((message) => {
+    const messageSpec = createTranscriptMessageSpec({ directory, role: message.role, text: message.text,
+      ...assistantPresentation(message), sourceItemId: message.sourceItemId });
+    return { text: renderLegacyMessage(messageSpec), assistant: message.role === "assistant", messageSpec };
+  });
+}
+
 export type SessionTranscriptServiceDependencies = {
   listRecentMessages: (sessionId: string, limit: number) => Promise<TranscriptMessage[]>;
   listPendingDecisions: (sessionId: string) => Promise<DecisionRecord[]>;
@@ -24,7 +32,6 @@ export type SessionTranscriptServiceDependencies = {
   sendHistoryBlocks: (chatId: string, blocks: SessionTranscriptHistoryBlock[], purpose: string) => Promise<void>;
   sendDecisionMessage: (session: SessionRecord, decision: DecisionRecord) => Promise<void>;
   syncBatchDecisionMessage: (session: SessionRecord) => Promise<void>;
-  postSessionRefreshStatus: (chatId: string, session: SessionRecord) => Promise<void>;
   sendGoNextHelpActions: (chatId: string, session: SessionRecord) => Promise<void>;
 };
 
@@ -35,9 +42,9 @@ export class SessionTranscriptService {
     telegramChatId: string,
     session: SessionRecord,
     recentMessages?: TranscriptMessage[],
-    options?: { heading?: string; purpose?: "session_switch" | "session_refresh" }
+    options?: { heading?: string }
   ): Promise<void> {
-    const operation = options?.purpose ?? "session_switch";
+    const operation = "session_switch";
     const directory = this.deps.getSessionDirectory(session);
     const history = (recentMessages ?? await this.deps.listRecentMessages(session.id, 5))
       .filter((message) => message.role === "user" || message.role === "assistant")
@@ -104,20 +111,7 @@ export class SessionTranscriptService {
     } else {
       await this.deps.sendHistoryBlocks(
         telegramChatId,
-        history.map((message) => {
-          const messageSpec = createTranscriptMessageSpec({
-            directory,
-            role: message.role,
-            text: message.text,
-            ...assistantPresentation(message),
-            sourceItemId: message.sourceItemId
-          });
-          return {
-            text: renderLegacyMessage(messageSpec),
-            assistant: message.role === "assistant",
-            messageSpec
-          };
-        }),
+        createSessionHistoryBlocks(directory, history),
         `${operation}_history`
       );
     }
@@ -152,9 +146,6 @@ export class SessionTranscriptService {
       await this.deps.sendDecisionMessage(session, decision);
     }
     await this.deps.syncBatchDecisionMessage(session);
-    if (operation === "session_refresh") {
-      await this.deps.postSessionRefreshStatus(telegramChatId, session);
-    }
     await this.deps.sendGoNextHelpActions(telegramChatId, session);
     logger.info("bridge.session.transcript_completed", {
       chatId: telegramChatId,

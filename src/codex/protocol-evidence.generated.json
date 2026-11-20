@@ -541,6 +541,7 @@
       "src/bridge/sessions/mutation.ts",
       "src/bridge/sessions/ownership.ts",
       "src/bridge/sessions/stop.ts",
+      "src/bridge/sessions/view.ts",
       "src/bridge/status/formatters.ts",
       "src/bridge/status/mcp-startup.ts",
       "src/codex/activity-events.ts",

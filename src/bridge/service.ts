@@ -27,6 +27,7 @@ import { SessionBindingService, bindingEventText } from "./sessions/binding.js";
 import { WEB_SOURCE_ID } from "../shared/source-address.js";
 import { SessionReader } from "./sessions/reader.js";
 import { ExternalSessionRecoveryService } from "./sessions/external-recovery.js";
+import { SessionHandoffHistoryService } from "./sessions/handoff-history.js";
 import { SessionViewService } from "./sessions/view.js";
 import { SessionActivationService } from "./sessions/activation.js";
 import { SessionCreationService } from "./sessions/creation.js";
@@ -56,7 +57,6 @@ import { TokenUsageTracker } from "./status/token-usage.js";
 import { StatusLifecycleService } from "./status/lifecycle.js";
 import { SessionActionGuardService } from "./sessions/action-guards.js";
 import { SessionStopService } from "./sessions/stop.js";
-import { SessionRefreshStatusService } from "./sessions/refresh-status.js";
 import { SessionInteractionService } from "./sessions/interaction.js";
 import { renderSessionStatus } from "./sessions/state-presentation.js";
 import { SessionRecoveryService } from "./sessions/recovery.js";
@@ -71,7 +71,7 @@ import { RuntimePromptFactory } from "./messages/runtime-prompts.js";
 import { helpMenuActions } from "./messages/actions.js";
 import type { ActionSpec, MessageSpec, SessionContext } from "./messages/types.js";
 import { BridgeMessageOperations } from "./messages/operations.js";
-import { SessionTranscriptService } from "./sessions/transcript.js";
+import { SessionTranscriptService, createSessionHistoryBlocks } from "./sessions/transcript.js";
 import {
   SessionMenuService,
 } from "./sessions/menu.js";
@@ -123,7 +123,6 @@ import {
   type TelegramTextChunk
 } from "../telegram/text.js";
 import type { BridgeMessageTransport } from "./transport.js";
-import type { SessionTranscript } from "./contracts.js";
 import { AssistantReplyService } from "./interactions/assistant-replies.js";
 import { UserInputService, type UserQuestionAction } from "./decisions/user-input.js";
 import type {
@@ -145,7 +144,6 @@ export class BridgeService {
   private readonly sessionActionGuardService: SessionActionGuardService;
   private readonly sessionStopService: SessionStopService;
   private readonly sessionCompactService: SessionCompactService;
-  private readonly sessionRefreshStatusService: SessionRefreshStatusService;
   private readonly sessionInteractionService: SessionInteractionService;
   // COMPATIBILITY(TEST): keep the old test seam while callers migrate to RuntimeController.
   private get runtimeState(): RuntimeState {
@@ -173,6 +171,7 @@ export class BridgeService {
   private readonly sessionOwnershipService: SessionOwnershipService;
   private readonly sessionReader: SessionReader;
   private readonly sessionViewService: SessionViewService;
+  private readonly sessionHandoffHistory: SessionHandoffHistoryService;
   private readonly sessionActivationService: SessionActivationService;
   private readonly sessionCreationService: SessionCreationService;
   private readonly sessionRecoveryService: SessionRecoveryService;
@@ -268,7 +267,6 @@ export class BridgeService {
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       canReadThreadStatus: () => this.canReadThreadStatus(),
       createSessionActionSpec,
-      sessionRefreshCallback: (sessionId, leaseVersion) => createSessionActionCallback("refresh", sessionId, leaseVersion),
       sessionHandoffCallback: (sessionId, leaseVersion) => createSessionActionCallback("handoff", sessionId, leaseVersion)
     });
     this.sessionDiscoveryService = new SessionDiscoveryService({
@@ -298,11 +296,13 @@ export class BridgeService {
       onStateChanged: (sourceId) => this.updateConversationSession(sourceId),
       notify: async (event) => {
         if (event.sourceId === WEB_SOURCE_ID) return; // Web uses metadata-only SSE events.
+        if (event.kind === "acquired" && !await this.sessionHandoffHistory.canDeliver(event)) return;
         await this.messageOperations.sendLongSpec(event.sourceId, createMessage({
           kind: "system", session: { id: event.threadId, directory: event.directory },
           body: [{ type: "text", text: bindingEventText(event) }]
         }), { disable_notification: true,
           unavailableThreadNotice: { kind: "management", text: bindingEventText(event) } });
+        if (event.kind === "acquired") await this.postSessionHandoffHistory(event.sourceId, event.sessionId);
       }
     });
     this.sessionMutationService = new SessionMutationService({
@@ -312,6 +312,7 @@ export class BridgeService {
       isRuntimeConnected: () => this.isRuntimeConnected(),
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
       bindingService: this.sessionBindingService,
+      renderSessionState: (session, sourceId, notice) => this.sessionOwnershipService.getSessionStatePrompt(session, sourceId, notice),
       createSessionActionSpec,
       sessionRefreshCallback: (sessionId, leaseVersion) => createSessionActionCallback("refresh", sessionId, leaseVersion),
       sessionReleaseBridgeCallback: (sessionId, leaseVersion) => createSessionActionCallback("releaseBridge", sessionId, leaseVersion),
@@ -339,7 +340,6 @@ export class BridgeService {
       getSessionArchiveCallback: (chatId, sessionId) => this.getSessionArchiveCallback(chatId, sessionId),
       getSessionDeleteCallback: (chatId, sessionId) => this.getSessionDeleteCallback(chatId, sessionId),
       getSessionReleaseBridgeCallback: (chatId, sessionId) => this.getSessionReleaseBridgeCallback(chatId, sessionId),
-      sessionHandoffCallback: (sessionId, leaseVersion) => createSessionActionCallback("handoff", sessionId, leaseVersion),
       createCommandResultSpec,
       createSessionCommandResultSpec
     });
@@ -358,7 +358,6 @@ export class BridgeService {
       store,
       codexClient,
       isRuntimeConnected: () => this.isRuntimeConnected(),
-      recoverExternalSession,
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       readDisplayPathFromRollout: (rolloutPath) => this.rolloutReader.readDisplayPath(rolloutPath),
       pickDirectory,
@@ -366,7 +365,6 @@ export class BridgeService {
     });
     this.sessionViewService = new SessionViewService({
       store,
-      sessionReader: this.sessionReader,
       sessionOwnershipService: this.sessionOwnershipService
     });
     this.sessionActivationService = new SessionActivationService({
@@ -376,7 +374,7 @@ export class BridgeService {
       sessionOwnershipService: this.sessionOwnershipService,
       clearBatchDecisionMessage: (session) => this.decisionDelivery.clearBatchDecisionMessage(session),
       isActiveWriterConflictError,
-      sessionRefreshCallback: (sessionId, leaseVersion) => createSessionActionCallback("refresh", sessionId, leaseVersion),
+      sessionHandoffCallback: (sessionId, leaseVersion) => createSessionActionCallback("handoff", sessionId, leaseVersion),
       createSessionActionSpec
     });
     this.messageSender = new MessageDeliveryService({
@@ -461,15 +459,6 @@ export class BridgeService {
     this.notificationSessionContext = new NotificationSessionContext({
       router: this.notificationSessionRouter,
       rateLimitNotifier: this.rateLimitNotifier
-    });
-    this.sessionRefreshStatusService = new SessionRefreshStatusService({
-      store,
-      refreshStatusMessageBySession: state.refreshStatusMessageBySession,
-      getSessionDirectory: (session) => this.getSessionDirectory(session),
-      refreshSessionCallback: (sessionId, leaseVersion) => createSessionActionCallback("refresh", sessionId, leaseVersion),
-      editMessageSpec: (chatId, messageId, messageSpec, options) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec, options),
-      sendSpecAndGetLastMessage: (chatId, messageSpec, options) => this.messageOperations.sendSpecAndGetLastMessage(chatId, messageSpec, options),
-      requireMessageTransport: (chatId) => this.messageSender.requireTransport(chatId)
     });
     this.goalService = new GoalService({
       store,
@@ -688,7 +677,7 @@ export class BridgeService {
       isMissingRuntimeThreadError,
       isActiveWriterConflictError,
       findProviderMismatch: (session, snapshot) => this.sessionProviderStateService.findProviderMismatch(session, snapshot),
-      sessionRefreshCallback: (sessionId, leaseVersion) => createSessionActionCallback("refresh", sessionId, leaseVersion),
+      sessionHandoffCallback: (sessionId, leaseVersion) => createSessionActionCallback("handoff", sessionId, leaseVersion),
       createIncomingPromptSpec: (kind, text, session) => this.runtimePromptFactory.createIncoming(kind, text, session),
       createSessionActionSpec,
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec),
@@ -781,9 +770,21 @@ export class BridgeService {
       sendHistoryBlocks: (chatId, blocks, purpose) => this.historyDeliveryService.sendHistoryBlocks(chatId, blocks, purpose),
       sendDecisionMessage: (session, decision) => this.decisionDelivery.sendDecisionMessage(session, decision),
       syncBatchDecisionMessage: (session) => this.decisionDelivery.syncBatchDecisionMessage(session),
-      postSessionRefreshStatus: (chatId, session) => this.sessionRefreshStatusService.post(chatId, session),
       sendGoNextHelpActions: (chatId, session) => this.goShortcutService.sendAfterTranscript(session, chatId)
     });
+    this.sessionHandoffHistory = new SessionHandoffHistoryService({
+      store, reader: this.sessionReader,
+      deliver: async (sourceId, session, messages, canSend) => {
+        await this.messageOperations.sendLongSpec(sourceId, createMessage({ kind: "system",
+          titleLabel: "Recent conversation", session: { id: session.id, directory: this.getSessionDirectory(session) },
+          body: messages.length ? [] : [{ type: "text", text: "No recent messages in the last 5 entries." }]
+        }), { purpose: "session_handoff_heading", canSend });
+        await this.historyDeliveryService.sendHistoryBlocks(sourceId,
+          createSessionHistoryBlocks(this.getSessionDirectory(session), messages), "session_handoff_history", canSend);
+        if (await canSend()) await this.goShortcutService.sendAfterTranscript(session, sourceId, canSend);
+      }
+    });
+    this.sessionBindingService.subscribe((event) => this.sessionHandoffHistory.observe(event));
     this.runtimeStateCleanupService = new RuntimeStateCleanupService({
       threadMetadataCache: this.threadMetadataCache,
       inFlightTurnIds: state.inFlightTurnIdByThread,
@@ -1276,12 +1277,18 @@ export class BridgeService {
     return this.activateSession(telegramChatId, sessionId);
   }
 
+  async postSessionHandoffHistory(sourceId: string, sessionId: string): Promise<void> {
+    await this.sessionHandoffHistory.post(sourceId, sessionId);
+  }
+
   async refreshSessionView(
     telegramChatId: string,
     sessionId: string,
     expectedLeaseVersion?: number
-  ): Promise<SessionTranscript> {
-    return this.sessionViewService.refreshSessionView(telegramChatId, sessionId, expectedLeaseVersion);
+  ): Promise<MessageSpec> {
+    // Old callback versions are intentionally ignored for state-only reads.
+    void expectedLeaseVersion;
+    return this.sessionViewService.refreshSessionView(telegramChatId, sessionId);
   }
 
   async activateOrCreateSessionForDirectory(
@@ -1299,7 +1306,7 @@ export class BridgeService {
     telegramChatId: string,
     session: SessionRecord,
     recentMessages?: TranscriptMessage[],
-    options?: { heading?: string; purpose?: "session_switch" | "session_refresh" }
+    options?: { heading?: string }
   ): Promise<void> {
     return this.sessionTranscriptService.postSessionSwitchTranscript(
       telegramChatId,
@@ -1307,17 +1314,6 @@ export class BridgeService {
       recentMessages,
       options
     );
-  }
-
-  async postSessionRefreshStatus(
-    telegramChatId: string,
-    session: SessionRecord
-  ): Promise<void> {
-    return this.sessionRefreshStatusService.post(telegramChatId, session);
-  }
-
-  async removeSessionRefreshStatus(telegramChatId: string, sessionId: string): Promise<void> {
-    return this.sessionRefreshStatusService.remove(telegramChatId, sessionId);
   }
 
   async handleIncomingUserPayload(input: {

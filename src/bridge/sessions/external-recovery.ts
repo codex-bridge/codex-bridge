@@ -3,7 +3,7 @@ import { logger } from "../../logging/logger.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
 import { createMessage } from "../messages/factory.js";
-import { refreshAction } from "../messages/actions.js";
+import { messageAction } from "../messages/actions.js";
 import { createSessionActionCallback } from "./action-callbacks.js";
 import { SessionActivationError } from "./ownership.js";
 
@@ -65,7 +65,7 @@ export class ExternalSessionRecoveryService {
       const failure = new SessionActivationError(createMessage({ kind: "error",
         session: { id: session.id, directory },
         body: [{ type: "text", text: `Session recovery failed: ${reason}` }],
-        actions: [refreshAction(createSessionActionCallback("refresh", session.id, version))]
+        actions: [messageAction("handoff", "Use this session next", createSessionActionCallback("handoff", session.id, version))]
       }));
       failure.message = `Session recovery failed: ${reason}`;
       throw failure;

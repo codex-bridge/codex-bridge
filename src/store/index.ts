@@ -279,6 +279,10 @@ export class BridgeStore {
     return this.sessionRepository.getActiveSession(telegramChatId);
   }
 
+  getSelectedSessionId(sourceId: string): string | null {
+    return this.sessionRepository.getSelectedSessionId(sourceId);
+  }
+
   async getLatestActiveSessionForChatPrefix(chatIdPrefix: string): Promise<SessionRecord | null> {
     return this.sessionRepository.getLatestActiveSessionForChatPrefix(chatIdPrefix);
   }

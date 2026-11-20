@@ -74,7 +74,7 @@ export class BridgeMessageOperations {
   async sendTelegramTextChunksAndGetLastMessage(
     chatId: string,
     chunks: TelegramTextChunk[],
-    options?: Pick<BridgeMessageOptions, "purpose">
+    options?: Pick<BridgeMessageOptions, "purpose" | "canSend">
   ): Promise<LastSentMessage | null> {
     return this.deps.sender.sendTextChunksAndGetLastMessage(chatId, chunks, options);
   }

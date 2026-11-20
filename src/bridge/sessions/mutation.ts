@@ -1,4 +1,5 @@
-import { actionRow, archiveAction, deleteAction, helpAction, messageAction, refreshAction, sessionAction } from "../messages/actions.js";
+import { actionRow, archiveAction, deleteAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
+import { SessionActivationError } from "./ownership.js";
 import { SessionBindingService, sourceLabel } from "./binding.js";
 import type { MessageSpec } from "../messages/types.js";
 import { CodexAppServerClient } from "../../codex/client.js";
@@ -18,6 +19,7 @@ export type SessionMutationDependencies = {
     body: string,
     actions: MessageSpec["actions"]
   ) => MessageSpec;
+  renderSessionState: (session: SessionRecord, sourceId: string, notice?: string) => MessageSpec;
   sessionRefreshCallback: (sessionId: string, leaseVersion?: number) => string;
   sessionReleaseBridgeCallback: (sessionId: string, leaseVersion?: number) => string;
   sessionDeleteConfirmCallback: (sessionId: string, leaseVersion?: number) => string;
@@ -61,13 +63,26 @@ export class SessionMutationService {
   }
 
   async requestSessionHandoff(telegramChatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec> {
-    const { session, outcome: result } = await this.deps.bindingService.request(telegramChatId, sessionId, expectedLeaseVersion);
+    let requested;
+    try {
+      const selectedId = this.deps.store.getSelectedSessionId(telegramChatId);
+      const target = await this.deps.store.getSessionById(sessionId);
+      requested = await this.deps.bindingService.request(telegramChatId, sessionId, expectedLeaseVersion, () => {
+        if (this.deps.store.getSelectedSessionId(telegramChatId) !== selectedId) {
+          throw new SessionActivationError(this.result(target, "error", "Session selection changed. Use the latest selected session.", [sessionAction()]));
+        }
+      });
+    } catch (error) {
+      if (error instanceof SessionActivationError) return error.messageSpec;
+      throw error;
+    }
+    const { session, outcome: result } = requested;
     if (!session || !result) return this.result(session, "error", "This session is no longer available.", [sessionAction()]);
     if (result.reason === "stale") {
-      return this.result(session, "error", "This session action is stale. Refresh the session state before requesting a handoff.", [refreshAction(this.deps.sessionRefreshCallback(session.id, result.lease.version))]);
+      return this.deps.renderSessionState(session, telegramChatId, "The session state changed. These are the latest available actions.");
     }
     if (result.lease.state === "external_unknown") {
-      return this.result(session, "error", "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, then refresh.", [refreshAction(this.deps.sessionRefreshCallback(session.id, result.lease.version))]);
+      return this.deps.renderSessionState(session, telegramChatId);
     }
     if (result.owned) {
       const archiveCallback = await this.deps.getSessionArchiveCallback(telegramChatId, session.id);
@@ -90,10 +105,10 @@ export class SessionMutationService {
         "Next turn requested.",
         "The current conversation continues until its accepted work is finished.",
         ...(result.replacedSourceId ? [`Replaced the pending request from ${sourceLabel(result.replacedSourceId)}.`] : []),
-        "The latest request wins; refresh after the handoff completes."
-      ].join("\n"), [refreshAction(this.deps.sessionRefreshCallback(session.id, result.lease.version))]);
+        "Recent conversation will appear automatically after the handoff. The latest request wins."
+      ].join("\n"), [sessionAction()]);
     }
-    return this.result(session, "error", "This session is temporarily unavailable to this conversation.", [refreshAction(this.deps.sessionRefreshCallback(session.id, result.lease.version))]);
+    return this.result(session, "error", "This session is temporarily unavailable to this conversation.", [sessionAction()]);
   }
 
   async cancelSessionHandoff(sourceId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec> {
@@ -102,9 +117,9 @@ export class SessionMutationService {
     const result = await this.deps.bindingService.cancel(sourceId, session.id, expectedLeaseVersion);
     return this.result(session, result.cancelled ? "system" : "error",
       result.cancelled ? "Your pending session request was cancelled."
-        : result.reason === "stale" ? "This session action is stale. Refresh the session state."
+        : result.reason === "stale" ? "This session action is stale. Open Session to see the latest actions."
         : "There is no pending request from this conversation to cancel.",
-      [refreshAction(this.deps.sessionRefreshCallback(session.id, result.lease?.version))]);
+      [sessionAction()]);
   }
 
   async releaseBridgeSessionLock(telegramChatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec> {
@@ -112,20 +127,19 @@ export class SessionMutationService {
     if (!session) return this.result(null, "error", "This session is no longer available.", [sessionAction()]);
     const inFlight = this.deps.bindingService.hasPendingDispatch(session.codexThreadId) ||
       this.deps.inFlightTurnIdByThread.has(session.codexThreadId);
-    const lease = this.deps.store.getSessionLease(session.id);
     if (inFlight) {
-      return this.result(session, "error", "The Bridge lock cannot be released while work is still active.", [refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))]);
+      return this.result(session, "error", "The Bridge lock cannot be released while work is still active.", [sessionAction()]);
     }
     const result = this.deps.store.beginBridgeSessionRelease(session.id, telegramChatId, expectedLeaseVersion);
     if (!result.started) {
       const text = result.reason === "stale"
-        ? "This release action is stale. Refresh the session state first."
+        ? "This release action is stale. Open Session to see the latest actions."
         : result.reason === "not_owner"
           ? "Only the current owner can release the Bridge lock."
           : result.reason === "busy"
             ? "The Bridge lock cannot be released while work, a queue, a pending decision, or a handoff request is active."
           : "The Bridge lock cannot be released in the current session state.";
-      return this.result(session, "error", text, [refreshAction(this.deps.sessionRefreshCallback(session.id, result.lease.version))]);
+      return this.result(session, "error", text, [sessionAction()]);
     }
     let status: Awaited<ReturnType<CodexAppServerClient["unsubscribeThread"]>> | "connectionClosed" = "connectionClosed";
     try {
@@ -144,7 +158,7 @@ export class SessionMutationService {
       return this.result(session, "error", [
         "The Bridge lock was not released.",
         error instanceof Error ? error.message : String(error)
-      ].join("\n"), [refreshAction(this.deps.sessionRefreshCallback(session.id, restored?.version))]);
+      ].join("\n"), [sessionAction()]);
     }
     const released = this.deps.store.finishBridgeSessionRelease(session.id, result.lease.version, true);
     if (!released || released.state !== "unbound") {
@@ -174,12 +188,11 @@ export class SessionMutationService {
     const session = await this.deps.store.getSessionById(sessionId);
     if (!session) return this.result(null, "error", "This session is no longer available.", [sessionAction()]);
     if (this.deps.inFlightTurnIdByThread.has(session.codexThreadId) || (await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId)) > 0) {
-      return this.result(session, "error", "The Codex session cannot be released while a turn or accepted queue is still active.", [refreshAction(this.deps.sessionRefreshCallback(session.id, this.deps.store.getSessionLease(session.id)?.version))]);
+      return this.result(session, "error", "The Codex session cannot be released while a turn or accepted queue is still active.", [sessionAction()]);
     }
     const releasing = this.deps.store.beginCodexSessionRelease(session.id, expectedLeaseVersion);
     if (!releasing) {
-      const lease = this.deps.store.getSessionLease(session.id);
-      return this.result(session, "error", "The Codex session is no longer in a recoverable external-lock state. Refresh and try again.", [refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))]);
+      return this.result(session, "error", "The Codex session is no longer in a recoverable external-lock state. Open Session to see the latest actions.", [sessionAction()]);
     }
     try {
       await this.deps.codexClient.resumeThread(session.codexThreadId, this.deps.getSessionDirectory(session));
@@ -188,8 +201,7 @@ export class SessionMutationService {
     } catch (error) {
       this.deps.store.finishCodexSessionRelease(session.id, false);
       logger.warn("bridge.session.codex_release_failed", { chatId: telegramChatId, sessionId: session.id, threadId: session.codexThreadId, error: error instanceof Error ? error.message : String(error) });
-      const lease = this.deps.store.getSessionLease(session.id);
-      return this.result(session, "error", "The Codex session is still occupied externally. Wait for it to finish, then refresh. No interrupt was sent.", [refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))]);
+      return this.result(session, "error", "The Codex session is still occupied externally. Wait for it to finish, try Use this session next again. No interrupt was sent.", [sessionAction()]);
     }
   }
 
@@ -204,18 +216,18 @@ export class SessionMutationService {
     }
     const lease = this.deps.store.getSessionLease(session.id);
     const binding = this.deps.store.getSessionBinding(session.id, telegramChatId);
-    const refreshSpec = (body: string) => this.result(session, "error", body, [
-      refreshAction(this.deps.sessionRefreshCallback(session.id, this.deps.store.getSessionLease(session.id)?.version))
+    const unavailableSpec = (body: string) => this.result(session, "error", body, [
+      sessionAction()
     ]);
     if (expectedLeaseVersion !== undefined && lease?.version !== expectedLeaseVersion) {
-      return this.result(session, "error", "This archive action is stale. Refresh the session state first.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))
+      return this.result(session, "error", "This archive action is stale. Open Session to see the latest actions.", [
+        sessionAction()
       ]);
     }
     if (!lease || !binding || lease.ownerBindingId !== binding.id ||
       (lease.state !== "active" && lease.state !== "handoff_pending")) {
       return this.result(session, "error", "Only the current Bridge owner can archive this session.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))
+        sessionAction()
       ]);
     }
     const pendingCount = await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId);
@@ -223,7 +235,7 @@ export class SessionMutationService {
     const inFlight = this.deps.inFlightTurnIdByThread.get(session.codexThreadId);
     if (inFlight || lease.ownerTurnId || pendingCount > 0 || pendingDecisions.length > 0 ||
       await this.deps.store.getAwaitingInputDecisionForSession(session.id)) {
-      return refreshSpec("This session can be archived only when no turn, accepted queue, or pending approval is active.");
+      return unavailableSpec("This session can be archived only when no turn, accepted queue, or pending approval is active.");
     }
     try {
       await this.deps.codexClient.archiveThread(session.codexThreadId);
@@ -243,7 +255,7 @@ export class SessionMutationService {
         error: error instanceof Error ? error.message : String(error)
       });
       return this.result(session, "error", `Session archive failed.\n${error instanceof Error ? error.message : String(error)}`,
-        [refreshAction(this.deps.sessionRefreshCallback(session.id, this.deps.store.getSessionLease(session.id)?.version))]);
+        [sessionAction()]);
     }
   }
 
@@ -256,15 +268,15 @@ export class SessionMutationService {
     if (!session) return this.result(null, "error", "This session is no longer available.", [sessionAction()]);
     const lease = this.deps.store.getSessionLease(session.id);
     if (expectedLeaseVersion !== undefined && lease?.version !== expectedLeaseVersion) {
-      return this.result(session, "error", "This delete action is stale. Refresh the session state first.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))
+      return this.result(session, "error", "This delete action is stale. Open Session to see the latest actions.", [
+        sessionAction()
       ]);
     }
     const binding = this.deps.store.getSessionBinding(session.id, telegramChatId);
     if (!lease || !binding || lease.ownerBindingId !== binding.id ||
       (lease.state !== "active" && lease.state !== "handoff_pending")) {
       return this.result(session, "error", "Only the current Bridge owner can delete this session.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))
+        sessionAction()
       ]);
     }
     const pendingCount = await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId);
@@ -272,7 +284,7 @@ export class SessionMutationService {
     if (this.deps.inFlightTurnIdByThread.has(session.codexThreadId) || lease.ownerTurnId || pendingCount > 0 ||
       pendingDecisions.length > 0 || await this.deps.store.getAwaitingInputDecisionForSession(session.id)) {
       return this.result(session, "error", "This session can be deleted only when no turn, accepted queue, or pending approval is active.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease.version))
+        sessionAction()
       ]);
     }
     return this.result(session, "decision", "Delete this session permanently?\nThis removes the Codex thread and all Bridge history.", [
@@ -291,14 +303,14 @@ export class SessionMutationService {
     const lease = this.deps.store.getSessionLease(session.id);
     const binding = this.deps.store.getSessionBinding(session.id, telegramChatId);
     if (expectedLeaseVersion !== undefined && lease?.version !== expectedLeaseVersion) {
-      return this.result(session, "error", "This delete confirmation is stale. Refresh the session state first.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))
+      return this.result(session, "error", "This delete confirmation is stale. Open Session to see the latest actions.", [
+        sessionAction()
       ]);
     }
     if (!lease || !binding || lease.ownerBindingId !== binding.id ||
       (lease.state !== "active" && lease.state !== "handoff_pending")) {
       return this.result(session, "error", "Only the current Bridge owner can delete this session.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease?.version))
+        sessionAction()
       ]);
     }
     const pendingCount = await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId);
@@ -306,7 +318,7 @@ export class SessionMutationService {
     if (this.deps.inFlightTurnIdByThread.has(session.codexThreadId) || lease.ownerTurnId || pendingCount > 0 ||
       pendingDecisions.length > 0 || await this.deps.store.getAwaitingInputDecisionForSession(session.id)) {
       return this.result(session, "error", "This session can be deleted only when no turn, accepted queue, or pending approval is active.", [
-        refreshAction(this.deps.sessionRefreshCallback(session.id, lease.version))
+        sessionAction()
       ]);
     }
     try {
@@ -324,7 +336,7 @@ export class SessionMutationService {
         error: error instanceof Error ? error.message : String(error)
       });
       return this.result(session, "error", `Session delete failed.\n${error instanceof Error ? error.message : String(error)}`,
-        [refreshAction(this.deps.sessionRefreshCallback(session.id, this.deps.store.getSessionLease(session.id)?.version))]);
+        [sessionAction()]);
     }
   }
 

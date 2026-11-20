@@ -166,13 +166,14 @@ export class MessageDeliveryService {
   async sendTextChunksAndGetLastMessage(
     chatId: string,
     chunks: TelegramTextChunk[],
-    options?: Pick<BridgeMessageOptions, "purpose">
+    options?: Pick<BridgeMessageOptions, "purpose" | "canSend">
   ): Promise<{ messageId: string; text: string } | null> {
     return this.deps.queue.run(chatId, async () => {
       let lastSent: { messageId: string; text: string } | null = null;
       for (const chunk of chunks) {
         const sent = await this.sendDirect(chatId, chunk.plain, {
           purpose: options?.purpose,
+          canSend: options?.canSend,
           textFormat: chunk.html ? "html" : "plain",
           formattedText: chunk.html
         });
@@ -310,6 +311,7 @@ export class MessageDeliveryService {
       let lastSent: { message: BridgeSentMessage; renderedText?: string } | null = null;
       for (const chunk of chunks) {
         if (!transport.sendMessageSpec) break;
+        if (await options?.canSend?.() === false) return lastSent;
         const message = await transport.sendMessageSpec(chatId, chunk.spec, {
           ...options,
           messageSpec: chunk.spec
@@ -342,6 +344,7 @@ export class MessageDeliveryService {
     text: string,
     options?: BridgeMessageOptions
   ): Promise<BridgeSentMessage | null> {
+    if (await options?.canSend?.() === false) return null;
     const transport = this.requireTransport(chatId);
     if (options?.messageSpec && transport.sendMessageSpec) {
       return transport.sendMessageSpec(chatId, options.messageSpec, options);

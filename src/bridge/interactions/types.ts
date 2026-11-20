@@ -9,6 +9,7 @@ export type InteractionContext = {
   sourceSurface?: MessageSpec["surface"];
 };
 
-export type InteractionDelivery =
+export type InteractionDelivery = (
   | { mode: "send"; target: "conversation"; message: MessageSpec }
-  | { mode: "edit"; target: "surface"; message: MessageSpec };
+  | { mode: "edit"; target: "surface"; message: MessageSpec }
+) & { afterDelivery?: () => Promise<void> };

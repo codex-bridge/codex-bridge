@@ -1,4 +1,3 @@
-import type { RefreshStatusEntry } from "./sessions/refresh-status.js";
 import { McpStartupTracker } from "./status/mcp-startup.js";
 
 export type LastAssistantMessage = {
@@ -17,7 +16,6 @@ export type ModelRuntimeEvent = {
 };
 
 export class BridgeRuntimeState {
-  readonly refreshStatusMessageBySession = new Map<string, RefreshStatusEntry>();
   readonly lastUserInputBySession = new Map<string, string>();
   readonly recentResolvedMcpBySession = new Map<string, number>();
   readonly inFlightTurnIdByThread = new Map<string, string>();

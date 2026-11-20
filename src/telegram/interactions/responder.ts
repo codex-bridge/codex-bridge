@@ -14,7 +14,9 @@ export async function deliverTelegramInteraction(
 ): Promise<void> {
   if (delivery.mode === "edit" && context.sourceMessageId) {
     await responder.edit(delivery.message);
+    await delivery.afterDelivery?.();
     return;
   }
   await responder.send(delivery.message);
+  await delivery.afterDelivery?.();
 }

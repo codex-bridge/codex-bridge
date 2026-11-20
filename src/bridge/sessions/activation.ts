@@ -1,4 +1,4 @@
-import { helpAction, refreshAction, sessionAction } from "../messages/actions.js";
+import { helpAction, messageAction, sessionAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
 import { logger } from "../../logging/logger.js";
 import type { SessionRecord } from "../../shared/types.js";
@@ -21,7 +21,7 @@ export type SessionActivationDependencies = {
   clearBatchDecisionMessage: (session: SessionRecord) => Promise<void>;
   onSelectionChanged?: (sourceId: string) => Promise<void>;
   isActiveWriterConflictError: (error: unknown) => boolean;
-  sessionRefreshCallback: (sessionId: string, leaseVersion?: number) => string;
+  sessionHandoffCallback: (sessionId: string, leaseVersion?: number) => string;
   createSessionActionSpec: (
     session: SessionRecord | null,
     kind: MessageSpec["kind"],
@@ -100,7 +100,7 @@ export class SessionActivationService {
       const binding = this.deps.store.getSessionBinding(sessionId, telegramChatId);
       if (!binding || lease?.ownerBindingId !== binding.id) {
         throw new SessionActivationError(this.deps.createSessionActionSpec(session, "system",
-          "Session ownership changed. Refresh before continuing.", [sessionAction()]));
+          "Session ownership changed. Open Session to see the latest actions.", [sessionAction()]));
       }
       return result;
     } catch (error) {
@@ -118,8 +118,8 @@ export class SessionActivationService {
       const fallbackSpec = this.deps.createSessionActionSpec(
         session,
         "error",
-        "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, then refresh.",
-        [refreshAction(this.deps.sessionRefreshCallback(session.id, lease.version)), sessionAction(), helpAction()]
+        "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, try Use this session next again.",
+        [messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(session.id, lease.version)), sessionAction(), helpAction()]
       );
       throw new SessionActivationError(ownershipPrompt ?? fallbackSpec);
     }

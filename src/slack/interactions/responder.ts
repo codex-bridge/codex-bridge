@@ -7,12 +7,15 @@ export async function deliverSlackInteraction(
   delivery: InteractionDelivery
 ): Promise<void> {
   if (delivery.mode === "send" || context.sourceSurface === "session-status") {
-    await transport.sendMessageSpec(context.conversationId, delivery.message);
+    const sent = await transport.sendMessageSpec(context.conversationId, delivery.message);
+    if (sent) await delivery.afterDelivery?.();
     return;
   }
   if (!context.sourceMessageId) {
-    await transport.sendMessageSpec(context.conversationId, delivery.message);
+    const sent = await transport.sendMessageSpec(context.conversationId, delivery.message);
+    if (sent) await delivery.afterDelivery?.();
     return;
   }
-  await transport.editMessageSpec(context.surfaceId, context.sourceMessageId, delivery.message);
+  const edited = await transport.editMessageSpec(context.surfaceId, context.sourceMessageId, delivery.message);
+  if (edited) await delivery.afterDelivery?.();
 }

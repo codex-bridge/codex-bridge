@@ -103,3 +103,12 @@ Official references:
 - [Telegram BotFather](https://core.telegram.org/bots/features#botfather)
 - [Telegram bot privacy mode](https://core.telegram.org/bots/features#privacy-mode)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
+
+### Session handoff
+
+Use **Use this session next** to acquire a session. If another Bridge conversation
+is still working, the handoff waits for accepted work to finish. Once acquired,
+the latest five conversation messages appear automatically once. If external
+Codex still occupies the session, retry the same action after external work ends.
+Session occupancy prompts no longer require a separate Refresh action; old
+Refresh buttons show state only. Directory and session-list refreshes remain available.

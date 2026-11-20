@@ -32,7 +32,7 @@ test("shared dispatch blocks handoff while start waits for its real turn id, the
     } } as never, rememberNotificationSession: () => {}, getSessionDirectory: () => "/work", lastUserInputBySession: new Map(),
     statusRuntimeState: {} as never, sessionOwnershipService: {} as never, findProviderMismatch: async () => null,
     isStaleActiveTurnError: () => false, isMissingRuntimeThreadError: () => false, isActiveWriterConflictError: () => false,
-    sessionRefreshCallback: () => "unused", createIncomingPromptSpec: () => { throw new Error("unexpected prompt"); },
+    sessionHandoffCallback: () => "unused", createIncomingPromptSpec: () => { throw new Error("unexpected prompt"); },
     createSessionActionSpec: () => { throw new Error("unexpected prompt"); }, sendLongSpec: async () => {}, setSessionStatus: async () => {} });
   const operation = sender.route(session, { telegramChatId: "web:local", telegramMessageId: "one", text: "hello" });
   await started;

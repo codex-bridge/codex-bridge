@@ -52,14 +52,14 @@ export class GoShortcutService {
     this.deps.lastAssistantMessageByThread.delete(session.codexThreadId);
   }
 
-  async sendAfterTranscript(session: SessionRecord, chatId: string): Promise<void> {
+  async sendAfterTranscript(session: SessionRecord, chatId: string, canSend?: () => Promise<boolean>): Promise<void> {
     const active = await this.deps.store.getActiveSession(chatId);
     if (active?.id !== session.id) return;
     this.cancel(session.codexThreadId);
-    await this.maybeSend(session, chatId);
+    await this.maybeSend(session, chatId, canSend);
   }
 
-  private async maybeSend(session: SessionRecord, chatId = session.telegramChatId): Promise<void> {
+  private async maybeSend(session: SessionRecord, chatId = session.telegramChatId, canSend?: () => Promise<boolean>): Promise<void> {
     const pendingDecisions = await this.deps.store.listPendingDecisions(session.id);
     const awaitingInput = await this.deps.store.getAwaitingInputDecisionForSession(session.id);
     if (pendingDecisions.length > 0 || awaitingInput) {
@@ -76,7 +76,7 @@ export class GoShortcutService {
       )
     });
     await this.deps.messageOperations.sendMessageSpec(chatId, messageSpec, {
-      disable_notification: true
+      disable_notification: true, canSend
     });
   }
 }

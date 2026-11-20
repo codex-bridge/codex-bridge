@@ -28,7 +28,8 @@ export async function handleSessionAction(
   switch (action.type) {
     case "session.handoff":
       message = await service.requestSessionHandoff(chatId, action.sessionId, action.expectedLeaseVersion);
-      break;
+      return { ...sessionActionResultDelivery(context, message),
+        afterDelivery: () => service.postSessionHandoffHistory(chatId, action.sessionId) };
     case "session.archive":
       message = await service.archiveSession(chatId, action.sessionId, action.expectedLeaseVersion);
       break;

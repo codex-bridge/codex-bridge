@@ -457,7 +457,7 @@ test("Slack session selection reports external active-writer conflicts on repeat
     assert.equal((await store.getActiveSession(chatId))?.id, session.id);
     for (const message of edits) {
       assert.match(renderLegacyMessage(message), /occupied outside the Bridge/);
-      assert.deepEqual(message.actions.map((action) => action.id), ["refresh", "help"]);
+      assert.deepEqual(message.actions.map((action) => action.id), ["handoff", "session", "help"]);
     }
   } finally {
     store.close();
@@ -522,7 +522,7 @@ test("Slack root session selection sends actionable activation errors into the d
     assert.equal(sends.length, 1);
     assert.equal(sends[0]?.chatId, threadChatId);
     assert.match(renderLegacyMessage(sends[0]!.message), /occupied outside the Bridge/);
-    assert.deepEqual(sends[0]?.message.actions.map((action) => action.id), ["refresh", "help"]);
+    assert.deepEqual(sends[0]?.message.actions.map((action) => action.id), ["handoff", "session", "help"]);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -1744,9 +1744,9 @@ test("active writer conflicts preserve the session and mark external occupation"
 
     assert.equal(result.routed, false);
     assert.match(result.prompt ? renderLegacyMessage(result.prompt) : "", /occupied outside the Bridge/);
-    assert.match(result.prompt ? renderLegacyMessage(result.prompt) : "", /refresh/);
+    assert.match(result.prompt ? renderLegacyMessage(result.prompt) : "", /Use this session next/);
     assert.equal(result.prompt?.title, "Codex error · /workspace/project");
-    assert.deepEqual(result.prompt?.actions.map((action) => action.id), ["refresh", "help"]);
+    assert.deepEqual(result.prompt?.actions.map((action) => action.id), ["handoff", "session", "help"]);
     assert.equal((await store.getSessionLease(session.id))?.state, "external_unknown");
     assert.equal((await store.getActiveSession("chat-1"))?.id, session.id);
     assert.equal(discoveryCount, 0);
@@ -1861,7 +1861,7 @@ test("stale leases with a visible running Codex thread become external locks", a
   }
 });
 
-test("session refresh reads history without claiming or switching the session", async () => {
+test("legacy session refresh only shows state without claiming, switching, or reading history", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-refresh-view-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
@@ -1869,13 +1869,8 @@ test("session refresh reads history without claiming or switching the session", 
     testConfig(databasePath),
     store,
     {
-      readThreadStatus: async () => ({
-        activity: "idle",
-        activityType: "notLoaded"
-      }),
-      listRecentThreadMessages: async () => [
-        { role: "assistant", text: "latest", turnId: "turn-1", itemId: "item-1" }
-      ]
+      readThreadStatus: async () => { assert.fail("State view must not probe Codex"); },
+      listRecentThreadMessages: async () => { assert.fail("State view must not read history"); }
     } as unknown as CodexAppServerClient
   );
   (service as unknown as { runtimeState: "connected" }).runtimeState = "connected";
@@ -1903,7 +1898,8 @@ test("session refresh reads history without claiming or switching the session", 
 
     const result = await service.refreshSessionView("viewer-chat", viewed.id);
 
-    assert.equal(result.recentMessages[0]?.text, "latest");
+    assert.match(renderLegacyMessage(result), /currently in use/);
+    assert.equal(result.actions.some((action) => action.id === "handoff"), true);
     assert.equal((await store.getActiveSession("viewer-chat"))?.id, current.id);
     assert.equal(store.getSessionLease(viewed.id)?.ownerBindingId, store.getSessionBinding(viewed.id, "owner-chat")?.id);
   } finally {
@@ -1979,7 +1975,7 @@ for (const action of ["send", "select"] as const) {
   });
 }
 
-test("external session refresh retries ownership after Codex becomes idle", async () => {
+test("legacy external session refresh does not retry ownership even when Codex is idle", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-refresh-external-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
@@ -2011,8 +2007,9 @@ test("external session refresh retries ownership after Codex becomes idle", asyn
 
     const result = await service.refreshSessionView("viewer-chat", session.id);
 
-    assert.equal(result.session.id, session.id);
-    assert.equal(store.getSessionLease(session.id)?.ownerBindingId, store.getSessionBinding(session.id, "viewer-chat")?.id);
+    assert.equal(result.session?.id, session.id);
+    assert.equal(store.getSessionLease(session.id)?.ownerBindingId, null);
+    assert.equal(store.getSessionLease(session.id)?.state, "external_unknown");
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -2053,58 +2050,8 @@ test("external refresh keeps the session locked when notLoaded resume is still o
 
     const result = await service.refreshSessionView("viewer-chat", session.id);
 
-    assert.equal(result.session.id, session.id);
+    assert.equal(result.session?.id, session.id);
     assert.equal(store.getSessionLease(session.id)?.state, "external_unknown");
-  } finally {
-    store.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("refresh status is appended with the final external lock action", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-bridge-refresh-status-test-"));
-  const databasePath = join(directory, "bridge.sqlite");
-  const store = new BridgeStore(databasePath);
-  const sent: Array<{ text: string; callback: string | null }> = [];
-  const service = new BridgeService(
-    testConfig(databasePath),
-    store,
-    {} as unknown as CodexAppServerClient
-  );
-  service.registerMessageTransport({
-    name: "test",
-    canHandle: () => true,
-    sendMessage: async (_chatId, text, options) => {
-      sent.push({
-        text,
-        callback: options?.messageSpec?.actions[0]?.callback ?? null
-      });
-      return { message_id: String(sent.length) };
-    },
-    editMessageText: async () => true,
-    deleteMessage: async () => true,
-    clearMessageActions: async () => true,
-    sendTyping: async () => undefined
-  });
-
-  try {
-    const session = await store.upsertDiscoveredSession({
-      telegramChatId: "chat",
-      codexThreadId: "thread-refresh-status",
-      pathKey: "/workspace/status/rollout.jsonl",
-      currentCwd: "/workspace/status",
-      displayName: "status",
-      latestActivityAt: Date.now()
-    });
-    store.markSessionExternalUnknown(session.id);
-
-    await service.postSessionRefreshStatus("chat", session);
-
-    assert.match(sent[0]?.text ?? "", /^Codex · /);
-    assert.match(sent[0]?.text ?? "", /occupied outside the Bridge/);
-    assert.deepEqual(parseSessionActionCallback(sent[0]?.callback ?? ""), {
-      kind: "refresh", sessionId: session.id, expectedLeaseVersion: store.getSessionLease(session.id)?.version
-    });
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -2297,7 +2244,7 @@ test("session switch transcript shows saved active and new providers", async () 
   }
 });
 
-test("session refresh keeps the last five conversation messages and ends with Actions after external status", async () => {
+test("session transcript keeps the last five conversation messages and ends with Actions", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-refresh-transcript-test-"));
   const store = new BridgeStore(join(directory, "bridge.sqlite"));
   const sent: Array<{ chatId: string; text: string; actions: string[] }> = [];
@@ -2333,25 +2280,23 @@ test("session refresh keeps the last five conversation messages and ends with Ac
       { role: "assistant", text: "answer two" },
       { role: "user", text: "question three" },
       { role: "assistant", text: "answer three" }
-    ], { purpose: "session_refresh" });
+    ]);
 
-    assert.equal(sent.length, 9);
+    assert.equal(sent.length, 8);
     assert.ok(sent.every(({ chatId }) => chatId === "chat"));
     assert.deepEqual(sent.slice(1, 6).map(({ text }) => text.split("\n").slice(1).join("\n")), [
       "old answer", "question two", "answer two", "question three", "answer three"
     ]);
     assert.match(sent[6]?.text ?? "", /^Provider · /);
-    assert.match(sent[7]?.text ?? "", /occupied outside the Bridge/);
-    assert.deepEqual(sent[7]?.actions, ["Refresh"]);
-    assert.match(sent[8]?.text ?? "", /^Actions · /);
-    assert.deepEqual(sent[8]?.actions, ["Go", "Next", "Help"]);
+    assert.match(sent[7]?.text ?? "", /^Actions · /);
+    assert.deepEqual(sent[7]?.actions, ["Go", "Next", "Help"]);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("read-only refresh does not offer Go Next for a different active session", async () => {
+test("legacy refresh for a different active session sends no history or shortcuts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-readonly-transcript-test-"));
   const store = new BridgeStore(join(directory, "bridge.sqlite"));
   const sent: Array<{ chatId: string; text: string }> = [];
@@ -2385,13 +2330,10 @@ test("read-only refresh does not offer Go Next for a different active session", 
       latestActivityAt: Date.now()
     });
     await store.setActiveSession("chat", active.id);
-    await service.postSessionSwitchTranscript("chat", viewed, [{ role: "assistant", text: "viewed answer" }], {
-      purpose: "session_refresh"
-    });
-
-    assert.ok(sent.every(({ chatId }) => chatId === "chat"));
-    assert.ok(sent.some(({ text }) => text.includes("viewed answer")));
-    assert.ok(sent.every(({ text }) => !text.startsWith("Actions · ")));
+    const state = await service.refreshSessionView("chat", viewed.id);
+    assert.match(renderLegacyMessage(state), /older session entry/);
+    assert.deepEqual(sent, []);
+    assert.ok(state.actions.every((action) => action.id !== "go" && action.id !== "next"));
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });

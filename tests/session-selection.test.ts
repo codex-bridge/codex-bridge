@@ -85,7 +85,7 @@ test("slow activation cannot restore an older selection or expose its history", 
       started(); await new Promise<void>((resolve) => { finish = resolve; });
       return { session, recentMessages: [{ role: "assistant", text: "private history" }] };
     } }, isActiveWriterConflictError: () => false,
-    clearBatchDecisionMessage: async () => {}, sessionRefreshCallback: () => "unused",
+    clearBatchDecisionMessage: async () => {}, sessionHandoffCallback: () => "unused",
     createSessionActionSpec: (_session, kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }) });
   const result = activation.activateSession(next, first.id);
   await reading;

@@ -73,6 +73,13 @@ Session choices belong to each conversation, even while another conversation
 owns the session. A handoff completes the current choice; selecting a different
 session does not interrupt work already accepted in the previous one.
 
+Use **Use this session next** to acquire an occupied session. If Bridge work is
+still active, the handoff waits for accepted work to finish. After acquisition,
+Bridge automatically shows the latest five conversation messages once. External
+Codex occupancy requires another explicit attempt after external work finishes;
+Bridge does not wait for it in the background. Old session Refresh buttons show
+status only and cannot acquire a session or display its history.
+
 If a bound session's thread parent becomes unavailable, including because of the
 free plan's history limit, the next outgoing content creates a new session status
 card at the same channel root. That content and subsequent replies continue in

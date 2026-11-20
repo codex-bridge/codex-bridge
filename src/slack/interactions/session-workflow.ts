@@ -14,7 +14,6 @@ import { createMessage, messageContextForSession } from "../../bridge/messages/f
 import type { InteractionContext } from "../../bridge/interactions/types.js";
 import type { ActionSpec } from "../../bridge/messages/types.js";
 import { sessionActionResultDelivery } from "../../bridge/interactions/session-delivery.js";
-import { logger } from "../../logging/logger.js";
 import { isLockedSlackThread, isSlackThreadChatId } from "../routing.js";
 import type { SlackMessageTransport } from "../transport.js";
 import { isSlackThreadParent } from "./context.js";
@@ -119,39 +118,8 @@ export async function handleSlackSessionWorkflow(input: {
     return true;
   }
 
-  const startedAt = Date.now();
-  logger.info("slack.session.refresh_action_received", {
-    conversationId: chatId,
-    surfaceId: context.surfaceId,
-    sessionId: action.sessionId,
-    messageTs: context.sourceMessageId ?? null,
-    expectedLeaseVersion: action.expectedLeaseVersion ?? null
-  });
-  let refreshed;
-  try { refreshed = await service.refreshSessionView(chatId, action.sessionId, action.expectedLeaseVersion); }
-  catch (error) {
-    if (!(error instanceof SessionActivationError)) throw error;
-    await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context, error.messageSpec));
-    return true;
-  }
-  if (context.sourceMessageId) {
-    await transport.clearMessageActions(
-      context.surfaceId,
-      context.sourceMessageId,
-      input.messageText ?? undefined,
-      input.messageBlocks ?? undefined
-    );
-  }
-  await service.removeSessionRefreshStatus(chatId, refreshed.session.id);
-  await service.postSessionSwitchTranscript(chatId, refreshed.session, refreshed.recentMessages, {
-    purpose: "session_refresh"
-  });
-  logger.info("slack.session.refresh_delivery_completed", {
-    conversationId: chatId,
-    surfaceId: context.surfaceId,
-    sessionId: refreshed.session.id,
-    messageTs: context.sourceMessageId ?? null,
-    elapsedMs: Date.now() - startedAt
-  });
+  // Old Refresh buttons are state-only; they never acquire or expose history.
+  const state = await service.refreshSessionView(chatId, action.sessionId, action.expectedLeaseVersion);
+  await deliverSlackInteraction(transport, context, sessionActionResultDelivery(context, state));
   return true;
 }

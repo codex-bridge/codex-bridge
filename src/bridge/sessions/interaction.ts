@@ -3,7 +3,7 @@ import type { CodexThreadMetadataCache } from "../../codex/thread-metadata-cache
 import { formatSessionMarker } from "../../shared/session-tag.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { BridgeStore } from "../../store/index.js";
-import { archiveAction, deleteAction, helpAction, messageAction, sessionAction } from "../messages/actions.js";
+import { archiveAction, deleteAction, messageAction, sessionAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionOwnershipService } from "./ownership.js";
 import type { CurrentSessionSnapshot } from "./state-presentation.js";
@@ -14,14 +14,13 @@ export type SessionInteractionDependencies = {
   store: BridgeStore;
   codexClient: Pick<CodexAppServerClient, "setThreadName">;
   threadMetadataCache: Pick<CodexThreadMetadataCache, "setName">;
-  sessionOwnershipService: Pick<SessionOwnershipService, "getSessionOwnershipPrompt">;
+  sessionOwnershipService: Pick<SessionOwnershipService, "getSessionOwnershipPrompt" | "getSessionStatePrompt">;
   sessionMenuSnapshots: { clear: () => void };
   getSessionDirectory: (session: SessionRecord) => string;
   parseSlackChatId: (chatId: string) => SlackChat;
   getSessionArchiveCallback: (chatId: string, sessionId: string) => Promise<string | null>;
   getSessionDeleteCallback: (chatId: string, sessionId: string) => Promise<string | null>;
   getSessionReleaseBridgeCallback: (chatId: string, sessionId: string) => Promise<string | null>;
-  sessionHandoffCallback: (sessionId: string, leaseVersion: number) => string;
   createCommandResultSpec: (kind: MessageSpec["kind"], body: string, actions?: MessageSpec["actions"]) => MessageSpec;
   createSessionCommandResultSpec: (session: SessionRecord, kind: MessageSpec["kind"], body: string, actions?: MessageSpec["actions"]) => MessageSpec;
 };
@@ -46,8 +45,6 @@ export class SessionInteractionService {
       actions: []
     };
 
-    if (snapshot.binding === "external") return { ...snapshot, actions: [helpAction()] };
-
     const isOwner = Boolean(binding && owner && binding.id === owner.id);
     if (isOwner && lease) {
       const archiveCallback = await this.deps.getSessionArchiveCallback(chatId, session.id);
@@ -63,15 +60,9 @@ export class SessionInteractionService {
       };
     }
 
-    if (lease && owner) {
-      return {
-        ...snapshot,
-        actions: [
-          messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(session.id, lease.version), "Current session")
-        ]
-      };
-    }
-    return snapshot;
+    return { ...snapshot,
+      actions: this.deps.sessionOwnershipService.getSessionStatePrompt(session, chatId).actions
+        .filter((action) => action.id === "handoff") };
   }
 
   async renameActiveSection(chatId: string, nameInput: string): Promise<MessageSpec> {

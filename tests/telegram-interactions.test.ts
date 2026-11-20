@@ -77,10 +77,8 @@ test("Telegram refresh accepts compact and legacy callbacks without losing the l
     const service = {
       refreshSessionView: async (chatId: string, id: string, version: number) => {
         assert.equal(chatId, "123"); assert.equal(id, sessionId); assert.equal(version, 1123);
-        return { session: { id: sessionId }, recentMessages: [] };
+        return message;
       },
-      removeSessionRefreshStatus: async () => { calls.push("remove-status"); },
-      postSessionSwitchTranscript: async () => { calls.push("transcript"); }
     } as unknown as BridgeTelegramSessionWorkflowPort;
     assert.equal(await handleTelegramSessionWorkflow({
       action: `${prefix}:${sessionId}:1123`,
@@ -88,10 +86,10 @@ test("Telegram refresh accepts compact and legacy callbacks without losing the l
       acknowledge: async () => { calls.push("acknowledge"); },
       responder: {
         clearActions: async () => { calls.push("clear"); },
-        edit: async () => { assert.fail("Unexpected error reply"); },
+        edit: async (state) => { assert.equal(state, message); calls.push("edit"); },
         send: async () => { assert.fail("Unexpected send"); }
       }, service
     }), true);
-    assert.deepEqual(calls, ["acknowledge", "clear", "remove-status", "transcript"]);
+    assert.deepEqual(calls, ["acknowledge", "edit"]);
   }
 });

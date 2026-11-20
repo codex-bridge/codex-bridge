@@ -61,6 +61,7 @@ export interface BridgeSessionMenuPort {
 
 export interface BridgeSessionMutationPort {
   requestSessionHandoff(chatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec>;
+  postSessionHandoffHistory(chatId: string, sessionId: string): Promise<void>;
   archiveSession(chatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec>;
   requestDeleteSession(chatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec>;
   deleteSession(chatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec>;
@@ -77,18 +78,15 @@ export interface BridgeSessionSelectionPort {
   getSessionDeleteCallback(chatId: string, sessionId: string): Promise<string | null>;
   getSessionReleaseBridgeCallback(chatId: string, sessionId: string): Promise<string | null>;
   renderSelectedSessionSpec(session: SessionRecord, actions?: MessageSpec["actions"]): Promise<MessageSpec>;
-  refreshSessionView(chatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<SessionTranscript>;
+  refreshSessionView(chatId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec>;
   postSessionSwitchTranscript(
     chatId: string,
     session: SessionRecord,
     recentMessages?: TranscriptMessage[],
     options?: {
       heading?: string;
-      purpose?: "session_switch" | "session_refresh";
     }
   ): Promise<void>;
-  postSessionRefreshStatus(chatId: string, session: SessionRecord): Promise<void>;
-  removeSessionRefreshStatus(chatId: string, sessionId: string): Promise<void>;
   renameActiveSectionMessage(chatId: string, nameInput: string): Promise<MessageSpec>;
 }
 

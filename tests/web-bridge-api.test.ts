@@ -50,7 +50,7 @@ async function sendFixture(t: TestContext, attachmentRoot?: string) {
     statusRuntimeState: { resetEditThrottle: () => {}, getLabel: () => null }, lastUserInputBySession: new Map(),
     sessionOwnershipService: {} as never, rememberNotificationSession: () => {}, getSessionDirectory: () => "/work",
     isStaleActiveTurnError: () => false, isMissingRuntimeThreadError: () => false, isActiveWriterConflictError: () => false,
-    findProviderMismatch: async () => null, sessionRefreshCallback: () => "unused",
+    findProviderMismatch: async () => null, sessionHandoffCallback: () => "unused",
     createIncomingPromptSpec: (kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
     createSessionActionSpec: (_session, kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
     sendLongSpec: async () => {}, setSessionStatus: async () => {} });

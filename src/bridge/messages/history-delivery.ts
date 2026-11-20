@@ -16,7 +16,7 @@ export type HistoryDeliveryDependencies = {
   sendTelegramTextChunksAndGetLastMessage: (
     chatId: string,
     chunks: TelegramTextChunk[],
-    options?: Pick<BridgeMessageOptions, "purpose">
+    options?: Pick<BridgeMessageOptions, "purpose" | "canSend">
   ) => Promise<{ messageId: string; text: string } | null>;
 };
 
@@ -26,11 +26,13 @@ export class HistoryDeliveryService {
   async sendHistoryBlocks(
     chatId: string,
     blocks: SessionTranscriptHistoryBlock[],
-    purpose: string
+    purpose: string,
+    canSend?: () => Promise<boolean>
   ): Promise<void> {
     if (!chatId.startsWith("slack:")) {
       for (const block of blocks) {
-        await this.sendHistoryBlock(block.text, block.assistant, chatId, purpose, block.messageSpec);
+        if (await canSend?.() === false) return;
+        await this.sendHistoryBlock(block.text, block.assistant, chatId, purpose, block.messageSpec, canSend);
       }
       return;
     }
@@ -42,6 +44,7 @@ export class HistoryDeliveryService {
         text: `${block.text.trimEnd()}\n\n_(${String(index + 1).padStart(2, "0")}/${String(total).padStart(2, "0")})_`,
         options: {
           purpose,
+          canSend,
           textFormat: "html" as const,
           ...(block.messageSpec ? { messageSpec: this.addHistorySequence(block.messageSpec, index, total) } : {})
         }
@@ -58,26 +61,27 @@ export class HistoryDeliveryService {
     assistant: boolean,
     chatId: string,
     purpose: string,
-    messageSpec: MessageSpec | null
+    messageSpec: MessageSpec | null,
+    canSend?: () => Promise<boolean>
   ): Promise<void> {
     if (!assistant) {
       if (messageSpec) {
-        await this.deps.sender.sendLongSpec(chatId, messageSpec, { purpose });
+        await this.deps.sender.sendLongSpec(chatId, messageSpec, { purpose, canSend });
       } else {
-        await this.deps.sender.sendLongText(chatId, text, { purpose, textFormat: "html" });
+        await this.deps.sender.sendLongText(chatId, text, { purpose, canSend, textFormat: "html" });
       }
       return;
     }
     if (messageSpec) {
-      await this.deps.sender.sendLongSpec(chatId, messageSpec, { purpose });
+      await this.deps.sender.sendLongSpec(chatId, messageSpec, { purpose, canSend });
       return;
     }
 
     const formattedChunks = this.deps.formatCodexTelegramHtml(text);
     if (formattedChunks) {
-      await this.deps.sendTelegramTextChunksAndGetLastMessage(chatId, formattedChunks, { purpose });
+      await this.deps.sendTelegramTextChunksAndGetLastMessage(chatId, formattedChunks, { purpose, canSend });
     } else {
-      await this.deps.sender.sendLongText(chatId, text, { purpose, textFormat: "html" });
+      await this.deps.sender.sendLongText(chatId, text, { purpose, canSend, textFormat: "html" });
     }
   }
 
