@@ -191,6 +191,15 @@ Successful startup calls Slack `auth.test` and logs `slack.app.ready`. Verify:
   apply to direct messages and channels.
 - **Socket Mode disconnects:** inspect the Bolt/WebSocket error first. Native
   reconnect is enabled; do not run a second Bridge with the same Slack tokens.
+- **Help or other buttons respond slowly:** inspect `slack.delivery.timing`.
+  Each send/edit records `queueWaitMs`, `operationMs`, and `totalMs`, plus
+  `apiCalls` for parent lookups and Slack writes. `messageLabel` identifies menus
+  such as Help. SDK-call durations include internal SDK scheduling; they are not
+  pure network timings. `retryWaitMs` measures the existing bounded rate-limit
+  wait separately. Total time already includes the queue, API calls and waits;
+  do not add these overlapping measurements together. A `returned` API call does
+  not prove delivery, and an `unconfirmed` operation can mean skipped or an unknown
+  outcome. No automatic resend or routing bypass is enabled by these diagnostics.
 - **A direct-message free-form prompt is ignored:** start with `sessions` or
   another root management command, then continue inside the resulting thread.
 

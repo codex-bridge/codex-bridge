@@ -5,6 +5,7 @@ import { logger } from "../logging/logger.js";
 import { readSlackSurface } from "./surfaces.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
 import { slackApiCall } from "./api-call.js";
+import { timeSlackApi } from "./delivery-timing.js";
 
 export type SlackDeliveryTarget = { channelId: string; threadTs: string | null };
 export type SlackThreadRecoveryResult = SlackDeliveryTarget | "pending" | null;
@@ -50,8 +51,8 @@ export class SlackThreadDelivery {
       }
     }
     try {
-      const response = await slackApiCall(() => this.client.chat.postMessage({ channel: target.channelId,
-        thread_ts: target.threadTs ?? undefined, ...content }));
+      const response = await slackApiCall(() => timeSlackApi("chat.postMessage", () => this.client.chat.postMessage({ channel: target.channelId,
+        thread_ts: target.threadTs ?? undefined, ...content })));
       const verified = await this.verifyDestination(chatId, target, response, options);
       if (verified === true) {
         if (response.ts) this.recovery?.sent(chatId, target, response.ts);
@@ -110,7 +111,7 @@ export class SlackThreadDelivery {
     }
     // chat.update does not promise thread_ts in its response. Its immutable ts addresses
     // the message already verified on send; do not interpret absent metadata as root.
-    await slackApiCall(() => this.client.chat.update({ channel: destination.channelId, ts: messageId, ...content }));
+    await slackApiCall(() => timeSlackApi("chat.update", () => this.client.chat.update({ channel: destination.channelId, ts: messageId, ...content })));
     logger.info("slack.message.edit", { chatId, ...destination, messageId, purpose: options?.purpose ?? null });
     return true;
   }
@@ -130,8 +131,8 @@ export class SlackThreadDelivery {
   private async messageAvailability(chatId: string, target: SlackDeliveryTarget, messageId: string): Promise<SlackMessageAvailability> {
     try {
       // history works with the bot history scopes on public/private channels and DMs.
-      const response = await this.client.conversations.history({ channel: target.channelId,
-        oldest: messageId, latest: messageId, inclusive: true, limit: 1 });
+      const response = await timeSlackApi("conversations.history", () => this.client.conversations.history({ channel: target.channelId,
+        oldest: messageId, latest: messageId, inclusive: true, limit: 1 }));
       if (response.ok !== true || !Array.isArray(response.messages)) {
         logger.warn("slack.thread.parent_unverified", { chatId, ...target });
         return { state: "unknown" };
@@ -164,7 +165,7 @@ export class SlackThreadDelivery {
     logger.warn("slack.message.destination_mismatch", { chatId, ...target, messageId: response.ts ?? null });
     if (!response.ts) return false;
     try {
-      const deleted = await this.client.chat.delete({ channel: response.channel ?? target.channelId, ts: response.ts });
+      const deleted = await timeSlackApi("chat.delete", () => this.client.chat.delete({ channel: response.channel ?? target.channelId, ts: response.ts! }));
       if (deleted.ok !== true) throw new Error("Slack did not confirm message retraction.");
       logger.info("slack.message.misroute_retracted", { chatId, messageId: response.ts });
     } catch (error) {
@@ -188,9 +189,9 @@ export class SlackThreadDelivery {
       : "A session needs approval or input. Rebind it in an available conversation to review the request.";
     const text = `System\nOriginal Slack thread ${target.threadTs} is unavailable.\n${body}`;
     try {
-      const response = await this.client.chat.postMessage({ channel: target.channelId, text,
+      const response = await timeSlackApi("chat.postMessage", () => this.client.chat.postMessage({ channel: target.channelId, text,
         // Plain text only: never carry original content, inferred actions or callback payloads.
-        blocks: [{ type: "section", text: { type: "plain_text", text: Array.from(text).slice(0, 2900).join("") } }] });
+        blocks: [{ type: "section", text: { type: "plain_text", text: Array.from(text).slice(0, 2900).join("") } }] }));
       await this.verifyDestination(chatId, { ...target, threadTs: null }, response, { purpose: "unavailable-thread-notice" });
     } catch (error) {
       this.logFailure("slack.message.root_notice_failed", chatId, target, error);

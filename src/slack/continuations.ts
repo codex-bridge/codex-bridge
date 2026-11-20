@@ -8,6 +8,7 @@ import { buildSlackChatId, parseSlackChatId } from "./transport.js";
 import { renderSlackMessageSpec } from "./message-renderer.js";
 import type { SlackDeliveryTarget, SlackThreadRecoveryResult } from "./thread-delivery.js";
 import { slackApiCall } from "./api-call.js";
+import { timeSlackApi } from "./delivery-timing.js";
 
 const RECOVERY_EVENT = "bridge_thread_continuation";
 
@@ -94,9 +95,9 @@ export class SlackContinuations {
         if (pending.state !== "pending") return this.target(logical);
         let response;
         try {
-          response = await slackApiCall(() => this.deps.client.chat.postMessage({ channel: ref.channelId,
+          response = await slackApiCall(() => timeSlackApi("chat.postMessage", () => this.deps.client.chat.postMessage({ channel: ref.channelId,
             text: spec.title, blocks: renderSlackMessageSpec(logical, spec, this.deps.callbackSecret ?? null),
-            metadata: { event_type: RECOVERY_EVENT, event_payload: { operation_id: pending.operationId } } }));
+            metadata: { event_type: RECOVERY_EVENT, event_payload: { operation_id: pending.operationId } } })));
         } catch (error) {
           // Only an explicit rejected write is safe to retry. Server/transport failures
           // may have created the root; keep the pending operation for reconciliation.
@@ -129,8 +130,8 @@ export class SlackContinuations {
     // The root already exists. A status refresh failure must not create another one.
     try {
       const spec = await this.deps.rootSpec(pending.sourceId, threadTs, sessionId);
-      if (spec) await this.deps.client.chat.update({ channel: ref.channelId, ts: threadTs,
-        text: spec.title, blocks: renderSlackMessageSpec(pending.sourceId, spec, this.deps.callbackSecret ?? null) });
+      if (spec) await timeSlackApi("chat.update", () => this.deps.client.chat.update({ channel: ref.channelId, ts: threadTs,
+        text: spec.title, blocks: renderSlackMessageSpec(pending.sourceId, spec, this.deps.callbackSecret ?? null) }));
     } catch (error) {
       logger.warn("slack.continuation.status_update_failed", { sourceId: pending.sourceId, error: String(error) });
     }
@@ -151,8 +152,8 @@ export class SlackContinuations {
     // Search only the creation window. An incomplete/empty search is never proof
     // that an uncertain write failed; it never authorizes a second root creation.
     for (let page = 0; page < 4; page++) {
-      const result = await this.deps.client.conversations.history({ channel: ref.channelId,
-        oldest: String(pending.startedAt / 1000 - 2), limit: 100, include_all_metadata: true, cursor });
+      const result = await timeSlackApi("conversations.history", () => this.deps.client.conversations.history({ channel: ref.channelId,
+        oldest: String(pending.startedAt / 1000 - 2), limit: 100, include_all_metadata: true, cursor }));
       if (result.ok !== true) return "pending";
       const matches = result.messages?.filter((message) => message.user === botUserId && message.ts &&
         (!message.thread_ts || message.thread_ts === message.ts) &&

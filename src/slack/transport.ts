@@ -16,6 +16,8 @@ import { SlackThreadDelivery } from "./thread-delivery.js";
 import { withCurrentSlackThread, type SlackContinuations } from "./continuations.js";
 import { KeyedQueue } from "../shared/keyed-queue.js";
 import type { InteractionContext } from "../bridge/interactions/types.js";
+import { performance } from "node:perf_hooks";
+import { timeSlackApi, timeSlackDelivery, type SlackDeliveryOperation } from "./delivery-timing.js";
 
 type SlackChatRef = {
   channelId: string;
@@ -80,9 +82,13 @@ export class SlackMessageTransport implements BridgeMessageTransport {
       surfaceId: this.resolveConversationId(context.surfaceId) };
   }
 
-  private inConversation<T>(chatId: string, operation: (sourceId: string) => Promise<T>): Promise<T> {
+  private inConversation<T>(chatId: string, name: SlackDeliveryOperation,
+    operation: (sourceId: string) => Promise<T>, spec?: MessageSpec): Promise<T> {
     const sourceId = this.resolveConversationId(chatId);
-    return this.continuations ? this.endpointQueue.run(sourceId, () => operation(sourceId)) : operation(sourceId);
+    const queuedAt = performance.now();
+    const run = () => timeSlackDelivery({ chatId: sourceId, operation: name, queuedAt, queued: Boolean(this.continuations),
+      messageKind: spec?.kind, messageLabel: spec?.title.split(" · ", 1)[0] }, () => operation(sourceId));
+    return this.continuations ? this.endpointQueue.run(sourceId, run) : run();
   }
 
   private target(chatId: string): SlackChatRef {
@@ -107,10 +113,10 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     text: string,
     options?: BridgeMessageOptions
   ): Promise<BridgeSentMessage | null> {
-    return this.inConversation(chatId, async (sourceId) => {
+    return this.inConversation(chatId, "send", async (sourceId) => {
       const ref = this.target(sourceId);
       return this.delivery.send(sourceId, ref, { text, blocks: this.buildBlocks(sourceId, text, options) }, options);
-    });
+    }, options?.messageSpec);
   }
 
   async editMessageText(
@@ -119,7 +125,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     text: string,
     options?: BridgeMessageOptions
   ): Promise<boolean> {
-    return this.inConversation(chatId, async (sourceId) => {
+    return this.inConversation(chatId, "edit", async (sourceId) => {
       const ref = this.target(sourceId);
       const mapped = this.continuations?.message(sourceId, messageId);
       const updatedOptions = options?.messageSpec ? { ...options,
@@ -138,7 +144,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
         const legacySpec = { ...updatedOptions.messageSpec, presentation: undefined };
         return edit(renderSlackMessageSpec(sourceId, legacySpec, this.callbackSecret));
       }
-    });
+    }, options?.messageSpec);
   }
 
   async editMessageSpec(
@@ -151,11 +157,11 @@ export class SlackMessageTransport implements BridgeMessageTransport {
   }
 
   async deleteMessage(chatId: string, messageId: string): Promise<boolean> {
-    return this.inConversation(chatId, async (sourceId) => {
+    return this.inConversation(chatId, "delete", async (sourceId) => {
       const ref = this.target(sourceId);
       const mapped = this.continuations?.message(sourceId, messageId);
       if (mapped?.replace) return false;
-      await this.client.chat.delete({ channel: ref.channelId, ts: mapped?.messageId ?? messageId });
+      await timeSlackApi("chat.delete", () => this.client.chat.delete({ channel: ref.channelId, ts: mapped?.messageId ?? messageId }));
       return true;
     });
   }
@@ -166,7 +172,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
     text?: string,
     contentBlocks?: unknown[]
   ): Promise<boolean> {
-    return this.inConversation(chatId, async (sourceId) => {
+    return this.inConversation(chatId, "clear_actions", async (sourceId) => {
       const ref = this.target(sourceId);
       const mapped = this.continuations?.message(sourceId, messageId);
       if (mapped?.replace) return false;
@@ -181,7 +187,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
         : text !== undefined
           ? this.buildContentBlocks(text)
           : [];
-      await this.client.chat.update(text !== undefined
+      await timeSlackApi("chat.update", () => this.client.chat.update(text !== undefined
         ? {
             channel: ref.channelId,
             ts: messageId,
@@ -192,7 +198,7 @@ export class SlackMessageTransport implements BridgeMessageTransport {
             channel: ref.channelId,
             ts: messageId,
             blocks
-          });
+          }));
       logger.info("slack.message.actions_clear", {
         channelId: ref.channelId,
         chatId,
