@@ -16,7 +16,12 @@ import { messageTransportPlatform, parseSourceAddress } from "../src/shared/sour
 import { getSessionSelectorChatId } from "../src/bridge/chat-address.js";
 import { NotificationDeliveryTargets } from "../src/bridge/notifications/delivery-target.js";
 import { BridgeStore } from "../src/store/index.js";
+import { acknowledgeTelegramCallback } from "../src/telegram/interactions/acknowledge.js";
+import { createSessionActionCallback } from "../src/bridge/sessions/action-callbacks.js";
+import { logger } from "../src/logging/logger.js";
 import { testConfig } from "./bridge-test-config.js";
+
+logger.configureOutput({ console: "none", file: false });
 
 const chat = "-100000001";
 const a = telegramSourceId(chat, 101), b = telegramSourceId(chat, 202);
@@ -210,13 +215,14 @@ test("the physical group allowlist authorizes its topics without authorizing ano
   await assert.rejects(service.ensureChatAllowed("123"), /not allowed/);
 });
 
-async function botFixture(overrides: Partial<BridgeTelegramBotPort> = {}) {
+async function botFixture(overrides: Partial<BridgeTelegramBotPort> = {}, ackError?: Error) {
   const calls: Array<{ method: string; payload: Record<string, unknown> }> = [];
   const sources: string[] = [];
   const bot = new Bot("123:test-token", { botInfo: { id: 123, is_bot: true, first_name: "Bridge", username: "bridge_test", can_join_groups: true,
     can_read_all_group_messages: true, supports_inline_queries: false } });
   bot.api.config.use(async (_prev, method, payload) => {
     calls.push({ method, payload: payload as Record<string, unknown> });
+    if (method === "answerCallbackQuery" && ackError) throw ackError;
     return { ok: true, result: { message_id: 99, date: 1, chat: { id: Number(chat), type: "supergroup" } } } as never;
   });
   const service = {
@@ -343,4 +349,64 @@ test("actual Bridge notifications keep parallel sessions in their originating to
   assert.ok(sends.some(call => (call.args[1] as { markdown: string }).markdown.includes("Reply two") &&
     (call.args[2] as { message_thread_id: number }).message_thread_id === 202));
   assert.ok(sends.every(call => call.args[0] === chat && [101, 202].includes((call.args[2] as { message_thread_id: number }).message_thread_id)));
+});
+
+
+for (const ackError of [rejection("Bad Request: query is too old and response timeout expired or query ID is invalid"), new Error("Feedback network failure")]) {
+  test(`handoff proceeds once when the Telegram button feedback fails: ${ackError.message}`, async () => {
+    const actions: string[] = [];
+    const sessionId = "session_00000000-0000-4000-8000-000000000001";
+    const f = await botFixture({
+      requestSessionHandoff: async (source, id, version) => {
+        assert.equal(source, a); assert.equal(id, sessionId); assert.equal(version, 12);
+        actions.push("handoff"); return spec;
+      },
+      postSessionHandoffHistory: async (source, id) => {
+        assert.equal(source, a); assert.equal(id, sessionId); actions.push("history");
+      }
+    }, ackError);
+    await f.receive("handoff", 101, createSessionActionCallback("handoff", sessionId, 12));
+    assert.deepEqual(actions, ["handoff", "history"]);
+    assert.equal(f.calls.filter(call => call.method === "answerCallbackQuery").length, 1, "feedback failure never retries the action");
+    assert.ok(f.calls.some(call => call.method === "editMessageText" || call.method === "sendRichMessage"));
+  });
+}
+
+test("failed approval feedback does not prevent clearing the successfully resolved card", async () => {
+  let resolved = 0;
+  const f = await botFixture({ handleDecision: async () => { resolved++; return { ok: true, message: "Approved" }; } },
+    rejection("Bad Request: query is too old and response timeout expired or query ID is invalid"));
+  await f.receive("approval", 101, "decision:decision-test:a");
+  assert.equal(resolved, 1);
+  assert.ok(f.calls.some(call => call.method === "editMessageReplyMarkup"));
+});
+
+test("button feedback is time bounded and does not throw when the request is aborted", async () => {
+  let cancelled = false;
+  // Keep the event loop alive while AbortSignal.timeout's unref'ed timer fires.
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    await acknowledgeTelegramCallback(signal => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => { cancelled = true; reject(signal.reason); }, { once: true });
+    }), { callbackId: "test" }, 5);
+    assert.equal(cancelled, true);
+  } finally { clearTimeout(keepAlive); }
+});
+
+test("failed button feedback does not bypass the real stale-lease check", async t => {
+  const store = new BridgeStore(":memory:");
+  const service = new BridgeService(testConfig(":memory:"), store, {} as never);
+  t.after(async () => { await service.shutdown(); store.close(); });
+  const session = await store.upsertDiscoveredSession({ telegramChatId: b, codexThreadId: "guarded", pathKey: "/work" });
+  await store.setActiveSession(b, session.id); const owner = store.claimSession(session.id, b);
+  const before = store.getSessionLease(session.id);
+  let requests = 0;
+  const f = await botFixture({
+    requestSessionHandoff: (source, id, version) => { requests++; return service.requestSessionHandoff(source, id, version); },
+    postSessionHandoffHistory: async () => {}
+  }, rejection("Bad Request: query is too old and response timeout expired or query ID is invalid"));
+  await f.receive("stale handoff", 101, createSessionActionCallback("handoff", session.id, owner.lease.version - 1));
+  assert.equal(requests, 1);
+  assert.deepEqual(store.getSessionLease(session.id), before);
+  assert.notEqual(store.getSessionLease(session.id)?.ownerBindingId, store.getSessionBinding(session.id, a)?.id);
 });

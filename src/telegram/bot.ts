@@ -9,6 +9,7 @@ import { logger } from "../logging/logger.js";
 import { createTelegramInteractionContext } from "./interactions/context.js";
 import { createTelegramHelpMessage } from "./interactions/help.js";
 import { dispatchTelegramInteraction } from "./interactions/router.js";
+import { acknowledgeTelegramCallback } from "./interactions/acknowledge.js";
 
 import { telegramSourceForContext } from "../shared/telegram-address.js";
 import { TelegramMessageTransport } from "./transport.js";
@@ -54,9 +55,15 @@ function getCommandArgument(text: string): string {
 
 export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPort, bot = new Bot(config.telegramBotToken)): Bot {
   const transport = new TelegramMessageTransport(bot, formatTelegramHtml);
+  const acknowledge = (ctx: Context, text?: string): Promise<void> => acknowledgeTelegramCallback(
+    // grammY types signals through its legacy polyfill; Node's native signal is runtime-compatible.
+    signal => ctx.answerCallbackQuery(text ? { text } : undefined,
+      signal as unknown as Parameters<Context["answerCallbackQuery"]>[1]),
+    { chatId: ctx.chat?.id, callbackId: ctx.callbackQuery?.id }
+  );
   bot.use(async (ctx, next) => {
     if (ctx.callbackQuery?.message?.date === 0) {
-      await ctx.answerCallbackQuery({ text: "This message is unavailable. Open /sessions in the intended topic." });
+      await acknowledge(ctx, "This message is unavailable. Open /sessions in the intended topic.");
       return;
     }
     if (ctx.chat) await service.ensureChatAllowed(telegramSourceForContext(ctx));
@@ -282,7 +289,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
 
   bot.on("callback_query:data", async (ctx) => {
     if (!ctx.chat) {
-      await ctx.answerCallbackQuery({ text: "No chat context is available for this callback." });
+      await acknowledge(ctx, "No chat context is available for this callback.");
       return;
     }
 
@@ -296,9 +303,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     );
     await dispatchTelegramInteraction({
       action: data,
-      acknowledge: async (text) => {
-        await ctx.answerCallbackQuery(text ? { text } : undefined);
-      },
+      acknowledge: text => acknowledge(ctx, text),
       callbackId: ctx.callbackQuery.id,
       context: interaction,
       responder: {

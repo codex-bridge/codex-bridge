@@ -7,7 +7,7 @@ export function sessionSelectorDelivery(message: MessageSpec): InteractionDelive
 
 export function sessionActionResultDelivery(context: InteractionContext, message: MessageSpec): InteractionDelivery {
   const result = { ...message, surface: "action-result" as const };
-  // Telegram has one current conversation; retain its existing in-place receipts.
+  // Telegram keeps action receipts on the triggering message, including in topics.
   return context.platform === "slack"
     ? { mode: "send", target: "conversation", message: result }
     : { mode: "edit", target: "surface", message: result };
