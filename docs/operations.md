@@ -81,9 +81,13 @@ is sent to Codex and requires:
 
 ```dotenv
 OPENAI_API_KEY=<key>
-SLACK_AUDIO_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+AUDIO_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 # SLACK_ATTACHMENT_DIR=./workspaces/slack-attachments
 ```
+
+The same transcription configuration serves Telegram and Slack.
+`SLACK_AUDIO_TRANSCRIPTION_MODEL` remains a fallback for existing installations.
+Transcription is separate from Codex CLI authentication.
 
 Socket Mode reconnect is automatic. Change the client/server ping timeouts only
 when logs show a sustained network problem.

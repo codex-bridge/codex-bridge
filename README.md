@@ -18,8 +18,8 @@ commits before its first public release.
 
 - Continues existing Codex sessions from a LAN browser, Telegram, or Slack.
 - Switches projects and sessions without interrupting work already running.
-- Streams replies, progress, approvals, MCP input requests, and supported
-  attachments.
+- Shows replies, workflow activity, approvals, questions, MCP input requests,
+  and supported attachments.
 - Coordinates session ownership so clients do not silently drive the same
   session at once.
 - Stores Bridge routing state and message metadata in a local SQLite database.
@@ -29,7 +29,7 @@ commits before its first public release.
 | Client | Main use | Current support |
 | --- | --- | --- |
 | Web | Primary workbench | Projects, sessions, messages, image uploads, approvals, and connection takeover. |
-| Telegram | Mobile access | Text, images, optional voice transcription, phase summaries, and approvals. |
+| Telegram | Mobile access | Private chats and group topics, images, optional audio transcription, phase summaries, and approvals. |
 | Slack | Team chat | Thread-aware routing, approvals, images, and optional voice transcription. |
 
 Web can run by itself. Telegram and Slack are optional adapters. All enabled
@@ -48,19 +48,11 @@ Codex App Server schemas are version-specific. The Bridge baseline verified on
 | Node.js | `>=22.23.5 <23` | `22.23.5` |
 | Yarn | `4.8.x` | `4.8.1` |
 
-The Node security baseline was raised to `22.23.5` on 2026-11-12 after the
-[November security release](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases).
-Local commands and CI take the Node pin
-from `package.json`. PM2 resolves and verifies that interpreter explicitly and
-prepends its directory to the child-process PATH, rather than inheriting an old
-Node from its daemon. See [PM2 lifecycle](docs/operations.md#pm2-lifecycle).
-
-The recommended range follows the current `0.170` protocol family; only the
-listed version was tested. Older compatibility paths remain, but were not
-revalidated for every new feature. Verification includes a real local CLI with
-a deterministic local model, isolated Bridge tests, and Web browser checks;
-it does not certify every remote provider or Slack/Telegram delivery path.
-See [verification scope and known limits](docs/codex-compatibility.md).
+Use the Node and Yarn versions pinned in `package.json`. The recommended Codex
+range follows the verified `0.170` protocol family; only `0.170.0` was tested.
+Older versions and other providers are not covered by a blanket compatibility
+guarantee. See [verification scope and known limits](docs/codex-compatibility.md)
+and [runtime setup](docs/operations.md#pm2-lifecycle).
 
 Official references: [install Codex CLI](https://developers.openai.com/codex/cli/)
 and [Codex App Server](https://developers.openai.com/codex/app-server/).
@@ -90,6 +82,9 @@ a session can read its conversation or act on it.
 For guided setup instead of the manual steps below, clone this repository, open
 Codex in its directory, and paste:
 
+<details>
+<summary>Copy the setup prompt</summary>
+
 ```text
 Help me configure and run Codex Bridge so I can chat with Codex in a browser.
 Read README.md, package.json, .env.example, and docs/operations.md first; use
@@ -115,11 +110,19 @@ to connect this browser window, add a project directory, and create or select
 a session and explicitly take control so I can send my first message.
 ```
 
+</details>
+
 ## Quick start: Web only
 
 1. Install Codex CLI using the [official instructions](https://developers.openai.com/codex/cli/),
    run `codex`, and complete authentication.
-2. Clone this repository and enter its directory.
+2. Clone this repository and enter its directory:
+
+   ```bash
+   git clone https://github.com/codex-bridge/codex-bridge.git
+   cd codex-bridge
+   ```
+
 3. Install dependencies and build the backend and Web UI:
 
    ```bash
@@ -150,20 +153,26 @@ IP addresses and `localhost`, not custom DNS hostnames.
 
 1. Connect this browser window to the Bridge service.
 2. Add an existing project directory from the Bridge machine.
-3. Select a session and explicitly take control before reading or sending.
-4. Send a message, upload images, or answer approval and MCP input cards.
+3. Create or select a session, then explicitly take control.
+4. Send a message, upload images, or respond to approval, question and MCP cards.
 
-Useful behavior to know:
+Only one browser window holds the Web connection at a time. Another window can
+explicitly take over; the previous window loses access. Session selection stays
+in the URL across refreshes without silently claiming control. The session menu
+also lets you release ownership back to external Codex when Bridge permits it.
 
-- Opening another browser does not grant it control. It may explicitly take over
-  the Web connection, which immediately revokes the previous window.
-- Switching sessions does not interrupt running work.
-- A refresh restores the selected session when possible and reloads up to the
-  latest five user/assistant messages. Temporary progress statistics may be lost.
-- The selected session remains in the URL, so refresh and browser navigation keep
-  the intended target without silently claiming it.
-- Session ownership can be released back to an external Codex client from the
-  session menu when Bridge reports that release is safe.
+## Conversation behavior
+
+- Switching sessions does not interrupt accepted work. A session has one
+  controlling entry at a time across Web, Slack threads and Telegram topics.
+- Acquiring a session restores up to five recent user/assistant messages.
+  Temporary progress statistics are not a complete conversation archive.
+- Slack and Web retain live workflow activity. Telegram shows phase-end
+  summaries, with Run blocks hidden, and coalesces Working status changes at a
+  minimum 20-second interval; its clock does not refresh continuously.
+- Successful automatic approval reviews stay quiet. Review problems, approval
+  requests and questions remain visible. MCP connection problems are summarized
+  in Actions; Codex release reminders appear before eligible Actions.
 
 ## Enable Telegram or Slack
 
@@ -185,7 +194,12 @@ Slack:
 - Set `SLACK_ENABLED=true`.
 - Set `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, and `SLACK_SIGNING_SECRET`.
 - Optionally restrict channels with `SLACK_ALLOWED_CHANNEL_IDS`.
-- Voice transcription additionally requires `OPENAI_API_KEY`.
+
+For optional voice/audio transcription on either Telegram or Slack, set
+`OPENAI_API_KEY` and optionally `AUDIO_TRANSCRIPTION_MODEL` (default:
+`gpt-4o-mini-transcribe`). This uses a separate transcription API, independently
+of Codex CLI authentication. Image input does not require this key. The setup
+guides document supported file types and size limits.
 
 Models, providers, reasoning effort, approval policy, sandbox, service tier,
 personality, skills, MCP, and feature flags remain Codex configuration. Set them
@@ -257,17 +271,6 @@ corepack yarn db:migrate --database /absolute/path/bridge.sqlite --dry-run
 ```
 
 Keep any reported migration backup until runtime acceptance is complete.
-
-## Common commands
-
-```bash
-corepack yarn check
-corepack yarn lint
-corepack yarn test
-corepack yarn build
-corepack yarn start
-corepack yarn verify:codex --scenario protocol --json
-```
 
 ## More documentation
 

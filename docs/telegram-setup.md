@@ -96,7 +96,7 @@ remain available with the same session controls. An unbound entry prompts for a
 session; it does not inherit another topic's selection. All group members who can
 use the bot share these controls; topics are not per-user authorization boundaries.
 
-Conversation replies, progress, approval cards, Actions and typing stay in the
+Conversation replies, visible activity, approval cards and Actions stay in the
 originating topic. Different sessions can work through different topics. Reusing
 one session across topics, private chat, Slack or Web follows the normal ownership
 handoff rules; switching selection does not redirect already accepted work.
@@ -171,11 +171,22 @@ that delivery rather than sending the file into another session.
 
 ## Workflow summaries
 
-Telegram shows a Run, Called, Edited or other workflow phase once it ends, in its
-original sequence. Live previews and Working/typing panels are omitted. Failures
-remain in their phase summary. Replies, approvals, questions and Actions remain.
-Run counts distinct upstream execution items; missing identity is not guessed.
-Slack and Web keep their own live-display policy.
+Telegram shows Called, Edited and other visible workflow phases once they end,
+in their original sequence. Run blocks and their success/failure summaries are
+hidden; execution counts, failures and phase boundaries are still stored.
+Existing messages are not deleted.
+
+Working remains available: status or queue-count changes are coalesced at a
+minimum twenty-second interval after confirmed delivery. The clock does not
+refresh on its own. Completion cancels pending changes and finalizes the panel
+without waiting for that interval, subject to write budgets. Typing is disabled.
+Slack and Web retain their live workflow display.
+
+Replies, approvals, questions and Actions remain available. Successful automatic
+approval reviews are silent; review problems and unknown Guardian warnings stay
+visible. MCP connection problems are summarized in Actions, without separate
+failure/recovery notices. All topics share the Bot, physical-chat and group write
+budgets; see [delivery policy](development.md#telegram-input-and-api-lifecycle).
 
 ## Voice and audio input
 

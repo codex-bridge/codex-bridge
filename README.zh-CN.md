@@ -17,7 +17,7 @@ Codex Bridge 于 2026 年 3 月开始开发，在首次公开发布前经历了�
 
 - 从局域网浏览器、Telegram 或 Slack 继续已有 Codex Session。
 - 切换项目和 Session 时，不中断已经运行的任务。
-- 显示回复、进度、审批、MCP 输入请求和受支持的附件。
+- 显示回复、工作流活动、审批、问题、MCP 输入请求和受支持的附件。
 - 协调 Session 所有权，避免多个客户端同时暗中操作同一个 Session。
 - 使用本地 SQLite 保存 Bridge 路由状态和消息元数据。
 
@@ -26,7 +26,7 @@ Codex Bridge 于 2026 年 3 月开始开发，在首次公开发布前经历了�
 | 客户端 | 主要用途 | 当前支持 |
 | --- | --- | --- |
 | Web | 主要工作台 | 项目、Session、消息、图片上传、审批和连接接管。 |
-| Telegram | 移动端访问 | 文本、图片、可选语音转写、阶段汇总和审批。 |
+| Telegram | 移动端访问 | 私聊和群组 Topic、图片、可选音频转写、阶段汇总和审批。 |
 | Slack | 团队对话 | Thread 路由、审批、图片和可选语音转写。 |
 
 Web 可以独立运行，Telegram 和 Slack 是可选适配器。启用的客户端共享同一个
@@ -45,16 +45,10 @@ Codex App Server 的 Schema 与具体版本相关。当前 Bridge 基线验证�
 | Node.js | `>=22.23.5 <23` | `22.23.5` |
 | Yarn | `4.8.x` | `4.8.1` |
 
-Node 安全基线已在 2026-11-12 根据
-[11 月安全更新](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases)
-提高至 `22.23.5`。本地命令和 CI 使用 `package.json` 固定的 Node 版本。
-PM2 会明确解析并验证该解释器，并把其目录放到子进程 PATH 前面，避免继承
-daemon 中的旧 Node。参见 [PM2 生命周期](docs/operations.md#pm2-lifecycle)。
-
-推荐范围采用当前 `0.170` 协议系列，实际测试的仅为表中版本。旧版本兼容路径
-仍保留，但没有为每项新功能逐一重测。验证包括真实本地 CLI 配合确定性本地模型、
-隔离的 Bridge 测试和 Web 浏览器检查，不代表所有远程提供商或 Slack/Telegram
-投递路径均已认证。参见[验证范围与已知限制](docs/codex-compatibility.md)。
+使用 `package.json` 中固定的 Node 和 Yarn 版本。Codex 推荐范围采用已经验证
+的 `0.170` 协议系列，实际测试的仅为 `0.170.0`，不代表所有旧版本和其他
+Provider 均已兼容。参见[验证范围与已知限制](docs/codex-compatibility.md)
+以及[运行环境配置](docs/operations.md#pm2-lifecycle)。
 
 官方资料：[安装 Codex CLI](https://developers.openai.com/codex/cli/)；
 [Codex App Server](https://developers.openai.com/codex/app-server/)。
@@ -82,6 +76,9 @@ Web UI 没有用户账号或面向公网的认证层。请只监听本机或可�
 如果希望由 Codex 引导配置，而不是手动执行下面的步骤，可以克隆本仓库，在
 仓库目录中打开 Codex，然后粘贴：
 
+<details>
+<summary>展开配置提示词</summary>
+
 ```text
 帮我配置并运行 Codex Bridge，让我可以通过浏览器与 Codex 对话。
 先阅读 README.zh-CN.md、package.json、.env.example 和 docs/operations.md；
@@ -103,11 +100,19 @@ Web UI 没有用户账号或面向公网的认证层。请只监听本机或可�
 控制权，让我可以发送第一条消息。
 ```
 
+</details>
+
 ## 快速开始：仅启用 Web
 
 1. 按照[官方说明](https://developers.openai.com/codex/cli/)安装 Codex CLI，
    运行 `codex` 并完成登录。
-2. 克隆本仓库并进入项目目录。
+2. 克隆本仓库并进入项目目录：
+
+   ```bash
+   git clone https://github.com/codex-bridge/codex-bridge.git
+   cd codex-bridge
+   ```
+
 3. 安装依赖并构建后端与 Web UI：
 
    ```bash
@@ -137,19 +142,23 @@ Web UI 没有用户账号或面向公网的认证层。请只监听本机或可�
 
 1. 将当前浏览器窗口连接到 Bridge 服务。
 2. 添加 Bridge 所在机器上已经存在的项目目录。
-3. 选择 Session，并明确取得控制权后再读取或发送消息。
-4. 发送消息、上传图片，或处理审批和 MCP 输入卡片。
+3. 创建或选择 Session，然后明确取得控制权。
+4. 发送消息、上传图片，或处理审批、问题和 MCP 输入卡片。
 
-需要了解的行为：
+同一时间只有一个浏览器窗口持有 Web 连接权。其他窗口可以明确接管，原窗口
+随即失去访问权。选中的 Session 会保存在 URL 中，刷新时保留目标，但不会
+暗中取得控制权。Bridge 允许释放时，也可从 Session 菜单交还给外部 Codex。
 
-- 打开另一个浏览器不会自动获得控制权。新窗口可以明确接管 Web 连接；接管后
-  旧窗口会立即失去连接权。
-- 切换 Session 不会中断正在运行的任务。
-- 刷新页面时会尽量恢复选中的 Session，并重新读取最多五条用户/助手消息；
-  临时进度和统计可能丢失。
-- 选中的 Session 会保存在 URL 中，因此刷新和浏览器前进后退可以保留目标，
-  但不会暗中取得所有权。
-- Bridge 确认安全时，可以从 Session 菜单把所有权释放给外部 Codex 客户端。
+## 对话行为
+
+- 切换 Session 不会中断已接受的任务。同一个 Session 在 Web、Slack Thread
+  和 Telegram Topic 之间，同一时间只有一个入口持有操作权。
+- 取得 Session 后恢复最多五条最近的用户/助手消息。临时进度统计不构成完整
+  的对话存档。
+- Slack 和 Web 保留实时工作流活动。Telegram 只显示阶段结束汇总，隐藏 Run
+  块，Working 状态变化至少间隔 20 秒合并更新，计时不会持续刷新。
+- 成功的自动审批审核保持静默；审核异常、审批请求和问题仍会显示。MCP 连接
+  问题汇总到 Actions，Codex 版本提醒会出现在符合条件的 Actions 之前。
 
 ## 启用 Telegram 或 Slack
 
@@ -170,7 +179,11 @@ Slack：
 - 设置 `SLACK_ENABLED=true`。
 - 设置 `SLACK_BOT_TOKEN`、`SLACK_APP_TOKEN` 和 `SLACK_SIGNING_SECRET`。
 - 可用 `SLACK_ALLOWED_CHANNEL_IDS` 限制 Channel。
-- 语音转写还需要 `OPENAI_API_KEY`。
+
+Telegram 和 Slack 的可选语音/音频转写都需要 `OPENAI_API_KEY`，并可设置
+`AUDIO_TRANSCRIPTION_MODEL`（默认 `gpt-4o-mini-transcribe`）。这使用独立的
+转写 API，与 Codex CLI 登录分开；图片输入不需要这个 Key。支持的文件类型和
+大小限制见对应配置指南。
 
 模型、Provider、Reasoning Effort、审批策略、Sandbox、Service Tier、
 Personality、Skill、MCP 和 Feature Flag 仍属于 Codex 配置。请在
@@ -240,17 +253,6 @@ corepack yarn db:migrate --database /absolute/path/bridge.sqlite --dry-run
 ```
 
 运行验收完成前，请保留命令报告的迁移备份。
-
-## 常用命令
-
-```bash
-corepack yarn check
-corepack yarn lint
-corepack yarn test
-corepack yarn build
-corepack yarn start
-corepack yarn verify:codex --scenario protocol --json
-```
 
 ## 更多文档
 
