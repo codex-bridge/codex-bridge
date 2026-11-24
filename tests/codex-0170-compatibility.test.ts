@@ -74,12 +74,12 @@ test("new account, sampling, memory and guardian requests are classified without
   }
 });
 
-test("section membership is registered as an unconsumed event without runtime verification", () => {
+test("section membership is scheduling metadata without implementing sections or claiming runtime verification", () => {
   const capability = getAppServerMethodCapability("thread/section/changed")!;
   assert.equal(capability.kind, "notification");
   assert.equal(capability.group, "events");
   assert.equal(capability.evidence.generatedType, true);
   assert.equal(capability.evidence.runtime, "notChecked");
-  assert.deepEqual(capability.evidence.productionReferences, []);
+  assert.deepEqual(capability.evidence.productionReferences, ["src/bridge/notifications/delivery-effect.ts"]);
   assert.equal(capability.evidence.liveVerification, null);
 });

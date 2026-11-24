@@ -17,7 +17,7 @@ export type NotificationTurnDependencies = {
   lastAssistantTelegramByThread: Map<string, { chatId: string; messageId: string; text: string }>;
   queuedSubmissionService: Pick<QueuedSubmissionService, "reconcileStartedSubmission">;
   resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
-  applyStatusUpdate: (session: SessionRecord, update: AppServerStatusUpdate) => Promise<void>;
+  applyStatusUpdate: (session: SessionRecord, update: AppServerStatusUpdate, canRefresh?: () => boolean) => Promise<void>;
   handleRecoveryTaskComplete: (session: SessionRecord) => Promise<boolean>;
   clearProgressMessageForThread: (threadId: string, options?: { terminal?: "completed" | "failed" | "interrupted"; turnId?: string }) => Promise<void>;
   scheduleGoShortcut: (session: SessionRecord) => Promise<void> | void;
@@ -33,7 +33,8 @@ export class NotificationTurnService {
     statusUpdate: AppServerStatusUpdate,
     terminalTurnId?: string,
     terminalState?: AppServerTurnLifecycleEvent["terminalState"],
-    terminalError?: string
+    terminalError?: string,
+    canRefresh?: () => boolean
   ): Promise<void> {
     if (!this.deps.inFlightTurnIdByThread.has(statusUpdate.threadId)) {
       await this.deps.queuedSubmissionService.reconcileStartedSubmission(statusUpdate.threadId);
@@ -52,7 +53,7 @@ export class NotificationTurnService {
     const session = await this.deps.resolveNotificationSession(statusUpdate.threadId);
     if (!session) return;
 
-    await this.deps.applyStatusUpdate(session, statusUpdate);
+    await this.deps.applyStatusUpdate(session, statusUpdate, canRefresh);
     if (statusUpdate.kind !== "clear") return;
 
     const recoveryContinues = await this.deps.handleRecoveryTaskComplete(session);

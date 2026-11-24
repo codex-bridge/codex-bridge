@@ -9,10 +9,13 @@ import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 import { formatStatusDetailPreview } from "../renderers/progress.js";
 import { formatElapsed } from "./formatters.js";
+import type { BridgeMessageOptions } from "../transport.js";
 
 type StatusEntry = { messageId: string; text: string };
 
 export type StatusLifecycleDependencies = {
+  isThreadBusy?: (threadId: string) => boolean;
+  waitForThreadIdle?: (threadId: string, signal: AbortSignal) => Promise<boolean>;
   store: Pick<BridgeStore, "countPendingQueuedSubmissions" | "getSessionById">;
   statusMessageBySession: Map<string, StatusEntry>;
   statusStartedAtBySession: Map<string, number>;
@@ -20,21 +23,39 @@ export type StatusLifecycleDependencies = {
   statusDetailBySession: Map<string, string>;
   statusLastEditAtBySession: Map<string, number>;
   statusOpBySession: Map<string, Promise<void>>;
-  sendMessageSpec: (chatId: string, messageSpec: MessageSpec, options?: { disable_notification?: boolean }) => Promise<{ message_id: string } | null>;
-  editMessageSpec: (chatId: string, messageId: string, messageSpec: MessageSpec) => Promise<boolean>;
+  sendMessageSpec: (chatId: string, messageSpec: MessageSpec, options?: BridgeMessageOptions) => Promise<{ message_id: string } | null>;
+  editMessageSpec: (chatId: string, messageId: string, messageSpec: MessageSpec, options?: BridgeMessageOptions) => Promise<boolean>;
   getSessionDirectory: (session: SessionRecord) => string;
   isCompactStatusUpdate: (update: AppServerStatusUpdate) => boolean;
   notifyCompactStarted: (session: SessionRecord, source: "runtime") => Promise<void>;
   clearTypingState: (sessionId: string) => void;
-  sendTypingOnce: (session: SessionRecord) => Promise<void>;
+  sendTypingOnce: (session: SessionRecord, canRefresh?: () => boolean) => Promise<void>;
 };
 
 export class StatusLifecycleService {
   private readonly pendingEdits = new Set<string>();
+  private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly generations = new Map<string, object>();
+  private readonly idleRefreshes = new Map<string, { revision: number; operation: () => Promise<void>; controller: AbortController; task: Promise<void> }>();
+  private stopped = false;
 
   constructor(private readonly deps: StatusLifecycleDependencies) {}
 
-  async applyStatusUpdate(session: SessionRecord, update: AppServerStatusUpdate): Promise<void> {
+  async stop(): Promise<void> {
+    this.stopped = true;
+    this.cancelRefreshes();
+    await Promise.allSettled(this.deps.statusOpBySession.values());
+    await Promise.allSettled([...this.idleRefreshes.values()].map(entry => entry.task));
+  }
+
+  async refreshSessionStatus(session: SessionRecord): Promise<void> {
+    // A pending latest-state refresh already re-reads the queue count. Do not
+    // replace its new label with the older label currently displayed on the card.
+    if (this.idleRefreshes.has(session.id) || this.refreshTimers.has(session.id)) return;
+    await this.setSessionStatus(session, this.deps.statusLabelBySession.get(session.id) ?? "Working");
+  }
+
+  async applyStatusUpdate(session: SessionRecord, update: AppServerStatusUpdate, canRefresh?: () => boolean): Promise<void> {
     if (update.kind === "clear") {
       this.deps.clearTypingState(session.id);
       await this.clearSessionStatus(session);
@@ -44,16 +65,30 @@ export class StatusLifecycleService {
     if (this.deps.isCompactStatusUpdate(update)) {
       await this.deps.notifyCompactStarted(session, "runtime");
     }
-    await this.setSessionStatus(session, update.label ?? "Working");
-    await this.deps.sendTypingOnce(session);
+    if (canRefresh?.() === false) return;
+    await this.setSessionStatus(session, update.label ?? "Working", undefined, canRefresh);
+    // Typing is disposable and must never hold up chronological notifications.
+    void this.deps.sendTypingOnce(session, canRefresh).catch(error => logger.warn("bridge.status.typing_failed", { error: String(error) }));
   }
 
   async setSessionStatus(
     session: SessionRecord,
     label: string,
-    update?: Pick<AppServerStatusUpdate, "detail" | "detailMode">
+    update?: Pick<AppServerStatusUpdate, "detail" | "detailMode">,
+    canRefresh?: () => boolean
   ): Promise<void> {
+    if (this.stopped) return;
+    const generation = this.generations.get(session.id) ?? {};
+    this.generations.set(session.id, generation);
+    const eligible = () => this.generations.get(session.id) === generation && canRefresh?.() !== false;
+    if (!eligible()) return;
+    if (this.deps.waitForThreadIdle && this.deps.isThreadBusy?.(session.codexThreadId) && this.deps.statusMessageBySession.has(session.id)) {
+      this.cancelRefresh(session.id);
+      this.deferRefresh(session, async () => { if (eligible()) await this.setSessionStatus(session, label, update, canRefresh); });
+      return;
+    }
     return this.runSessionStatusOp(session.id, async () => {
+      if (!eligible()) return;
       const now = Date.now();
       const startedAt = this.deps.statusStartedAtBySession.get(session.id) ?? now;
       this.deps.statusStartedAtBySession.set(session.id, startedAt);
@@ -67,18 +102,33 @@ export class StatusLifecycleService {
 
       const detailChanged = detail !== previousDetail;
       const lastEditAt = this.deps.statusLastEditAtBySession.get(session.id) ?? 0;
-      if (!labelChanged && ((!detailChanged && !this.pendingEdits.has(session.id)) || now - lastEditAt < 5_000)) return;
+      const existing = this.deps.statusMessageBySession.get(session.id);
+      if (existing && now - lastEditAt < 5_000) {
+        this.cancelRefresh(session.id);
+        if (labelChanged || detailChanged || this.pendingEdits.has(session.id)) {
+          const timer = setTimeout(() => {
+            this.refreshTimers.delete(session.id);
+            if (eligible()) void this.setSessionStatus(session, label, update, canRefresh)
+              .catch(error => logger.warn("bridge.status.refresh_failed", { sessionId: session.id, error: String(error) }));
+          }, 5_000 - (now - lastEditAt));
+          timer.unref();
+          this.refreshTimers.set(session.id, timer);
+        }
+        return;
+      }
+      if (existing && !labelChanged && !detailChanged && !this.pendingEdits.has(session.id)) return;
+      this.cancelRefresh(session.id);
 
       const queueCount = await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId);
       const messageSpec = this.createSessionStatusMessageSpec(session, label, startedAt, now, detail, queueCount);
       const text = renderLegacyMessage(messageSpec);
-      const existing = this.deps.statusMessageBySession.get(session.id);
       if (existing?.text === text && !this.pendingEdits.has(session.id)) return;
 
       if (existing) {
         let result: MessageEditResult;
         try {
-          result = await this.deps.editMessageSpec(session.telegramChatId, existing.messageId, messageSpec)
+          result = await this.deps.editMessageSpec(session.telegramChatId, existing.messageId, messageSpec,
+            { canSend: async () => eligible() })
             ? "synced" : "unavailable";
         } catch (error) {
           result = classifyMessageEditError(error);
@@ -94,6 +144,7 @@ export class StatusLifecycleService {
           return;
         }
         if (result !== "missing") {
+          if (!eligible()) return;
           // Preserve the original ID and clock. Later status events retry the edit,
           // including an unchanged detail, without flooding on every streamed delta.
           this.pendingEdits.add(session.id);
@@ -104,12 +155,16 @@ export class StatusLifecycleService {
         this.deps.statusMessageBySession.delete(session.id);
       }
 
-      const sent = await this.deps.sendMessageSpec(session.telegramChatId, messageSpec, { disable_notification: true });
+      const sent = await this.deps.sendMessageSpec(session.telegramChatId, messageSpec,
+        { disable_notification: true, canSend: async () => eligible() });
       if (sent) this.rememberStatus(session.id, sent.message_id, text, label, now);
     });
   }
 
   async clearSessionStatus(session: SessionRecord): Promise<void> {
+    this.generations.delete(session.id);
+    this.cancelRefresh(session.id);
+    this.idleRefreshes.get(session.id)?.controller.abort();
     return this.runSessionStatusOp(session.id, async () => {
       const existing = this.deps.statusMessageBySession.get(session.id);
       if (!existing) return;
@@ -135,6 +190,8 @@ export class StatusLifecycleService {
   }
 
   async clearAllSessionStatusMessages(): Promise<void> {
+    this.cancelRefreshes();
+    await Promise.allSettled(this.deps.statusOpBySession.values());
     const entries = [...this.deps.statusMessageBySession.entries()];
     for (const [sessionId, status] of entries) {
       const session = await this.deps.store.getSessionById(sessionId);
@@ -210,6 +267,35 @@ export class StatusLifecycleService {
     this.deps.statusLabelBySession.delete(sessionId);
     this.deps.statusDetailBySession.delete(sessionId);
     this.deps.statusLastEditAtBySession.delete(sessionId);
+  }
+
+  private cancelRefresh(sessionId: string): void {
+    const timer = this.refreshTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.refreshTimers.delete(sessionId);
+  }
+
+  private cancelRefreshes(): void {
+    for (const id of this.refreshTimers.keys()) this.cancelRefresh(id);
+    for (const entry of this.idleRefreshes.values()) entry.controller.abort();
+    this.generations.clear();
+  }
+
+  private deferRefresh(session: SessionRecord, operation: () => Promise<void>): void {
+    const existing = this.idleRefreshes.get(session.id);
+    if (existing && !existing.controller.signal.aborted) { existing.operation = operation; existing.revision++; return; }
+    const entry = { operation, revision: 0, controller: new AbortController(), task: Promise.resolve() };
+    entry.task = Promise.resolve().then(async () => {
+      while (!entry.controller.signal.aborted) {
+        if (this.deps.waitForThreadIdle && !await this.deps.waitForThreadIdle(session.codexThreadId, entry.controller.signal)) return;
+        if (entry.controller.signal.aborted) return;
+        const revision = entry.revision;
+        await entry.operation();
+        if (revision === entry.revision) return;
+      }
+    }).catch(error => logger.warn("bridge.status.refresh_failed", { sessionId: session.id, error: String(error) }))
+      .finally(() => { if (this.idleRefreshes.get(session.id) === entry) this.idleRefreshes.delete(session.id); });
+    this.idleRefreshes.set(session.id, entry);
   }
 
   private async runSessionStatusOp(sessionId: string, op: () => Promise<void>): Promise<void> {

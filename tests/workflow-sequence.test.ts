@@ -274,9 +274,11 @@ test("manual Compact RPC can deliver approval and runtime notifications without 
 });
 
 test("Working panel updates do not split workflow phases", async t => {
+  let now = 100_000; t.mock.method(Date, "now", () => now);
   const f = await harness(t);
   await f.called("first"); const first = f.latest();
   for (const label of ["Working", "Waiting"]) {
+    now += 5_000;
     await f.internal.applyStatusUpdate(f.session, { threadId: "thread", kind: "running", label, detail: null, detailMode: null });
   }
   assert.ok(f.sent.some(entry => entry.spec.kind === "working"));

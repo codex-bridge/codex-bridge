@@ -424,6 +424,8 @@ export class BridgeService {
         this.messageOperations.sendTelegramTextChunksAndGetLastMessage(chatId, chunks, options)
     });
     this.statusLifecycleService = new StatusLifecycleService({
+      isThreadBusy: threadId => this.notificationQueue.hasPending(threadId),
+      waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
       store,
       statusMessageBySession: this.statusRuntimeState.statusMessageBySession,
       statusStartedAtBySession: this.statusRuntimeState.statusStartedAtBySession,
@@ -432,12 +434,12 @@ export class BridgeService {
       statusLastEditAtBySession: this.statusRuntimeState.statusLastEditAtBySession,
       statusOpBySession: this.statusRuntimeState.statusOpBySession,
       sendMessageSpec: (chatId, messageSpec, options) => this.messageOperations.sendMessageSpec(chatId, messageSpec, options),
-      editMessageSpec: (chatId, messageId, messageSpec) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec),
+      editMessageSpec: (chatId, messageId, messageSpec, options) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec, options),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       isCompactStatusUpdate: (update) => this.compactService.isCompactStatusUpdate(update),
       notifyCompactStarted: (session, source) => this.compactService.notifyCompactStarted(session, source),
       clearTypingState: (sessionId) => this.typingService.clear(sessionId),
-      sendTypingOnce: (session) => this.typingService.sendOnce(session)
+      sendTypingOnce: (session, canRefresh) => this.typingService.sendOnce(session, canRefresh)
     });
     this.queuedSubmissionService = new QueuedSubmissionService({
       store,
@@ -451,6 +453,7 @@ export class BridgeService {
         this.notificationSessionRouter.rememberSessionId(threadId, sessionId)
     });
     this.rateLimitNotifier = new RateLimitNotifier({
+      appendWorkflowMessage: (session, operation, context) => this.progressService.appendWorkflowMessage(session, operation, context),
       store,
       resolveNotificationSession: (threadId) => this.notificationDeliveryTargets.resolve(threadId),
       sessionProviderState: this.sessionProviderStateService,
@@ -530,7 +533,7 @@ export class BridgeService {
       lastAssistantTelegramByThread: state.lastAssistantTelegramByThread,
       queuedSubmissionService: this.queuedSubmissionService,
       resolveNotificationSession: (threadId) => this.notificationDeliveryTargets.resolve(threadId),
-      applyStatusUpdate: (session, update) => this.applyStatusUpdate(session, update),
+      applyStatusUpdate: (session, update, canRefresh) => this.applyStatusUpdate(session, update, canRefresh),
       handleRecoveryTaskComplete: (session) => this.handleRecoveryTaskComplete(session),
       clearProgressMessageForThread: (threadId, options) => this.clearProgressMessageForThread(threadId, options),
       scheduleGoShortcut: (session) => this.goShortcutService.schedule(session),
@@ -589,7 +592,7 @@ export class BridgeService {
       resolveNotificationSession: (threadId) => this.notificationDeliveryTargets.resolve(threadId),
       rateLimitNotifier: this.rateLimitNotifier,
       getInFlightThreadIds: () => state.inFlightTurnIdByThread.keys(),
-      setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label),
+      refreshSessionStatus: (session) => this.statusLifecycleService.refreshSessionStatus(session),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
     });
@@ -734,10 +737,13 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec, options) => this.messageOperations.sendLongSpec(chatId, messageSpec, options)
     });
     this.typingService = new TypingService({
+      waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
       intervalMs: this.typingIntervalMs,
       requireMessageTransport: (chatId) => this.messageSender.requireTransport(chatId),
     });
     this.progressService = new ProgressService({
+      isThreadBusy: threadId => this.notificationQueue.hasPending(threadId),
+      waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
       getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),
       getProgressPhaseMessageForItem: (thread, turn, id) => store.getProgressPhaseMessageForItem(thread, turn, id),
       getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
@@ -1063,6 +1069,8 @@ export class BridgeService {
   async shutdown(): Promise<void> {
     this.goShortcutService.cancelAll();
     this.versionUpdateNotifier.stop();
+    this.typingService.stop();
+    await this.statusLifecycleService.stop();
     await this.progressService.stop();
   }
 
@@ -1457,9 +1465,10 @@ export class BridgeService {
   // COMPATIBILITY(TEST): integration tests inject lifecycle status updates through the Bridge facade.
   private async applyStatusUpdate(
     session: SessionRecord,
-    update: AppServerStatusUpdate
+    update: AppServerStatusUpdate,
+    canRefresh?: () => boolean
   ): Promise<void> {
-    return this.statusLifecycleService.applyStatusUpdate(session, update);
+    return this.statusLifecycleService.applyStatusUpdate(session, update, canRefresh);
   }
 
   // COMPATIBILITY(TEST): integration tests control progress delivery timing through the Bridge facade.

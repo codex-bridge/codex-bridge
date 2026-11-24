@@ -96,8 +96,8 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
     }, { operation: "clear_actions" });
   }
 
-  async sendTyping(sourceId: string): Promise<void> {
-    await this.write(sourceId, undefined, target => timeTelegramApi("sendChatAction", () => this.bot.api.sendChatAction(target.chatId, "typing", {
+  async sendTyping(sourceId: string, options?: Pick<BridgeMessageOptions, "canSend">): Promise<void> {
+    await this.write(sourceId, options, target => timeTelegramApi("sendChatAction", () => this.bot.api.sendChatAction(target.chatId, "typing", {
       ...(target.topicId === null ? {} : { message_thread_id: target.topicId })
     })), { operation: "typing" });
   }

@@ -140,13 +140,37 @@ subsequent edits require the platform message ID. The latest meaningful preview 
 retained, and phase finalization still delivers the full summary. `Run` counts only
 successfully displayed content, not received events or omitted previews.
 
-Type changes, failures, interactions and all non-progress notifications stop preview
-coalescing. Unknown events and missing turn IDs are conservative barriers; reasoning
-deltas retain their existing stateful tracker and preview throttle. In-flight writes,
-late results on original summaries and final-summary retries are never coalesced.
-This reduces network backlog, not the number of events processed, and adds no timer
-or persistent queue. It does not bypass transport rate limits or retry unknown send
-outcomes.
+Type changes, failures and chronological output stop preview coalescing. Explicit
+metadata and panel-only updates do not split the visible sequence; unknown events
+and missing turn IDs remain conservative barriers. A conditional producer such as
+the account rate-limit notifier declares a boundary only when it actually writes
+a notice. Reasoning deltas retain their stateful tracker and preview throttle.
+
+Finalization persists the complete summary before releasing the phase, then defers
+editing its existing card until that thread's foreground notification queue drains.
+Replies and approvals therefore do not await old-card summary edits. Native late
+results and retries still serialize with phase updates, re-read stored summaries
+and only edit the original IDs. Waiting is cancellable on shutdown; persisted
+pending summaries remain recoverable after restart. New block creation and new
+chronological messages keep their order. In-flight writes cannot be preempted.
+Old turns of one thread deliver summaries one at a time. A summary overtaken while
+waiting at the transport stays pending for the next idle period; this scheduling
+skip does not mark its destination unavailable.
+
+Working updates retain only the latest eligible state. Existing panels refresh
+after foreground work, with a five-second limit across label changes and one
+trailing refresh for the latest state. Completion cancels obsolete refreshes;
+late old-turn notifications cannot revive a completed panel. Queue-count updates
+reuse any pending latest-state refresh. Typing is best-effort, waits outside the
+notification queue, and rechecks eligibility at the transport. Shutdown cancels
+waiting refreshes and drains writes already started. These policies reduce API
+traffic without changing progress aggregates or displayed Run counts.
+
+`bridge.notification.timing` records application queue wait, handler processing
+and total time by method/key, without payload text. Processing includes nested
+transport time; do not add the two totals. Transport queue wait alone does not
+measure the earlier application backlog. Platform rate backoff still applies,
+and unknown write outcomes are never automatically replayed.
 
 ### Actions and delivery timing
 

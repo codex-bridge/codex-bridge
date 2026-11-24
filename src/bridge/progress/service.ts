@@ -29,6 +29,8 @@ type ProgressTerminal = "completed" | "failed" | "interrupted";
 type ProgressPreview = { spec: MessageSpec; text: string; failed: boolean };
 
 export type ProgressServiceDependencies = {
+  waitForThreadIdle?: (threadId: string, signal: AbortSignal) => Promise<boolean>;
+  isThreadBusy?: (threadId: string) => boolean;
   getActiveTurnRoute: (threadId: string) => TurnRouteRecord | null;
   getProgressPhaseMessageForItem: (threadId: string, turnId: string, itemId: string) => ProgressPhaseMessageRecord | null;
   getSessionDirectory: (session: SessionRecord) => string;
@@ -98,6 +100,8 @@ export class ProgressService {
       getRecord: deps.getProgressPhaseMessage,
       listPending: deps.listPendingProgressPhaseFinalDelivery,
       mark: deps.markProgressPhaseMessageDeliveryState,
+      waitForThreadIdle: deps.waitForThreadIdle,
+      isThreadBusy: deps.isThreadBusy,
       enqueue: (key, operation) => this.enqueue(key, operation)
     }, this.delivery);
   }
@@ -142,7 +146,7 @@ export class ProgressService {
             id: updated.id, state: "step_failed", failureReason: normalized.failureReason
           });
         }
-        if (updated) await this.finalDelivery.deliver(updated.id);
+        if (updated) this.finalDelivery.defer(updated.id);
         if (!delivery.suppressPreview) await this.flushPendingPreview(key, active);
         return;
       }
@@ -246,7 +250,7 @@ export class ProgressService {
         state: "failed",
         failureReason: latest.failureReason
       });
-      if (promoted) await this.finalDelivery.deliver(promoted.id);
+      if (promoted) this.finalDelivery.defer(promoted.id);
     });
   }
 
@@ -293,7 +297,7 @@ export class ProgressService {
       deliveryState: "pending_finalization"
     });
     if (!finalized) return;
-    await this.finalDelivery.deliver(finalized.id);
+    this.finalDelivery.defer(finalized.id);
   }
 
   private async editPreview(key: string, record: ProgressPhaseMessageRecord, preview: ProgressPreview): Promise<void> {

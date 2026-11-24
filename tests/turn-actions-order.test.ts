@@ -19,6 +19,7 @@ test("Actions are delivered after terminal bookkeeping and before a slow progres
   const internal = bridge as unknown as {
     handleAppServerNotification(n: { method: string; params: unknown }): Promise<void>;
     bridgeRuntimeState: { inFlightTurnIdByThread: Map<string, string> };
+    progressService: { retryPendingFinalDeliveries(): Promise<void> };
   };
   let id = 0, progressId = "";
   const order: string[] = [];
@@ -56,6 +57,7 @@ test("Actions are delivered after terminal bookkeeping and before a slow progres
     await summary;
     assert.deepEqual(order, ["actions", "summary"]);
   } finally { release(); await terminal; }
+  await internal.progressService.retryPendingFinalDeliveries();
   assert.equal(store.getProgressPhaseMessage(phase.id)?.deliveryState, "synced");
 });
 

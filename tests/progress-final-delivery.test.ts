@@ -10,19 +10,22 @@ import { KeyedQueue } from "../src/shared/keyed-queue.js";
 import { createMessage } from "../src/bridge/messages/factory.js";
 import { renderLegacyMessage } from "../src/bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../src/bridge/messages/types.js";
+import type { BridgeMessageOptions } from "../src/bridge/transport.js";
 
 async function fixture(t: TestContext) {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10_000 });
   const store = new BridgeStore(":memory:");
   const session = await store.upsertDiscoveredSession({ telegramChatId: "chat", codexThreadId: "thread", pathKey: "/project" });
   const edits: Array<{ chat: string; id: string; text: string }> = [];
-  let edit: (id: string, spec: MessageSpec) => Promise<boolean> = async () => true;
+  let edit: (id: string, spec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<boolean> = async () => true;
   const delivery = new PhaseDeliveryAdapter({
-    editMessageSpec: async (chat, id, spec) => { edits.push({ chat, id, text: renderLegacyMessage(spec) }); return edit(id, spec); },
+    editMessageSpec: async (chat, id, spec, options) => { edits.push({ chat, id, text: renderLegacyMessage(spec) }); return edit(id, spec, options); },
     sendTemporaryMessageSpec: async () => assert.fail("final delivery must never send a new message")
   });
   const queue = new KeyedQueue();
-  const makeWorker = () => new FinalProgressDelivery({
+  const makeWorker = (waitForThreadIdle?: (thread: string, signal: AbortSignal) => Promise<boolean>, isThreadBusy?: (thread: string) => boolean) => new FinalProgressDelivery({
+    waitForThreadIdle,
+    isThreadBusy,
     getRecord: (id) => store.getProgressPhaseMessage(id),
     listPending: () => store.listPendingProgressPhaseFinalDelivery(),
     mark: (input) => store.markProgressPhaseMessageDeliveryState(input),
@@ -81,6 +84,59 @@ const liveEvent = (label: string, failed = false) => ({
   input: null, changes: null, text: failed ? "timeout" : "observed", completed: true
 });
 
+test("deferred summaries wait for appended foreground work and read the latest persisted aggregate", async t => {
+  const f = await fixture(t);
+  const foreground = new KeyedQueue();
+  const worker = f.makeWorker((thread, signal) => foreground.waitForIdle(thread, signal));
+  let firstRelease!: () => void, secondRelease!: () => void;
+  const first = foreground.run("thread", () => new Promise<void>(resolve => { firstRelease = resolve; }));
+  await setImmediate();
+  worker.defer(f.id); await setImmediate();
+  const second = foreground.run("thread", () => new Promise<void>(resolve => { secondRelease = resolve; }));
+  firstRelease(); await first; await setImmediate();
+  assert.equal(f.edits.length, 0);
+  const record = f.store.getProgressPhaseMessage(f.id)!;
+  f.store.updateFinalProgressPhaseAggregate(f.id, { ...record.aggregate, operations: [{ name: "tool.latest", count: 3 }] });
+  worker.defer(f.id);
+  secondRelease(); await second; await setImmediate();
+  assert.equal(f.edits.length, 1); assert.match(f.edits[0]!.text, /tool.latest ×3/);
+  await worker.stop();
+});
+
+test("stopping a deferred worker cancels idle waiting and retains pending summaries for restart", async t => {
+  const f = await fixture(t), foreground = new KeyedQueue();
+  let release!: () => void;
+  const blocked = foreground.run("thread", () => new Promise<void>(resolve => { release = resolve; }));
+  const worker = f.makeWorker((thread, signal) => foreground.waitForIdle(thread, signal));
+  worker.defer(f.id); await setImmediate();
+  await worker.stop();
+  assert.equal(f.edits.length, 0);
+  assert.equal(f.store.getProgressPhaseMessage(f.id)?.deliveryState, "pending_finalization");
+  release(); await blocked;
+});
+
+test("a summary queued at transport yields to new foreground work without marking its destination unavailable", async t => {
+  const f = await fixture(t), foreground = new KeyedQueue();
+  const worker = f.makeWorker((thread, signal) => foreground.waitForIdle(thread, signal), thread => foreground.hasPending(thread));
+  let entered!: () => void, releaseTransport!: () => void, releaseForeground!: () => void, accepted = 0;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const blockedTransport = new Promise<void>(resolve => { releaseTransport = resolve; });
+  f.setEdit(async (_id, _spec, options) => {
+    entered(); await blockedTransport;
+    if (await options?.canSend?.() === false) return false;
+    accepted++; return true;
+  });
+  worker.defer(f.id); await started;
+  const blocked = foreground.run("thread", () => new Promise<void>(resolve => { releaseForeground = resolve; }));
+  await setImmediate(); releaseTransport(); await setImmediate();
+  assert.equal(accepted, 0);
+  assert.equal(f.store.getProgressPhaseMessage(f.id)?.deliveryState, "pending_finalization");
+  releaseForeground(); await blocked; await setImmediate();
+  assert.equal(accepted, 1);
+  assert.equal(f.store.getProgressPhaseMessage(f.id)?.deliveryState, "synced");
+  await worker.stop();
+});
+
 test("live finalization sends no placeholder and allows the next phase during retry backoff", async (t) => {
   const f = await fixture(t);
   f.store.markProgressPhaseMessageDeliveryState({ id: f.id, deliveryState: "synced" });
@@ -92,6 +148,7 @@ test("live finalization sends no placeholder and allows the next phase during re
   assert.equal(f.sends.length, 2, "only actual Run and Called cards are sent");
   assert.doesNotMatch(f.sends.join("\n"), /Phase update pending/);
   assert.equal(f.store.getActiveProgressPhaseMessage("thread", "live-turn")?.phaseKind, "called");
+  await setImmediate(); // Let the deferred initial attempt fail before advancing retry time.
   f.setEdit(async () => true);
   await f.tick(5_000);
   assert.deepEqual(f.edits.map((edit) => edit.id), ["live-1", "live-1"]);
@@ -101,11 +158,14 @@ test("live finalization sends no placeholder and allows the next phase during re
 
 test("a previously synced step failure is delivered again when the turn later fails", async (t) => {
   const f = await fixture(t);
+  f.store.markProgressPhaseMessageDeliveryState({ id: f.id, deliveryState: "synced" });
   const service = f.makeService();
   await service.sendProgressMessage(f.session, liveEvent("Run", true));
+  await service.retryPendingFinalDeliveries();
   assert.equal(f.store.getLatestProgressPhaseMessage("thread", "live-turn")?.deliveryState, "synced");
   assert.match(f.edits.at(-1)!.text, /Task continued/);
   await service.clearProgressMessageForThread("thread", { turnId: "live-turn", terminal: "failed" });
+  await service.retryPendingFinalDeliveries();
   assert.equal(f.edits.length, 2);
   assert.equal(f.store.getLatestProgressPhaseMessage("thread", "live-turn")?.state, "failed");
   assert.doesNotMatch(f.edits.at(-1)!.text, /Task continued/);

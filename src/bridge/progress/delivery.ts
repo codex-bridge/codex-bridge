@@ -30,9 +30,10 @@ export class PhaseDeliveryAdapter {
     return await this.editResult(chatId, messageId, messageSpec) === "synced";
   }
 
-  async editResult(chatId: string, messageId: string, messageSpec: MessageSpec): Promise<PhaseEditResult> {
+  async editResult(chatId: string, messageId: string, messageSpec: MessageSpec,
+    options?: Pick<BridgeMessageOptions, "canSend">): Promise<PhaseEditResult> {
     try {
-      return await this.deps.editMessageSpec(chatId, messageId, messageSpec, { disable_notification: true })
+      return await this.deps.editMessageSpec(chatId, messageId, messageSpec, { disable_notification: true, ...options })
         ? "synced" : "unavailable";
     } catch (error) {
       const result = classifyMessageEditError(error);

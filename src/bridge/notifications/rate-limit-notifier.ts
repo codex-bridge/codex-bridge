@@ -8,6 +8,7 @@ import type { SessionRecord } from "../../shared/types.js";
 import type { SessionProviderStateService } from "../sessions/provider-state.js";
 import { createMessage } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
+import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 import {
   getRateLimitLeftPercent,
   getRateLimitThreshold,
@@ -22,6 +23,7 @@ type RateLimitStore = Pick<{
 }, "getSessionById">;
 
 export type RateLimitNotifierDependencies = {
+  appendWorkflowMessage: WorkflowAppend;
   store: RateLimitStore;
   resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
   sessionProviderState: Pick<SessionProviderStateService, "resolveModelForRateLimit">;
@@ -196,7 +198,7 @@ export class RateLimitNotifier {
         threshold,
         window: summarizeRateLimitWindow(window)
       });
-      await this.deps.sendLongSpec(chatId, messageSpec);
+      await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(chatId, messageSpec));
     }
   }
 }

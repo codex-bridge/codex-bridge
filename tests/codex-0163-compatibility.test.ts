@@ -23,7 +23,8 @@ test("Codex 0.163.0 additions have schema and runtime evidence without claiming 
   assert.equal(changed.group, "events");
   assert.equal(changed.evidence.generatedType, true);
   assert.equal(changed.evidence.runtime, "notChecked");
-  assert.deepEqual(changed.evidence.productionReferences, []);
+  // Scheduling knows it is metadata; durable Codex read state is still not consumed.
+  assert.deepEqual(changed.evidence.productionReferences, ["src/bridge/notifications/delivery-effect.ts"]);
   assert.equal(changed.evidence.liveVerification, null);
 });
 

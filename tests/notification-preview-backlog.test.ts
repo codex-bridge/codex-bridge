@@ -46,6 +46,7 @@ async function harness(t: test.TestContext) {
     detachCodexListeners(): void;
     notificationQueue: KeyedQueue;
     notificationSessionIdByThread: Map<string, string>;
+    progressService: { retryPendingFinalDeliveries(): Promise<void> };
     handleAppServerNotification(notification: AppServerNotification): Promise<void>;
   };
   const writes: Write[] = [];
@@ -78,6 +79,7 @@ async function harness(t: test.TestContext) {
     return async () => { blocked.release(); await queued; await internal.notificationQueue.drain(); };
   };
   return { bridge, store, session, internal, writes, block, hold,
+    flush: () => internal.progressService.retryPendingFinalDeliveries(),
     notify: (notification: AppServerNotification) => notify(notification),
     approval: (request: AppServerInteractionRequest, userInput = false) => userInput ? input(request) : approval(request),
     setWrite: (handler: typeof onWrite) => { onWrite = handler; },
@@ -100,6 +102,7 @@ test("a queued burst creates its first block, shows its latest content and aggre
   f.notify({ method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "completed" } } });
   await f.drain();
   assert.equal(f.latest().state, "phase_complete");
+  await f.flush();
   assert.match(renderLegacyMessage(f.progressWrites().at(-1)!.spec), /Run ×2 · Succeeded ×2/);
 });
 
@@ -150,9 +153,10 @@ test("type changes and failures preserve blocks, reasons and later same-type wor
   assert.equal(records.length, 3);
   const failedWrite = f.progressWrites().find(w => w.spec.kind === "failed")!;
   assert.ok(failedWrite); assert.match(renderLegacyMessage(failedWrite.spec), /timeout/i);
+  await f.flush();
   assert.ok(f.progressWrites().some(w => /Failed ×1/.test(renderLegacyMessage(w.spec))));
   assert.equal(f.latest().state, "active"); assert.equal(f.latest().aggregate.items?.length, 2);
-  assert.match(renderLegacyMessage(f.progressWrites().at(-1)!.spec), /echo last/);
+  assert.ok(f.progressWrites().some(w => /echo last/.test(renderLegacyMessage(w.spec))));
 });
 
 for (const boundary of ["assistant", "compact", "warning", "approval", "input"] as const) {
@@ -239,6 +243,7 @@ test("Edited coalescing keeps every operation and ordered file line count in the
     Array.from({ length: 12 }, (_, n) => [`/workspace/project/file-${n}.ts`, 2]));
   f.notify({ method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "completed" } } });
   await f.drain();
+  await f.flush();
   const summary = renderLegacyMessage(f.progressWrites().at(-1)!.spec);
   assert.ok(summary.indexOf("file-0.ts (+2 -0)") < summary.indexOf("file-11.ts (+2 -0)"));
 });
@@ -249,25 +254,111 @@ test("ordinary unqueued progress still updates immediately", async t => {
   assert.equal(f.progressWrites().length, 4); assert.equal(f.latest().aggregate.run.updates, 3);
 });
 
+test("metadata between tool events does not prevent coalescing or discard native item statistics", async t => {
+  const f = await harness(t), release = f.block();
+  const beforeStatus = f.writes.filter(w => w.spec.kind === "working").length;
+  for (let n = 0; n < 20; n++) {
+    f.notify(progress(`tool-${n}`, "called"));
+    f.notify(progress(`tool-${n}`, "called", true));
+    f.notify({ method: "thread/tokenUsage/updated", params: { threadId: "thread" } });
+    f.notify({ method: "turn/diff/updated", params: { threadId: "thread", turnId: "turn", diff: "" } });
+  }
+  await release();
+  assert.equal(f.progressWrites().length, 2);
+  assert.equal(f.latest().aggregate.items?.length, 20);
+  assert.equal(f.latest().aggregate.operations.length, 20);
+  assert.equal(f.writes.filter(w => w.spec.kind === "working").length, beforeStatus,
+    "old running labels are superseded before status delivery");
+});
+
+for (const foreground of ["reply", "approval"] as const) {
+  test(`${foreground} is sent before a blocked summary edit of an already-created block`, { timeout: 2000 }, async t => {
+    const f = await harness(t);
+    f.notify(progress("first", "called")); await f.drain();
+    const phase = f.latest(), blocked = f.hold(), editing = gate();
+    f.setWrite(async w => {
+      if (w.edit && w.id === phase.platformMessageId) { editing.release(); await blocked.promise; }
+      return true;
+    });
+    if (foreground === "reply") f.notify({ method: "item/completed", params: { threadId: "thread", turnId: "turn",
+      item: { id: "answer", type: "agentMessage", text: "The final answer", phase: "final_answer" } } });
+    else f.approval({ requestId: "approval", threadId: "thread", turnId: "turn", itemId: "approval-item",
+      method: "item/commandExecution/requestApproval", title: "Allow", summary: "Review", requestedFields: [],
+      elicitationMode: null, requiresUserInput: false, availableDecisions: null } as AppServerInteractionRequest);
+    await f.drain(); await editing.promise;
+    const edited = f.writes.findIndex(w => w.edit && w.id === phase.platformMessageId);
+    const sent = f.writes.findIndex(w => !w.edit && (foreground === "reply" ? w.spec.kind === "codex" : w.spec.kind === "decision"));
+    assert.ok(sent >= 0 && sent < edited);
+    assert.equal(f.store.getProgressPhaseMessage(phase.id)?.deliveryState, "pending_finalization");
+    blocked.release(); await f.flush();
+    assert.equal(f.store.getProgressPhaseMessage(phase.id)?.deliveryState, "synced");
+  });
+}
+
+test("completion invalidates queued Running labels without dropping progress blocks or final statistics", async t => {
+  const f = await harness(t), release = f.block();
+  const before = f.writes.length;
+  for (let n = 0; n < 20; n++) f.notify(progress(`command-${n}`));
+  f.notify({ method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "completed" } } });
+  await release(); await f.flush();
+  const status = f.writes.slice(before).filter(w => w.spec.kind === "working");
+  assert.ok(status.every(w => /Working · Done/.test(renderLegacyMessage(w.spec))));
+  assert.equal(f.latest().aggregate.items?.length, 20);
+  assert.equal(f.latest().aggregate.run.updates, 1);
+  assert.equal(f.progressWrites().filter(w => !w.edit).length, 1);
+});
+
+test("notification timing captures application queue wait without message content", async t => {
+  const timings: Array<{ method: string; queueWaitMs: number; processingMs: number; totalMs: number }> = [];
+  t.mock.method(logger, "info", (event: string, value: unknown) => {
+    if (event === "bridge.notification.timing") timings.push(value as typeof timings[number]);
+  });
+  const f = await harness(t), release = f.block();
+  f.notify(progress("private-command-body"));
+  await new Promise(setImmediate); await release();
+  const sample = timings.find(item => item.method === "item/started")!;
+  assert.ok(sample.queueWaitMs > 0);
+  assert.ok(Math.abs(sample.queueWaitMs + sample.processingMs - sample.totalMs) < 0.1);
+  assert.equal(JSON.stringify(timings).includes("private-command-body"), false);
+});
+
+test("metadata is transparent globally, while terminal and older-turn statuses cannot revive newer work", () => {
+  const backlog = new NotificationPreviewBacklog();
+  backlog.track("thread", { method: "turn/started", params: { threadId: "thread", turn: { id: "turn" } } });
+  const first = backlog.track("thread", progress("first"));
+  backlog.track("global", { method: "account/rateLimits/updated", params: {} });
+  const second = backlog.track("thread", progress("second"));
+  assert.equal(first().suppressPreview, true); assert.equal(first().canRefreshStatus?.(), false);
+  assert.equal(second().canRefreshStatus?.(), true);
+  const stale = backlog.track("thread", progress("old", "run", false, false, "thread", "old"));
+  assert.equal(stale().canRefreshStatus?.(), false); assert.equal(second().canRefreshStatus?.(), true);
+  backlog.track("thread", { method: "turn/completed", params: { threadId: "thread", turn: { id: "old", status: "completed" } } });
+  assert.equal(second().canRefreshStatus?.(), true);
+  backlog.track("thread", { method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "completed" } } });
+  assert.equal(second().canRefreshStatus?.(), false);
+  const late = backlog.track("thread", progress("late"));
+  assert.equal(late().canRefreshStatus?.(), false);
+});
+
 test("missing turn identity cannot coalesce, and reset cannot cross listener generations", () => {
   const backlog = new NotificationPreviewBacklog();
   const missing = progress("missing"); (missing.params as { turnId?: string }).turnId = undefined;
   const first = backlog.track("thread", progress("first"));
   const unidentified = backlog.track("thread", missing);
   backlog.track("thread", progress("third"));
-  assert.deepEqual(first(), {}); assert.deepEqual(unidentified(), {});
+  assert.equal(first().suppressPreview, undefined); assert.equal(unidentified().suppressPreview, undefined);
   const beforeReset = backlog.track("thread", progress("old"));
   backlog.reset(); backlog.track("thread", progress("new"));
-  assert.deepEqual(beforeReset(), {});
+  assert.equal(beforeReset().suppressPreview, undefined);
   const otherTurn = backlog.track("thread", progress("other-turn", "run", false, false, "thread", "other"));
-  backlog.track("thread", progress("new-turn")); assert.deepEqual(otherTurn(), {});
+  backlog.track("thread", progress("new-turn")); assert.equal(otherTurn().suppressPreview, undefined);
 });
 
 test("global notices and per-thread interaction barriers preserve queued previews", () => {
   const backlog = new NotificationPreviewBacklog();
   const first = backlog.track("thread", progress("first"));
-  backlog.boundary("thread"); backlog.track("thread", progress("second")); assert.deepEqual(first(), {});
+  backlog.boundary("thread"); backlog.track("thread", progress("second")); assert.equal(first().suppressPreview, undefined);
   const latest = backlog.track("thread", progress("latest"));
   backlog.track("global", { method: "configWarning", params: { summary: "Public warning" } });
-  backlog.track("thread", progress("last")); assert.deepEqual(latest(), {});
+  backlog.track("thread", progress("last")); assert.equal(latest().suppressPreview, undefined);
 });

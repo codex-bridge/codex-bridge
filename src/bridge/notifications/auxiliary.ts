@@ -22,7 +22,7 @@ export type NotificationAuxiliaryDependencies = {
   resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
   rateLimitNotifier: Pick<RateLimitNotifier, "handleRateLimitsUpdate">;
   getInFlightThreadIds: () => Iterable<string>;
-  setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
+  refreshSessionStatus: (session: SessionRecord) => Promise<void>;
   getSessionDirectory: (session: SessionRecord) => string;
   sendLongSpec: (chatId: string, messageSpec: ReturnType<typeof createMessage>) => Promise<void>;
   clearDecisionMessageActions: (decision: DecisionRecord) => Promise<void>;
@@ -36,7 +36,7 @@ export class NotificationAuxiliaryService {
     const session = await this.deps.resolveNotificationSession(threadId);
     if (!session || !this.deps.statusRuntimeState.statusMessageBySession.has(session.id)) return;
     this.deps.statusRuntimeState.resetEditThrottle(session.id);
-    await this.deps.setSessionStatus(session, this.deps.statusRuntimeState.getLabel(session.id) ?? "Working");
+    await this.deps.refreshSessionStatus(session);
   }
 
   async handleRateLimits(rateLimits: AppServerRateLimitsStatus): Promise<void> {

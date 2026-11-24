@@ -10,6 +10,7 @@ import { SlackMessageTransport } from "../src/slack/transport.js";
 import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
 import { logger } from "../src/logging/logger.js";
 import { presentWebMessage } from "../src/web/message-presentation.js";
+import { KeyedQueue } from "../src/shared/keyed-queue.js";
 
 const session = { id: "session", codexThreadId: "thread", telegramChatId: "slack:T:C:1" } as SessionRecord;
 
@@ -28,6 +29,100 @@ function fixture() {
   return { lifecycle: new StatusLifecycleService(deps), deps, sent, edits,
     setEdit: (implementation: typeof edit) => { edit = implementation; } };
 }
+
+test("label changes share one throttle and refresh only the latest eligible status", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  t.mock.timers.tick(1_000);
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  t.mock.timers.tick(1_000);
+  await f.lifecycle.setSessionStatus(session, "Waiting");
+  assert.equal(f.edits.length, 0);
+  t.mock.timers.tick(3_000); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Waiting · 5s/);
+  let current = true;
+  await f.lifecycle.setSessionStatus(session, "Thinking", undefined, () => current);
+  current = false;
+  t.mock.timers.tick(5_000); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1);
+});
+
+test("completion cancels delayed status refreshes and cannot recreate an expired panel", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  await f.lifecycle.clearSessionStatus(session);
+  t.mock.timers.tick(10_000); await new Promise(setImmediate);
+  assert.equal(f.sent.length, 1); assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Done/);
+  await f.lifecycle.stop();
+  await f.lifecycle.setSessionStatus(session, "Working");
+  assert.equal(f.sent.length, 1);
+});
+
+test("a slow typing request never delays status notification handling", async () => {
+  const f = fixture();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  f.deps.sendTypingOnce = () => blocked;
+  await f.lifecycle.applyStatusUpdate(session, { threadId: "thread", kind: "running", label: "Working", detail: null, detailMode: null });
+  assert.equal(f.sent.length, 1);
+  release(); await f.lifecycle.stop();
+});
+
+test("runtime cleanup waits for an in-flight creation before closing the panel", async () => {
+  const f = fixture();
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const send = f.deps.sendMessageSpec;
+  f.deps.sendMessageSpec = async (...args) => { entered(); await blocked; return send(...args); };
+  const creating = f.lifecycle.setSessionStatus(session, "Working");
+  await started;
+  const closing = f.lifecycle.clearAllSessionStatusMessages();
+  release(); await creating; await closing;
+  assert.equal(f.sent.length, 1); assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Interrupted/);
+  assert.equal(f.deps.statusMessageBySession.size, 0);
+  await f.lifecycle.stop();
+});
+
+test("existing-panel refreshes wait outside foreground work and queue changes keep the latest label", async t => {
+  let now = 100_000; t.mock.method(Date, "now", () => now);
+  const f = fixture(), queue = new KeyedQueue();
+  f.deps.isThreadBusy = thread => queue.hasPending(thread);
+  f.deps.waitForThreadIdle = (thread, signal) => queue.waitForIdle(thread, signal);
+  await f.lifecycle.setSessionStatus(session, "Working"); now += 6_000;
+  let release!: () => void;
+  const foreground = queue.run("thread", () => new Promise<void>(resolve => { release = resolve; }));
+  await new Promise(setImmediate);
+  try {
+    await f.lifecycle.setSessionStatus(session, "Thinking");
+    await f.lifecycle.setSessionStatus(session, "Waiting");
+    await f.lifecycle.refreshSessionStatus(session);
+    assert.equal(f.edits.length, 0);
+  } finally { release(); await foreground; }
+  await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1); assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Waiting/);
+  await f.lifecycle.stop();
+});
+
+test("stopping a panel with a queued refresh does not wait for foreground work", async () => {
+  const f = fixture(), queue = new KeyedQueue();
+  f.deps.isThreadBusy = thread => queue.hasPending(thread);
+  f.deps.waitForThreadIdle = (thread, signal) => queue.waitForIdle(thread, signal);
+  await f.lifecycle.setSessionStatus(session, "Working");
+  let release!: () => void;
+  const foreground = queue.run("thread", () => new Promise<void>(resolve => { release = resolve; }));
+  await f.lifecycle.setSessionStatus(session, "Waiting");
+  await f.lifecycle.stop();
+  assert.equal(f.edits.length, 0);
+  release(); await foreground;
+});
 
 test("Working preserves its ID and clock across repeated timeouts, retries identical detail and finalizes in place", async t => {
   let now = 100_000;
@@ -92,10 +187,12 @@ test("permission failures, unavailable threads and false edit results never caus
   }
 });
 
-test("Telegram unchanged acknowledgement counts as a synchronized Working edit", async () => {
+test("Telegram unchanged acknowledgement counts as a synchronized Working edit", async t => {
+  let now = 100_000; t.mock.method(Date, "now", () => now);
   const f = fixture();
   await f.lifecycle.setSessionStatus(session, "Working");
   f.setEdit(async () => { throw { error_code: 400, description: "Bad Request: message is not modified" }; });
+  now += 5_000;
   await f.lifecycle.setSessionStatus(session, "Thinking");
   await f.lifecycle.setSessionStatus(session, "Thinking");
   assert.equal(f.sent.length, 1);
@@ -115,7 +212,8 @@ test("a finalization timeout never sends another Working and the next turn start
   assert.equal(f.sent.length, 2);
 });
 
-test("Working omits Thinking summaries on every transport while recovery detail stays literal", async () => {
+test("Working omits Thinking summaries on every transport while recovery detail stays literal", async t => {
+  let now = 100_000; t.mock.method(Date, "now", () => now);
   const f = fixture();
   await f.lifecycle.setSessionStatus(session, "Thinking", {
     detail: "**Planning separate acceptance scenario**", detailMode: "replace"
@@ -129,6 +227,7 @@ test("Working omits Thinking summaries on every transport while recovery detail 
   assert.ok(!telegram.markdown.includes("Planning"));
   assert.ok(!telegram.html.includes("Planning"));
   assert.equal(presentWebMessage(spec).body.length, 1);
+  now += 5_000;
   await f.lifecycle.setSessionStatus(session, "Recovering", { detail: "Issue · `connection lost`", detailMode: "replace" });
   assert.deepEqual(f.edits[0]!.spec.body[1], { type: "text", text: "Issue · `connection lost`" });
 });

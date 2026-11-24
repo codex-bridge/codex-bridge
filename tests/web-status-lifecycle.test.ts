@@ -27,9 +27,11 @@ function harness() {
   return { lifecycle, sent, edited };
 }
 
-test("production lifecycle projects every status phase as activity, not assistant dialogue", async () => {
+test("production lifecycle projects every status phase as activity, not assistant dialogue", async t => {
+  let now = 100_000; t.mock.method(Date, "now", () => now);
   const { lifecycle, sent, edited } = harness();
   await lifecycle.setSessionStatus(session, "Working");
+  now += 5_000;
   await lifecycle.setSessionStatus(session, "Thinking", { detail: "Reviewing", detailMode: "replace" });
   await lifecycle.clearSessionStatus(session);
   await lifecycle.setSessionStatus(session, "Recovering");

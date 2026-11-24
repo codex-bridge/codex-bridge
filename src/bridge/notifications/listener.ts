@@ -1,4 +1,5 @@
 import { CodexAppServerClient, type AppServerNotification } from "../../codex/client.js";
+import { performance } from "node:perf_hooks";
 import { CodexThreadMetadataCache } from "../../codex/thread-metadata-cache.js";
 import { logger } from "../../logging/logger.js";
 import { KeyedQueue } from "../../shared/keyed-queue.js";
@@ -13,7 +14,7 @@ import { NotificationDispatcher } from "./dispatcher.js";
 import { SubagentDeliveryService } from "./subagent-delivery.js";
 import { SubagentTracker } from "./subagent-tracker.js";
 import { NotificationPreviewBacklog } from "./preview-backlog.js";
-import type { ProgressDeliveryOptions } from "../progress/normalizer.js";
+import type { NotificationDeliveryOptions } from "./delivery-effect.js";
 
 export type NotificationListenerDependencies = {
   clearUserInput?: () => void;
@@ -27,7 +28,7 @@ export type NotificationListenerDependencies = {
   notificationQueue: KeyedQueue;
   notificationDispatcher: NotificationDispatcher;
   notificationApprovalService: NotificationApprovalService;
-  handleAppServerNotification: (notification: AppServerNotification, delivery?: ProgressDeliveryOptions) => Promise<void>;
+  handleAppServerNotification: (notification: AppServerNotification, delivery?: NotificationDeliveryOptions) => Promise<void>;
   releaseBridgeLocksAfterAuthChange: () => number;
   store: BridgeStore;
   getRuntimeState: () => RuntimeState;
@@ -133,8 +134,7 @@ export class NotificationListener {
         if (observed.handled) return;
         const key = this.deps.notificationDispatcher.getQueueKey(notification);
         const start = this.previewBacklog.track(key, notification);
-        void this.deps.notificationQueue
-          .run(key, () => this.deps.handleAppServerNotification(notification, start()))
+        void this.enqueue(key, notification.method, () => this.deps.handleAppServerNotification(notification, start()))
           .catch((error) => {
             logger.error("bridge.notification.unhandled", {
               method: notification.method,
@@ -147,8 +147,7 @@ export class NotificationListener {
     if (!this.approvalUnsubscribe) {
       this.approvalUnsubscribe = this.deps.codexClient.onApprovalRequest((request) => {
         this.previewBacklog.boundary(request.threadId);
-        void this.deps.notificationQueue
-          .run(request.threadId, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
+        void this.enqueue(request.threadId, request.method, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
           .catch((error) => {
             logger.error("bridge.approval.unhandled", {
               requestId: request.requestId,
@@ -161,10 +160,28 @@ export class NotificationListener {
     if (!this.userInputUnsubscribe) {
       this.userInputUnsubscribe = this.deps.codexClient.onUserInputRequest(request => {
         this.previewBacklog.boundary(request.threadId);
-        void this.deps.notificationQueue.run(request.threadId, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
+        void this.enqueue(request.threadId, request.method, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
           .catch(() => logger.error("bridge.user_input.delivery_failed", { requestId: request.requestId, threadId: request.threadId }));
       });
     }
+  }
+
+  private enqueue(key: string, method: string, operation: () => Promise<void>): Promise<void> {
+    const queuedAt = performance.now();
+    return this.deps.notificationQueue.run(key, async () => {
+      const startedAt = performance.now();
+      let outcome = "threw";
+      try { await operation(); outcome = "returned"; }
+      finally {
+        const finishedAt = performance.now();
+        try {
+          logger.info("bridge.notification.timing", { key, method, outcome,
+            queueWaitMs: Math.round((startedAt - queuedAt) * 100) / 100,
+            processingMs: Math.round((finishedAt - startedAt) * 100) / 100,
+            totalMs: Math.round((finishedAt - queuedAt) * 100) / 100 });
+        } catch { /* Diagnostics cannot alter notification processing. */ }
+      }
+    });
   }
 
   detach(): void {

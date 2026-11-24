@@ -1,6 +1,6 @@
 {
   "version": "0.170.0",
-  "generatedAt": "2026-11-20",
+  "generatedAt": "2026-11-24",
   "includesExperimental": true,
   "schemaMethods": {
     "request": [
@@ -490,6 +490,7 @@
       "src/codex/catalog-api.ts"
     ],
     "account/rateLimits/updated": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/codex/notification-events.ts"
     ],
     "account/read": [
@@ -710,12 +711,14 @@
       "src/codex/thread-list-api.ts"
     ],
     "thread/name/updated": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/bridge/notifications/listener.ts"
     ],
     "thread/queue/add": [
       "src/codex/queue-api.ts"
     ],
     "thread/queue/changed": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/bridge/notifications/dispatcher.ts"
     ],
     "thread/queue/delete": [
@@ -728,17 +731,28 @@
       "src/codex/error-policy.ts",
       "src/codex/thread-api.ts"
     ],
+    "thread/readState/changed": [
+      "src/bridge/notifications/delivery-effect.ts"
+    ],
     "thread/resume": [
       "src/codex/error-policy.ts",
       "src/codex/thread-api.ts"
     ],
+    "thread/section/changed": [
+      "src/bridge/notifications/delivery-effect.ts"
+    ],
     "thread/settings/updated": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/codex/client.ts"
     ],
     "thread/start": [
       "src/codex/client.ts"
     ],
+    "thread/status/changed": [
+      "src/bridge/notifications/delivery-effect.ts"
+    ],
     "thread/tokenUsage/updated": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/codex/notification-events.ts"
     ],
     "thread/turns/list": [
@@ -757,8 +771,14 @@
       "src/bridge/notifications/subagent-tracker.ts",
       "src/codex/notification-events.ts"
     ],
+    "turn/diff/updated": [
+      "src/bridge/notifications/delivery-effect.ts"
+    ],
     "turn/interrupt": [
       "src/codex/turn-api.ts"
+    ],
+    "turn/moderationMetadata": [
+      "src/bridge/notifications/delivery-effect.ts"
     ],
     "turn/plan/updated": [
       "src/codex/activity-events.ts"

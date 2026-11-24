@@ -24,6 +24,7 @@ import { NotificationRecoveryService } from "./recovery.js";
 import { NotificationTurnService } from "./turns.js";
 import type { ProgressNotificationEvent } from "../progress/service.js";
 import type { ProgressDeliveryOptions } from "../progress/normalizer.js";
+import type { NotificationDeliveryOptions } from "./delivery-effect.js";
 import { canDeliverSession } from "./delivery-target.js";
 import { ReasoningSummaryTracker } from "../../codex/reasoning-summary.js";
 
@@ -46,7 +47,7 @@ export class NotificationDispatcher {
 
   constructor(private readonly deps: NotificationDispatcherDependencies) {}
 
-  async handle(notification: AppServerNotification, delivery: ProgressDeliveryOptions = {}): Promise<void> {
+  async handle(notification: AppServerNotification, delivery: NotificationDeliveryOptions = {}): Promise<void> {
     if (notification.method === "bridge/connection/lost") {
       this.reasoningSummaries.reset();
       if ((notification.params as { expected?: boolean } | undefined)?.expected !== false) return;
@@ -109,7 +110,8 @@ export class NotificationDispatcher {
         statusUpdate,
         turnLifecycle?.kind === "completed" ? turnLifecycle.turnId : undefined,
         turnLifecycle?.kind === "completed" ? turnLifecycle.terminalState : undefined,
-        turnLifecycle?.error
+        turnLifecycle?.error,
+        delivery.canRefreshStatus
       );
     }
 
