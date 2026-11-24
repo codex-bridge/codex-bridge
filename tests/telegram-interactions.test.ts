@@ -47,8 +47,8 @@ test("Telegram interaction delivery edits callback messages and sends otherwise"
   const calls: string[] = [];
   const responder = {
     clearActions: async () => { calls.push("clear"); },
-    edit: async () => { calls.push("edit"); },
-    send: async () => { calls.push("send"); }
+    edit: async () => { calls.push("edit"); return true; },
+    send: async () => { calls.push("send"); return true; }
   };
 
   await deliverTelegramInteraction(
@@ -83,13 +83,12 @@ test("Telegram refresh accepts compact and legacy callbacks without losing the l
     assert.equal(await handleTelegramSessionWorkflow({
       action: `${prefix}:${sessionId}:1123`,
       context: createTelegramInteractionContext("123", 456),
-      acknowledge: async () => { calls.push("acknowledge"); },
       responder: {
         clearActions: async () => { calls.push("clear"); },
-        edit: async (state) => { assert.equal(state, message); calls.push("edit"); },
+        edit: async (state) => { assert.equal(state, message); calls.push("edit"); return true; },
         send: async () => { assert.fail("Unexpected send"); }
       }, service
     }), true);
-    assert.deepEqual(calls, ["acknowledge", "edit"]);
+    assert.deepEqual(calls, ["edit"]);
   }
 });

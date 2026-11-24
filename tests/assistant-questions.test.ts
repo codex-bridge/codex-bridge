@@ -164,7 +164,7 @@ test("Slack and Telegram resolve the same opaque callback without editing origin
   await handleSlackTurnWorkflow({ action: `reply:${token}`, context: { platform: "slack", conversationId: "slack:T:C:1",
     surfaceId: "slack:T:C:1", sourceMessageId: "message" }, messageText: "Original question", openQueueModal: async () => {},
     service: service as never, transport: { editMessageSpec: async () => { assert.fail("original question must remain"); } } as never });
-  await handleTelegramTurnWorkflow({ action: `reply:${token}`, callbackId: "callback", acknowledge: async () => {},
+  await handleTelegramTurnWorkflow({ action: `reply:${token}`, callbackId: "callback",
     context: { platform: "telegram", conversationId: "chat", surfaceId: "chat" }, service: service as never,
     responder: { send: async () => { assert.fail("no duplicate acknowledgement message"); } } as never });
   assert.deepEqual(calls, [{ chat: "slack:T:C:1", token }, { chat: "chat", token }]);

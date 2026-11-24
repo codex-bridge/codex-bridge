@@ -85,6 +85,28 @@ Other text demonstrates Markdown and SSE behavior. Set `WEB_FIXTURE_HOST`,
 `WEB_FIXTURE_PORT` and `WEB_FIXTURE_STATIC_ROOT` to use an explicit test listener
 and built frontend; never reuse a production database for this fixture.
 
+## Telegram input and API lifecycle
+
+Telegram uses the official grammY runner with a maximum of 16 accepted updates at
+a time, including updates waiting on the per-entry ordering middleware. The fetch
+adapter also caps the initial batch to this limit. `sequentialize` uses the same
+logical source identity as routing; it does not serialize all topics as one input
+entry. The existing physical-chat output scheduler remains responsible for rate
+limits. Shutdown stops polling and drains accepted updates before closing Bridge
+and the database. No middleware timeout abandons a still-running business action.
+
+Non-polling API calls have a 10-second abort timeout and preserve caller
+cancellation. `getUpdates` retains the runner's long-poll timeout and cancellation
+signal. This does not introduce retries for unknown write outcomes. Explicit
+Telegram rate-limit rejection still follows the existing scheduler policy.
+
+Callback acknowledgement is disposable, starts independently, and keeps its
+2-second abort bound. It no longer blocks business dispatch. Known failed approval
+and question results use a shared in-entry notice; success uses the existing card
+updates. Text edits, structured edits and button clearing treat the shared
+`synced` no-change result as success. Actual errors propagate, and interaction
+follow-up runs only after a confirmed successful write.
+
 ## Workflow message ordering
 
 New chronological outputs use `ProgressService.appendWorkflowMessage` after producer

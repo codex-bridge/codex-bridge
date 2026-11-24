@@ -6,7 +6,6 @@ import type { TelegramInteractionResponder } from "./responder.js";
 
 export async function handleTelegramSessionWorkflow(input: {
   action: string;
-  acknowledge: (text?: string) => Promise<void>;
   context: InteractionContext;
   responder: TelegramInteractionResponder;
   service: BridgeTelegramSessionWorkflowPort;
@@ -17,7 +16,6 @@ export async function handleTelegramSessionWorkflow(input: {
   if (action.startsWith("section:") || action.startsWith("session:")) {
     const legacySection = action.startsWith("section:");
     const sessionId = action.slice(legacySection ? "section:".length : "session:".length);
-    await input.acknowledge(legacySection ? "Switching section..." : "Session switched.");
     try {
       const activation = legacySection
         ? await service.activateSection(chatId, sessionId)
@@ -40,7 +38,6 @@ export async function handleTelegramSessionWorkflow(input: {
   const callback = parseSessionActionCallback(action);
   if (callback?.kind !== "refresh") return false;
 
-  await input.acknowledge();
   const state = await service.refreshSessionView(chatId, callback.sessionId, callback.expectedLeaseVersion);
   await responder.edit(state);
   return true;

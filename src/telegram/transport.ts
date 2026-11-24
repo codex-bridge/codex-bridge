@@ -8,6 +8,7 @@ import { isTelegramRichMessageRejection } from "./errors.js";
 import { renderTelegramMessageSpec } from "./message-renderer.js";
 import { timeTelegramApi } from "./delivery-timing.js";
 import { TelegramApiScheduler, telegramSchedulerFor } from "./api-scheduler.js";
+import { classifyMessageEditError } from "../bridge/messages/edit-result.js";
 
 type TelegramSendOptions = { disable_notification?: boolean; message_thread_id?: number };
 
@@ -50,17 +51,17 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
   async editMessageText(sourceId: string, messageId: string, text: string, options?: BridgeMessageOptions): Promise<boolean> {
     if (options?.messageSpec) return this.editMessageSpec(sourceId, messageId, options.messageSpec, options);
     const html = options?.textFormat === "html";
-    return await this.write(sourceId, options, async target => {
+    return this.edit(sourceId, options, async target => {
       await timeTelegramApi("editMessageText", () => this.bot.api.editMessageText(target.chatId, Number(messageId), html ? options.formattedText ?? this.formatHtml(text) : text, {
         parse_mode: html ? "HTML" : undefined
       }));
       return true;
-    }, { operation: "edit" }) ?? false;
+    }, { operation: "edit" });
   }
 
   async editMessageSpec(sourceId: string, messageId: string, spec: MessageSpec, options?: BridgeMessageOptions): Promise<boolean> {
     const rendered = renderTelegramMessageSpec(spec);
-    return await this.write(sourceId, options, async target => {
+    return this.edit(sourceId, options, async target => {
       // Edits identify an existing message in the physical chat; no topic field is accepted.
       const editOptions = { disable_notification: options?.disable_notification, reply_markup: rendered.keyboard };
       try {
@@ -79,7 +80,7 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
         }
         return true;
       }
-    }, { operation: "edit", messageKind: spec.kind }) ?? false;
+    }, { operation: "edit", messageKind: spec.kind });
   }
 
   async deleteMessage(sourceId: string, messageId: string): Promise<boolean> {
@@ -90,9 +91,9 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
 
   async clearMessageActions(sourceId: string, messageId: string, _text?: string, _contentBlocks?: unknown[]): Promise<boolean> {
     void _text; void _contentBlocks;
-    return await this.write(sourceId, undefined, async target => {
+    return this.edit(sourceId, undefined, async target => {
       await timeTelegramApi("editMessageReplyMarkup", () => this.bot.api.editMessageReplyMarkup(target.chatId, Number(messageId), { reply_markup: undefined })); return true;
-    }, { operation: "clear_actions" }) ?? false;
+    }, { operation: "clear_actions" });
   }
 
   async sendTyping(sourceId: string): Promise<void> {
@@ -106,6 +107,17 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
       ...(options?.disable_notification === undefined ? {} : { disable_notification: options.disable_notification }),
       ...(target.topicId === null ? {} : { message_thread_id: target.topicId })
     };
+  }
+
+  private async edit(sourceId: string, options: BridgeMessageOptions | undefined,
+    operation: (target: TelegramAddress) => Promise<boolean>, context: { operation: string; messageKind?: string }): Promise<boolean> {
+    return await this.write(sourceId, options, async target => {
+      try { return await operation(target); }
+      catch (error) {
+        if (classifyMessageEditError(error) === "synced") return true;
+        throw error;
+      }
+    }, context) ?? false;
   }
 
   private write<T>(sourceId: string, options: BridgeMessageOptions | undefined,

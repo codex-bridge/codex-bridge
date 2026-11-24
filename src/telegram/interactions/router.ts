@@ -9,6 +9,7 @@ import { handleTelegramApproval } from "./approvals.js";
 import { deliverTelegramInteraction, type TelegramInteractionResponder } from "./responder.js";
 import { handleTelegramSessionWorkflow } from "./session-workflow.js";
 import { handleTelegramTurnWorkflow } from "./turn-workflow.js";
+import { sendTelegramInteractionNotice } from "./feedback.js";
 
 function isSharedTelegramAction(action: CoreInteractionAction): boolean {
   return action.type !== "help" &&
@@ -19,14 +20,12 @@ function isSharedTelegramAction(action: CoreInteractionAction): boolean {
 
 export async function dispatchTelegramInteraction(input: {
   action: string;
-  acknowledge: (text?: string) => Promise<void>;
   callbackId: string;
   context: InteractionContext;
   responder: TelegramInteractionResponder;
   service: BridgeTelegramInteractionPort;
 }): Promise<void> {
   if (input.action === "noop") {
-    await input.acknowledge();
     return;
   }
   if (await handleTelegramTurnWorkflow(input)) return;
@@ -35,11 +34,10 @@ export async function dispatchTelegramInteraction(input: {
 
   const action = parseCoreInteractionAction(input.action);
   if (!action || !isSharedTelegramAction(action)) {
-    await input.acknowledge("Unknown action.");
+    await sendTelegramInteractionNotice(input.service, input.responder, input.context.conversationId, "Unknown action.");
     return;
   }
 
-  await input.acknowledge(action.type === "turn.interrupt" ? "Interrupting..." : undefined);
   const delivery = await handleCoreInteraction(input.service, input.context, action);
   await deliverTelegramInteraction(input.context, delivery, input.responder);
 }

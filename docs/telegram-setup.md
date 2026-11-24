@@ -112,6 +112,12 @@ wait; a second rejection leaves the cooldown for subsequent writes. Unknown
 network outcomes are not automatically replayed by the Telegram transport. Topic
 routing does not give each topic a separate Telegram rate allowance.
 
+Incoming updates keep their order within each private chat, ordinary group or
+topic, while different entries can be processed concurrently. Group-level output
+limits still apply. Callback loading feedback does not delay the action; approval
+and question failures are posted as short messages in the same entry, while
+successful actions use their existing card updates without extra receipts.
+
 ## Troubleshooting
 
 - **The bot does not reply:** verify the token, confirm the chat ID is allowed,

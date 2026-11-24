@@ -1,19 +1,19 @@
 import { parseApprovalInteractionAction } from "../../bridge/interactions/action.js";
 import type { InteractionContext } from "../../bridge/interactions/types.js";
-import type { BridgeDecisionPort } from "../../bridge/contracts.js";
+import type { BridgeChatPort, BridgeDecisionPort } from "../../bridge/contracts.js";
 import type { TelegramInteractionResponder } from "./responder.js";
+import { sendTelegramInteractionNotice } from "./feedback.js";
 
 export async function handleTelegramApproval(input: {
   action: string;
-  acknowledge: (text?: string) => Promise<void>;
   context: InteractionContext;
   responder: TelegramInteractionResponder;
-  service: BridgeDecisionPort;
+  service: BridgeDecisionPort & Pick<BridgeChatPort, "getActiveSessionContext">;
 }): Promise<boolean> {
   const action = parseApprovalInteractionAction(input.action);
   if (!action) return false;
   if (action.type === "approval.invalid") {
-    await input.acknowledge("Invalid decision action.");
+    await sendTelegramInteractionNotice(input.service, input.responder, input.context.conversationId, "Invalid decision action.");
     return true;
   }
 
@@ -23,7 +23,7 @@ export async function handleTelegramApproval(input: {
       action.decision,
       input.context.conversationId
     );
-    await input.acknowledge(result.message);
+    if (!result.ok) await sendTelegramInteractionNotice(input.service, input.responder, input.context.conversationId, result.message);
     if (result.ok) await input.responder.clearActions();
     return true;
   }
@@ -34,6 +34,6 @@ export async function handleTelegramApproval(input: {
     input.context.conversationId,
     action.expectedLeaseVersion
   );
-  await input.acknowledge(result.message);
+  if (!result.ok) await sendTelegramInteractionNotice(input.service, input.responder, input.context.conversationId, result.message);
   return true;
 }

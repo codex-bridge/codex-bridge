@@ -297,7 +297,7 @@ for (const platform of ["slack", "telegram"] as const) {
       await deliverSlackInteraction({ sendMessageSpec: async () => { order.push("write"); return { message_id: "id" }; } } as unknown as SlackMessageTransport,
         context, delivery);
     } else await deliverTelegramInteraction(context, delivery, {
-      clearActions: async () => {}, edit: async () => assert.fail("send"), send: async () => { order.push("write"); }
+      clearActions: async () => {}, edit: async () => assert.fail("send"), send: async () => { order.push("write"); return true; }
     });
     assert.deepEqual(order, ["boundary", "write", "release", "follow-up"]);
   });

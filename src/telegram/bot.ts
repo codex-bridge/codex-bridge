@@ -1,4 +1,5 @@
 import { Bot, Context } from "grammy";
+import { sequentialize } from "@grammyjs/runner";
 
 import type { BridgeTelegramBotPort } from "../bridge/contracts.js";
 import type { AppConfig } from "../config/index.js";
@@ -14,6 +15,7 @@ import { acknowledgeTelegramCallback } from "./interactions/acknowledge.js";
 import { telegramSourceForContext } from "../shared/telegram-address.js";
 import { TelegramMessageTransport } from "./transport.js";
 import { formatTelegramHtml } from "./text.js";
+import { configureTelegramApi } from "./api-policy.js";
 
 const knownCommands = new Set([
   "help",
@@ -54,6 +56,7 @@ function getCommandArgument(text: string): string {
 }
 
 export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPort, bot = new Bot(config.telegramBotToken)): Bot {
+  configureTelegramApi(bot);
   const transport = new TelegramMessageTransport(bot, formatTelegramHtml);
   const acknowledge = (ctx: Context, text?: string): Promise<void> => acknowledgeTelegramCallback(
     // grammY types signals through its legacy polyfill; Node's native signal is runtime-compatible.
@@ -61,6 +64,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       signal as unknown as Parameters<Context["answerCallbackQuery"]>[1]),
     { chatId: ctx.chat?.id, callbackId: ctx.callbackQuery?.id }
   );
+  bot.use(sequentialize((ctx: Context) => ctx.chat ? telegramSourceForContext(ctx) : undefined));
   bot.use(async (ctx, next) => {
     if (ctx.callbackQuery?.message?.date === 0) {
       await acknowledge(ctx, "This message is unavailable. Open /sessions in the intended topic.");
@@ -82,12 +86,12 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       actions
     }));
   };
-  const replySpec = async (ctx: Context, messageSpec: MessageSpec): Promise<void> => {
-    await transport.sendMessageSpec(telegramSourceForContext(ctx), messageSpec);
+  const replySpec = async (ctx: Context, messageSpec: MessageSpec): Promise<boolean> => {
+    return Boolean(await transport.sendMessageSpec(telegramSourceForContext(ctx), messageSpec));
   };
-  const editSpec = async (ctx: Context, messageSpec: MessageSpec): Promise<void> => {
+  const editSpec = async (ctx: Context, messageSpec: MessageSpec): Promise<boolean> => {
     if (!ctx.msg) throw new Error("No Telegram message context is available.");
-    await transport.editMessageSpec(telegramSourceForContext(ctx), String(ctx.msg.message_id), messageSpec);
+    return transport.editMessageSpec(telegramSourceForContext(ctx), String(ctx.msg.message_id), messageSpec);
   };
 
   void bot.api
@@ -301,9 +305,11 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       chatId,
       ctx.callbackQuery.message?.message_id
     );
+    // Disposable spinner feedback is bounded and nonrejecting. It must not delay
+    // business execution; failures use durable messages through the responder.
+    void acknowledge(ctx);
     await dispatchTelegramInteraction({
       action: data,
-      acknowledge: text => acknowledge(ctx, text),
       callbackId: ctx.callbackQuery.id,
       context: interaction,
       responder: {

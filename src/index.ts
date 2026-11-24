@@ -7,6 +7,7 @@ import { buildSlackBot } from "./slack/bot.js";
 import { BridgeStore } from "./store/index.js";
 import { buildTelegramBot } from "./telegram/bot.js";
 import { TelegramMessageTransport } from "./telegram/transport.js";
+import { startTelegramPolling, type TelegramPolling } from "./telegram/polling.js";
 import { WebServer } from "./web/server.js";
 import { cleanupWebAttachments } from "./web/attachments.js";
 
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
   const web = config.web ? new WebServer(config.web, service.createWebApi()) : null;
   let slackAttachmentCleanupTimer: NodeJS.Timeout | null = null;
   let webAttachmentCleanupTimer: NodeJS.Timeout | null = null;
+  let telegramPolling: TelegramPolling | null = null;
 
   await service.bootstrap();
 
@@ -52,7 +54,11 @@ async function main(): Promise<void> {
   }
 
   if (bot) {
-    void bot.start();
+    telegramPolling = await startTelegramPolling(bot);
+    void telegramPolling.task.catch((error) => {
+      logger.error("telegram.polling.failed", { error: error instanceof Error ? error.message : String(error) });
+      process.exit(1);
+    });
     logger.info("app.telegram.ready");
   }
   if (slack) {
@@ -77,7 +83,7 @@ async function main(): Promise<void> {
     if (webAttachmentCleanupTimer) {
       clearInterval(webAttachmentCleanupTimer);
     }
-    bot?.stop();
+    await telegramPolling?.stop();
     await web?.stop();
     await slack?.stop();
     await service.shutdown();

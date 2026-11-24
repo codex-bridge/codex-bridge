@@ -144,16 +144,18 @@ test("question controls stay distinct from approvals, and expired requests canno
 test("chat adapters route native selections to the question service without sending ordinary Go text", async t => {
   const f = await serviceFixture(t);
   const action = userQuestionActions(f.service.present(f.decision))[0]!.callback;
-  const service = { handleUserQuestion: (chat: string, action: Parameters<UserInputService["act"]>[0]) => f.service.act(action, chat) };
-  const acknowledgements: string[] = [];
+  const service = { handleUserQuestion: (chat: string, action: Parameters<UserInputService["act"]>[0]) => f.service.act(action, chat),
+    getActiveSessionContext: async () => null };
+  const notices: string[] = [];
   assert.equal(await handleSlackTurnWorkflow({ action, context: { platform: "slack", conversationId: "web:local", surfaceId: "web:local" },
     messageText: null, openQueueModal: async () => {}, service: service as never,
     transport: { sendMessageSpec: async () => { assert.fail("selection updates the existing card"); } } as never }), true);
   assert.deepEqual(f.service.present(f.decision).userInput!.answeredQuestionIds, ["direction"]);
   assert.deepEqual(f.writes, []);
   assert.equal(await handleTelegramTurnWorkflow({ action, callbackId: "callback", context: { platform: "telegram", conversationId: "not-owner", surfaceId: "not-owner" },
-    acknowledge: async text => { acknowledgements.push(text ?? ""); }, service: service as never, responder: {} as never }), true);
-  assert.match(acknowledgements[0]!, /Acquire this session/);
+    service: service as never, responder: { send: async message => { notices.push(JSON.stringify(message)); return true; },
+      edit: async () => assert.fail("preserve the original question"), clearActions: async () => {} } }), true);
+  assert.match(notices[0]!, /Acquire this session/);
   assert.deepEqual(f.writes, []);
 });
 
