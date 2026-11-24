@@ -48,6 +48,7 @@ import { NotificationNoticeService } from "./notifications/notices.js";
 import { NotificationDispatcher } from "./notifications/dispatcher.js";
 import { NotificationApprovalService, type EarlyApproval } from "./notifications/approval.js";
 import { VersionUpdateNotifier } from "./notifications/version-update.js";
+import { McpStatusNotifier } from "./notifications/mcp-status.js";
 import { NotificationListener } from "./notifications/listener.js";
 import { RuntimeController, type RuntimeState } from "./runtime/controller.js";
 import { requestServiceRestart, RuntimeCommandService } from "./runtime/commands.js";
@@ -203,6 +204,7 @@ export class BridgeService {
   private readonly notificationApprovalService: NotificationApprovalService;
   private readonly notificationListener: NotificationListener;
   private readonly versionUpdateNotifier: VersionUpdateNotifier;
+  private readonly mcpStatusNotifier: McpStatusNotifier;
   private readonly incomingPayloadService: IncomingPayloadService;
   private readonly queuedSubmissionService: QueuedSubmissionService;
   private readonly incomingPreflightService: IncomingPreflightService;
@@ -409,13 +411,20 @@ export class BridgeService {
         }), { canSend, disable_notification: true }
       ).then((message) => message !== null)
     });
+    this.mcpStatusNotifier = new McpStatusNotifier({
+      getUnavailable: thread => state.mcpStartupStatus.unavailableForThread(thread),
+      getSessionDirectory: session => this.getSessionDirectory(session),
+      sendMessageSpec: (sourceId, spec, options) => this.messageOperations.sendMessageSpec(sourceId, spec, options)
+    });
     this.goShortcutService = new GoShortcutService({
-      getMcpSummary: thread => state.mcpStartupStatus.summaryForThread(thread),
       store,
       messageOperations: this.messageOperations,
       getActiveTurnId: thread => state.inFlightTurnIdByThread.get(thread),
       lastAssistantMessageByThread: state.lastAssistantTelegramByThread,
-      beforeActions: (session, sourceId, canSend) => this.versionUpdateNotifier.deliverBeforeActions(session, sourceId, canSend),
+      beforeActions: async (session, sourceId, canSend, signal) => {
+        await this.versionUpdateNotifier.deliverBeforeActions(session, sourceId, canSend);
+        await this.mcpStatusNotifier.deliverBeforeActions(session, sourceId, canSend, signal);
+      },
       getSessionDirectory: (session) => this.getSessionDirectory(session)
     });
     this.historyDeliveryService = new HistoryDeliveryService({
@@ -816,6 +825,7 @@ export class BridgeService {
       tokenUsage: this.tokenUsageTracker,
       mcpStartupStatus: state.mcpStartupStatus,
       notices: this.notificationNoticeService,
+      mcpStatusNotices: this.mcpStatusNotifier,
       modelRuntimeEvents: state.modelRuntimeEventByThread,
       lastAssistantMessages: state.lastAssistantTelegramByThread,
       cancelGoShortcuts: () => this.goShortcutService.cancelAll(),

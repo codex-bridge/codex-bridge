@@ -20,6 +20,7 @@ export type RuntimeStateCleanupDependencies = {
   tokenUsage: Clearable;
   mcpStartupStatus: Clearable;
   notices?: Clearable;
+  mcpStatusNotices?: Clearable;
   modelRuntimeEvents: Clearable;
   lastAssistantMessages: Clearable;
   cancelGoShortcuts: () => void;
@@ -41,6 +42,7 @@ export class RuntimeStateCleanupService {
     this.deps.tokenUsage.clear();
     this.deps.mcpStartupStatus.clear();
     this.deps.notices?.clear();
+    this.deps.mcpStatusNotices?.clear();
     this.deps.modelRuntimeEvents.clear();
     this.deps.lastAssistantMessages.clear();
     this.deps.cancelGoShortcuts();

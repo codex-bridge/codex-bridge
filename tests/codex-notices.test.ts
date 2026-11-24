@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { extractWarningEvent, extractMcpStartupStatusEvent } from "../src/codex/notification-events.js";
-import { McpStartupTracker } from "../src/bridge/status/mcp-startup.js";
+import { McpStartupTracker, formatMcpUnavailableSummary } from "../src/bridge/status/mcp-startup.js";
 import { NotificationNoticeService } from "../src/bridge/notifications/notices.js";
 import { NotificationDispatcher } from "../src/bridge/notifications/dispatcher.js";
 import { BridgeStore } from "../src/store/index.js";
@@ -63,16 +63,16 @@ test("MCP summaries count unique scoped unavailable servers, retain names, and c
   tracker.remember({ ...failure, threadId: "a" });
   tracker.remember({ ...failure, threadId: "b", name: "other" });
   tracker.remember({ ...failure, threadId: "a", name: "figma" });
-  assert.equal(tracker.summaryForThread("a"), "MCP unavailable ×2 · figma, tools");
-  assert.equal(tracker.summaryForThread("b"), "MCP unavailable ×2 · other, tools");
+  assert.equal(formatMcpUnavailableSummary(tracker.unavailableForThread("a")), "MCP unavailable ×2 · figma, tools");
+  assert.equal(formatMcpUnavailableSummary(tracker.unavailableForThread("b")), "MCP unavailable ×2 · other, tools");
   tracker.remember({ ...ready, threadId: "a", status: "starting" });
   tracker.remember({ ...ready, threadId: "a", source: "oauth", status: "authenticated" });
   assert.equal(tracker.unavailableForThread("a").length, 2);
   tracker.remember({ ...ready, threadId: "a" });
   assert.deepEqual(tracker.unavailableForThread("a"), ["figma"]);
   tracker.remember({ ...ready, threadId: "a", name: "figma" });
-  assert.equal(tracker.summaryForThread("a"), null);
-  tracker.clear(); assert.equal(tracker.summaryForThread("b"), null);
+  assert.deepEqual(tracker.unavailableForThread("a"), []);
+  tracker.clear(); assert.deepEqual(tracker.unavailableForThread("b"), []);
 });
 
 test("MCP failures and recoveries update cached details without sending or queuing standalone notices", async t => {
@@ -84,7 +84,7 @@ test("MCP failures and recoveries update cached details without sending or queui
   await f.service.handleMcpStartup(ready);
   await f.service.handleMcpStartup({ ...ready, threadId: "a" });
   await f.service.flushPending(session, "web:local");
-  assert.equal(f.sent.length, 0); assert.equal(f.tracker.summaryForThread("a"), null);
+  assert.equal(f.sent.length, 0); assert.deepEqual(f.tracker.unavailableForThread("a"), []);
 });
 
 async function fixture(t: TestContext) {

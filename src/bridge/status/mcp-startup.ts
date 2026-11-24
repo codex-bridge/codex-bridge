@@ -12,6 +12,12 @@ export function isMcpFailure(event: Pick<AppServerMcpStartupStatusEvent, "status
     ["failed", "error", "stopped", "disconnected", "authenticationrequired"].includes(event.status?.toLowerCase() ?? ""));
 }
 
+export function formatMcpUnavailableSummary(names: readonly string[]): string {
+  const text = `MCP unavailable ×${names.length}${names.length ? ` · ${names.join(", ")}` : ""}`;
+  const characters = Array.from(text);
+  return characters.length <= 800 ? text : `${characters.slice(0, 799).join("")}…`;
+}
+
 /** Connection observations are isolated by scope; a login receipt is not a ready connection. */
 export class McpStartupTracker {
   private readonly statuses = new Map<string, McpStartupStatus>();
@@ -43,14 +49,6 @@ export class McpStartupTracker {
   unavailableForThread(threadId: string): string[] {
     return [...this.forThread(threadId).values()].filter(state => state.failureActive)
       .map(state => state.name).sort((a, b) => a.localeCompare(b));
-  }
-
-  summaryForThread(threadId: string): string | null {
-    const names = this.unavailableForThread(threadId);
-    if (!names.length) return null;
-    const text = `MCP unavailable ×${names.length} · ${names.join(", ")}`;
-    const characters = Array.from(text);
-    return characters.length <= 800 ? text : `${characters.slice(0, 799).join("")}…`;
   }
 
   clear(): void { this.statuses.clear(); }

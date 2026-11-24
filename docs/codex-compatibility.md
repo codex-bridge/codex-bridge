@@ -14,7 +14,7 @@ evidence that every newer Bridge feature works on those versions.
 | Native questions | Real CLI, Bridge client/service, live Web transport and decision endpoint with a local deterministic model | Original question IDs and typed answers, explicit submission, interrupt expiry and no fabricated default consent; no remote provider is certified. |
 | Asynchronous question choices | Real CLI and Bridge, ordinary text reply after turn completion, multi-question token tests and browser fixture | Choices are ordinary replies, not native RPC answers. Old history/cache does not recreate controls. |
 | Command approval and Run | Real local CLI and Bridge with an explicitly accepted, harmless fixture command | This is ordinary command approval, not certification of every managed human-only policy or OS permission dialog. |
-| Warnings and MCP failures | Scoped parser and Actions statistics, real Bridge listener wiring with controlled events, root routing/authorization tests and browser fixture | Real remote MCP outages and Slack/Telegram API delivery were not triggered. |
+| Warnings and MCP failures | Scoped parser and status snapshots before Actions, real Bridge listener wiring with controlled events, root routing/authorization tests and browser fixture | Real remote MCP outages and Slack/Telegram API delivery were not triggered. |
 | Plan, Hook, wait, image view, dynamic tools and Review | Actual progress service, SQLite storage, three renderers and browser fixture with controlled events | Not every real activity producer was exercised. Direct-child activity retains the bounded subagent-summary policy. |
 | History and session restore | Real CLI and Bridge reading structured history before and after unsubscribe/resume | Uses temporary sessions. This does not establish that all external-writer contention has been fixed upstream. |
 
@@ -49,9 +49,10 @@ not certification of every provider, operating system or network path.
   with the existing catalog poll, normally every 8 seconds. State is memory-only;
   failed/unknown writes do not block the conversation or retry automatically.
 - Identical ordinary warning bodies deduplicate across configuration and generic
-  warning methods. MCP failures/recoveries update scoped status and the unavailable
-  service count in Actions, without standalone notices. Successful auto-approval
-  reviews are silent; exceptional or unknown outcomes remain visible.
+  warning methods. MCP failures/recoveries update scoped status; a separate
+  subdued snapshot precedes Actions only when the session's unavailable list
+  changes. Successful auto-approval reviews are silent; exceptional or unknown
+  outcomes remain visible.
 - MCP login success alone is not connection readiness. Reported readiness clears
   the corresponding unavailable state. Bridge does not reconnect or change
   configuration automatically.

@@ -175,8 +175,9 @@ also lets you release ownership back to external Codex when Bridge permits it.
   summaries, with Run blocks hidden, and coalesces Working status changes at a
   minimum 20-second interval; its clock does not refresh continuously.
 - Successful automatic approval reviews stay quiet. Review problems, approval
-  requests and questions remain visible. MCP connection problems are summarized
-  in Actions; Codex release reminders appear before eligible Actions.
+  requests and questions remain visible. MCP connection status appears as a
+  separate subdued message before Actions, once per changed session state.
+  Codex release reminders also appear before eligible Actions.
 
 ## Enable Telegram or Slack
 

@@ -162,7 +162,8 @@ Web UI 没有用户账号或面向公网的认证层。请只监听本机或可�
 - Slack 和 Web 保留实时工作流活动。Telegram 只显示阶段结束汇总，隐藏 Run
   块，Working 状态变化至少间隔 20 秒合并更新，计时不会持续刷新。
 - 成功的自动审批审核保持静默；审核异常、审批请求和问题仍会显示。MCP 连接
-  问题汇总到 Actions，Codex 版本提醒会出现在符合条件的 Actions 之前。
+  状态在 Actions 前用独立的弱化消息展示，同一 Session 的状态变化时才再推送。
+  Codex 版本提醒也会出现在符合条件的 Actions 之前。
 
 ## 启用 Telegram 或 Slack
 

@@ -14,8 +14,7 @@ export type GoShortcutServiceDependencies = {
   messageOperations: Pick<BridgeMessageOperations, "sendMessageSpec">;
   lastAssistantMessageByThread: Pick<Map<string, LastAssistantMessage>, "delete">;
   getSessionDirectory: (session: SessionRecord) => string;
-  getMcpSummary?: (threadId: string) => string | null;
-  beforeActions?: (session: SessionRecord, sourceId: string, canSend: () => Promise<boolean>) => Promise<unknown>;
+  beforeActions?: (session: SessionRecord, sourceId: string, canSend: () => Promise<boolean>, signal: AbortSignal) => Promise<unknown>;
   getActiveTurnId?: (threadId: string) => string | undefined;
   delayMs?: number;
 };
@@ -163,14 +162,12 @@ export class GoShortcutService {
         !this.deps.getActiveTurnId?.(session.codexThreadId);
     };
     if (!await eligible()) return;
-    await this.deps.beforeActions?.(session, chatId, eligible);
+    await this.deps.beforeActions?.(session, chatId, eligible, controller.signal);
     if (!await eligible()) return;
 
-    const mcpSummary = this.deps.getMcpSummary?.(session.codexThreadId);
     const messageSpec: MessageSpec = createMessage({
       kind: "actions",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-      ...(mcpSummary ? { body: [{ type: "text" as const, text: mcpSummary }] } : {}),
       actions: actionRow(
         userTextAction("go", "Go", "quick:go", "go"),
         userTextAction("next", "Next", "quick:next", "next"),

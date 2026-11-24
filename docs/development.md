@@ -374,16 +374,31 @@ TLS controls documented by OpenAI.
 
 ## Quiet MCP connection state
 
-MCP startup/auth observations update the existing scoped tracker and logs without
-sending standalone failure/recovery notices. They are metadata, not workflow
-boundaries. Actions includes `MCP unavailable ×N · name1, name2` only when the
-current session has known unavailable servers. Repeated observations and global /
-thread copies count each server once. Explicit local readiness overrides global
-fallback; intermediate startup or OAuth receipts do not erase a known incident.
-Names are sorted and the line is truncated to 800 visible characters while the
-count stays complete. Existing Actions is the only automatic carrier; history is
-not rewritten. Detailed reasons remain available in Codex status. Actual tool
-failures, approvals and questions keep their normal presentation.
+MCP startup/auth observations update the scoped tracker and logs as metadata,
+without sending an immediate message or creating workflow boundaries. At the next
+eligible Actions, a separate `MCP status` activity message precedes its controls.
+It uses Slack context, Telegram footer and the existing Web activity styling,
+keeps the session directory, and has no buttons. Actions itself has no MCP body.
+
+Each session announces its full unavailable-server list once and announces a new
+snapshot only when that list changes. Delivery identity follows the Codex thread
+across chat entries; other sessions have independent snapshots. Repeated errors
+with unchanged names do not resend. Initially healthy sessions are silent; after
+an announced failure, full recovery is shown once as `MCP unavailable ×0`.
+Multiple intermediate changes before Actions coalesce to the latest state.
+
+Global/thread copies count each server once. Explicit local readiness overrides
+global fallback; intermediate startup or OAuth receipts do not erase an incident.
+Names are sorted and text is truncated to 800 visible characters, while the
+fingerprint uses the full list and the count stays complete. Detailed reasons
+remain available in Codex status. Tool failures, approvals and questions retain
+their existing presentation.
+
+Snapshots share Actions ownership, selection, active-turn and decision guards.
+Cancellation or a state change before authorization keeps the snapshot eligible
+for a later Actions; an authorized send with an ambiguous network outcome is not
+replayed. Runtime cleanup clears the bounded in-memory delivery history, so a
+restart may announce the current state again. History is not rewritten.
 
 ## Telegram Markdown tables
 

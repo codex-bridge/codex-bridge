@@ -23,21 +23,17 @@ const session: SessionRecord = {
   lastDiscoveredAt: 0
 };
 
-test("Actions embeds the scoped MCP summary without a separate send and hides the zero state", async () => {
+test("Actions keeps its body empty and carries only its controls", async () => {
   const sent: MessageSpec[] = [];
-  let summary: string | null = "MCP unavailable ×2 · figma, notion";
   const service = new GoShortcutService({
     store: { getSessionLease: () => null, getSessionBindingById: () => null,
       listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null, getActiveSession: async () => session },
     messageOperations: { sendMessageSpec: async (_source, spec) => { sent.push(spec); return null; } },
-    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
-    getMcpSummary: thread => { assert.equal(thread, "thread-1"); return summary; }
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project"
   });
   await service.flush(session);
-  assert.equal(sent.length, 1); assert.deepEqual(sent[0]!.body, [{ type: "text", text: summary }]);
+  assert.equal(sent.length, 1); assert.deepEqual(sent[0]!.body, []);
   assert.match(sent[0]!.title, /Actions · .*project/); assert.equal(sent[0]!.actions.length, 3);
-  summary = null; await service.flush(session);
-  assert.equal(sent.length, 2); assert.deepEqual(sent[1]!.body, []);
 });
 
 test("go shortcut sends actions on the next timer tick and clears the assistant marker", async (t) => {

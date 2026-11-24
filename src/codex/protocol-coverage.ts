@@ -44,7 +44,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     { disposition: "partial", reason: "Supported ThreadItem kinds include assistant display rules and async question choices; other activities remain unsupported.", names: [
       "item/started", "item/completed"
     ] },
-    { disposition: "handled", reason: "Scoped MCP status and failure reasons feed shared status views and deduplicated failure/recovery notices; OAuth success alone does not imply readiness.", names: [
+    { disposition: "handled", reason: "Scoped MCP state and failure reasons feed status views and a separate changed-state snapshot before Actions; OAuth success alone does not imply readiness.", names: [
       "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed"
     ] },
     { disposition: "handled", reason: "Public warnings use declared scopes and shared presentation with deduplication. Only the known Guardian auto-approval success envelope is silent; unknown warnings remain visible.", names: [

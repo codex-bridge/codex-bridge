@@ -190,8 +190,9 @@ Slack and Web retain their live workflow display.
 
 Replies, approvals, questions and Actions remain available. Successful automatic
 approval reviews are silent; review problems and unknown Guardian warnings stay
-visible. MCP connection problems are summarized in Actions, without separate
-failure/recovery notices. All topics share the Bot, physical-chat and group write
+visible. MCP status appears once in a separate subdued footer message before
+Actions, and again only when that session's unavailable-server list changes.
+After an announced failure, complete recovery is reported once with a zero count. All topics share the Bot, physical-chat and group write
 budgets; see [delivery policy](development.md#telegram-input-and-api-lifecycle).
 
 ## Voice and audio input
