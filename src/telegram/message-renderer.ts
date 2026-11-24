@@ -4,6 +4,7 @@ import type { MessageBodyPart, MessageSpec } from "../bridge/messages/types.js";
 import { splitMessageSpecByRenderedLength } from "../bridge/messages/chunks.js";
 import { groupActivityContent, messageBodyPartText } from "../bridge/messages/content.js";
 import { formatCodexTelegramHtml, formatTelegramHtml } from "./text.js";
+import { separateTelegramTables } from "./markdown.js";
 
 export const TELEGRAM_RICH_MESSAGE_TEXT_LIMIT = 32_768;
 
@@ -72,7 +73,7 @@ function renderRichMarkdownBodyPart(part: MessageBodyPart): string {
     case "text":
       return `<p>${renderRichHtmlText(part.text)}</p>`;
     case "markdown":
-      return part.text;
+      return separateTelegramTables(part.text);
     case "code":
       return part.text.includes("\n")
         ? `<pre><code>${escapeTelegramHtml(part.text)}</code></pre>`

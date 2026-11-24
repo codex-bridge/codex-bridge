@@ -341,3 +341,13 @@ Names are sorted and the line is truncated to 800 visible characters while the
 count stays complete. Existing Actions is the only automatic carrier; history is
 not rewritten. Detailed reasons remain available in Codex status. Actual tool
 failures, approvals and questions keep their normal presentation.
+
+## Telegram Markdown tables
+
+A live three-variant probe confirmed that Telegram's Rich Markdown folds a table
+immediately following a paragraph into paragraph text. The same table preceded
+by a blank line returns a native table block; Rich HTML tables also work.
+The Telegram renderer uses the standard GFM AST to add that missing separator
+before top-level table nodes. It does not rewrite cells, fenced code, escaped
+pipes, already separated tables, stored Markdown or other platforms' rendering.
+The existing GFM parser extensions are declared as direct pinned dependencies.

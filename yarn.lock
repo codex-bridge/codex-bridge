@@ -1869,7 +1869,9 @@ __metadata:
     eslint: "npm:^10.4.1"
     grammy: "npm:^1.45.1"
     mdast-util-from-markdown: "npm:2.0.3"
+    mdast-util-gfm: "npm:3.1.0"
     mdast-util-to-string: "npm:4.0.0"
+    micromark-extension-gfm: "npm:3.0.0"
     react: "npm:^19.3.0"
     react-dom: "npm:^19.3.0"
     react-markdown: "npm:^10.1.0"
@@ -3733,7 +3735,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mdast-util-gfm@npm:^3.0.0":
+"mdast-util-gfm@npm:3.1.0, mdast-util-gfm@npm:^3.0.0":
   version: 3.1.0
   resolution: "mdast-util-gfm@npm:3.1.0"
   dependencies:
@@ -3967,7 +3969,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"micromark-extension-gfm@npm:^3.0.0":
+"micromark-extension-gfm@npm:3.0.0, micromark-extension-gfm@npm:^3.0.0":
   version: 3.0.0
   resolution: "micromark-extension-gfm@npm:3.0.0"
   dependencies:
