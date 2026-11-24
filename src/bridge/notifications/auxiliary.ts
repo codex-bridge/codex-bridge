@@ -15,7 +15,7 @@ import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 export type NotificationAuxiliaryDependencies = {
   appendWorkflowMessage: WorkflowAppend;
   store: BridgeStore;
-  statusRuntimeState: Pick<StatusRuntimeState, "statusMessageBySession" | "resetEditThrottle" | "getLabel">;
+  statusRuntimeState: Pick<StatusRuntimeState, "statusMessageBySession">;
   modelRuntimeEventByThread: Map<string, Omit<AppServerModelRuntimeEvent, "threadId"> & { updatedAt: number }>;
   tokenUsageTracker: Pick<TokenUsageTracker, "remember">;
   recentResolvedMcpBySession: Map<string, number>;
@@ -35,7 +35,6 @@ export class NotificationAuxiliaryService {
   async handleQueueChanged(threadId: string): Promise<void> {
     const session = await this.deps.resolveNotificationSession(threadId);
     if (!session || !this.deps.statusRuntimeState.statusMessageBySession.has(session.id)) return;
-    this.deps.statusRuntimeState.resetEditThrottle(session.id);
     await this.deps.refreshSessionStatus(session);
   }
 

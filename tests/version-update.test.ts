@@ -175,7 +175,7 @@ for (const path of ["completion", "history"] as const) {
     const sent: string[] = [];
     const actions = new GoShortcutService({
       store: { getSessionLease: () => null, getSessionBindingById: () => null, getActiveSession: async () => session, listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
-      pendingByThread: new Map(), lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
+      lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
       beforeActions: async (value, source, canSend) => {
         if (await f.notifier.deliverBeforeActions(value, source, canSend)) sent.push("update");
       },
@@ -199,7 +199,7 @@ for (const blocker of ["approval", "input", "selection", "authorization"] as con
         listPendingDecisions: async () => blocked && blocker === "approval" ? [{}] as never[] : [],
         getAwaitingInputDecisionForSession: async () => blocked && blocker === "input" ? {} as never : null
       },
-      pendingByThread: new Map(), lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
+      lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
       beforeActions: async (value, source, canSend) => {
         if (await f.notifier.deliverBeforeActions(value, source, canSend)) sent.push("update");
       },
@@ -222,7 +222,7 @@ test("an in-flight background check does not hold Actions", async () => {
   const actions = new GoShortcutService({
     store: { getSessionLease: () => null, getSessionBindingById: () => null, getActiveSession: async () => session,
       listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
-    pendingByThread: new Map(), lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
     beforeActions: (value, source, canSend) => f.notifier.deliverBeforeActions(value, source, canSend),
     messageOperations: { sendMessageSpec: async (_source, message) => { sent.push(message.kind); return { message_id: "actions" }; } }
   });
@@ -242,7 +242,7 @@ test("Web Actions retain ownership semantics independently of chat selection", a
       getSessionBindingById: () => ({ sourceId: "web:local" }) as never,
       listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null
     },
-    pendingByThread: new Map(), lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
     beforeActions: async (value, source, canSend) => {
       if (await f.notifier.deliverBeforeActions(value, source, canSend)) sent.push(`update:${source}`);
     },
@@ -263,7 +263,7 @@ test("a failed reminder does not suppress Actions", async () => {
   const actions = new GoShortcutService({
     store: { getSessionLease: () => null, getSessionBindingById: () => null, getActiveSession: async () => session,
       listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
-    pendingByThread: new Map(), lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
     beforeActions: (value, source, canSend) => notifier.deliverBeforeActions(value, source, canSend),
     messageOperations: { sendMessageSpec: async (_source, message) => { sent.push(message.kind); return { message_id: "actions" }; } }
   });

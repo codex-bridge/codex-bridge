@@ -17,6 +17,8 @@ import { NotificationPreviewBacklog } from "./preview-backlog.js";
 import type { NotificationDeliveryOptions } from "./delivery-effect.js";
 
 export type NotificationListenerDependencies = {
+  cancelActions?: (threadId: string) => void;
+  captureActions?: (threadId: string) => () => boolean;
   clearUserInput?: () => void;
   codexClient: CodexAppServerClient;
   threadMetadataCache: CodexThreadMetadataCache;
@@ -117,6 +119,8 @@ export class NotificationListener {
             .catch((error) => logger.error("bridge.subagent.delivery_failed", { error: String(error) }));
         }
         const turnLifecycle = extractTurnLifecycleEvent(notification);
+        if (turnLifecycle?.kind === "started") this.deps.cancelActions?.(turnLifecycle.threadId);
+        const canSendActions = turnLifecycle?.kind === "completed" ? this.deps.captureActions?.(turnLifecycle.threadId) : undefined;
         if (
           turnLifecycle?.kind === "completed" &&
           this.deps.subagents.hasObservedParent(turnLifecycle.threadId, turnLifecycle.turnId)
@@ -134,7 +138,7 @@ export class NotificationListener {
         if (observed.handled) return;
         const key = this.deps.notificationDispatcher.getQueueKey(notification);
         const start = this.previewBacklog.track(key, notification);
-        void this.enqueue(key, notification.method, () => this.deps.handleAppServerNotification(notification, start()))
+        void this.enqueue(key, notification.method, () => this.deps.handleAppServerNotification(notification, { ...start(), ...(canSendActions ? { canSendActions } : {}) }))
           .catch((error) => {
             logger.error("bridge.notification.unhandled", {
               method: notification.method,
@@ -146,6 +150,7 @@ export class NotificationListener {
 
     if (!this.approvalUnsubscribe) {
       this.approvalUnsubscribe = this.deps.codexClient.onApprovalRequest((request) => {
+        this.deps.cancelActions?.(request.threadId);
         this.previewBacklog.boundary(request.threadId);
         void this.enqueue(request.threadId, request.method, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
           .catch((error) => {
@@ -159,6 +164,7 @@ export class NotificationListener {
     }
     if (!this.userInputUnsubscribe) {
       this.userInputUnsubscribe = this.deps.codexClient.onUserInputRequest(request => {
+        this.deps.cancelActions?.(request.threadId);
         this.previewBacklog.boundary(request.threadId);
         void this.enqueue(request.threadId, request.method, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
           .catch(() => logger.error("bridge.user_input.delivery_failed", { requestId: request.requestId, threadId: request.threadId }));

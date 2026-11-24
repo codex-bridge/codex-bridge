@@ -413,7 +413,7 @@ export class BridgeService {
       getMcpSummary: thread => state.mcpStartupStatus.summaryForThread(thread),
       store,
       messageOperations: this.messageOperations,
-      pendingByThread: state.pendingGoShortcutByThread,
+      getActiveTurnId: thread => state.inFlightTurnIdByThread.get(thread),
       lastAssistantMessageByThread: state.lastAssistantTelegramByThread,
       beforeActions: (session, sourceId, canSend) => this.versionUpdateNotifier.deliverBeforeActions(session, sourceId, canSend),
       getSessionDirectory: (session) => this.getSessionDirectory(session)
@@ -448,10 +448,9 @@ export class BridgeService {
       store,
       codexClient,
       sessionOwnershipService: this.sessionOwnershipService,
-      statusRuntimeState: this.statusRuntimeState,
       ensureChatAllowed: (chatId) => this.ensureChatAllowed(chatId),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
-      setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label),
+      refreshSessionStatus: (session) => this.statusLifecycleService.refreshSessionStatus(session),
       rememberNotificationSessionId: (threadId, sessionId) =>
         this.notificationSessionRouter.rememberSessionId(threadId, sessionId)
     });
@@ -539,7 +538,7 @@ export class BridgeService {
       applyStatusUpdate: (session, update, canRefresh) => this.applyStatusUpdate(session, update, canRefresh),
       handleRecoveryTaskComplete: (session) => this.handleRecoveryTaskComplete(session),
       clearProgressMessageForThread: (threadId, options) => this.clearProgressMessageForThread(threadId, options),
-      scheduleGoShortcut: (session) => this.goShortcutService.schedule(session),
+      scheduleGoShortcut: (session, context) => { void this.goShortcutService.schedule(session, context); },
       cancelGoShortcut: (threadId) => this.goShortcutService.cancel(threadId),
       rememberRateLimitSession: (threadId, sessionId) => this.rateLimitNotifier.rememberSession(threadId, sessionId),
       onTurnSettled: (session, event) => this.webAttention?.turnSettled(session, event)
@@ -628,6 +627,8 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
     });
     this.notificationListener = new NotificationListener({
+      cancelActions: thread => this.goShortcutService.invalidate(thread),
+      captureActions: thread => this.goShortcutService.capture(thread),
       clearUserInput: () => { this.userInputService.clear(); this.assistantReplies.clear(); },
       codexClient,
       threadMetadataCache: this.threadMetadataCache,
@@ -677,7 +678,6 @@ export class BridgeService {
       turnRouteQueue: this.turnRouteQueue,
       runDispatch: (session, operation) => this.sessionBindingService.runDispatch(session, operation),
       inFlightTurnIdByThread: state.inFlightTurnIdByThread,
-      statusRuntimeState: this.statusRuntimeState,
       lastUserInputBySession: state.lastUserInputBySession,
       sessionOwnershipService: this.sessionOwnershipService,
       rememberNotificationSession: (session) => {
@@ -693,7 +693,7 @@ export class BridgeService {
       createIncomingPromptSpec: (kind, text, session) => this.runtimePromptFactory.createIncoming(kind, text, session),
       createSessionActionSpec,
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec),
-      setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label)
+      refreshSessionStatus: (session) => this.statusLifecycleService.refreshSessionStatus(session)
     });
     this.userInputService = new UserInputService({ store, client: codexClient,
       refresh: (session, decision) => this.decisionDelivery.sendDecisionMessage(session, decision, true),
@@ -748,7 +748,8 @@ export class BridgeService {
       getRefreshPolicy: source => this.messageSender.requireTransport(source).refreshPolicy,
       waitForBackgroundRefresh: (source, session, signal) => this.messageSender.requireTransport(source).waitForBackgroundRefresh?.(source, session, signal) ?? Promise.resolve(!signal.aborted),
       isThreadBusy: threadId => this.notificationQueue.hasPending(threadId),
-      waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
+      waitForThreadIdle: async (threadId, signal) => await this.notificationQueue.waitForIdle(threadId, signal) &&
+        await this.goShortcutService.waitForIdle(threadId, signal),
       getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),
       getProgressPhaseMessageForItem: (thread, turn, id) => store.getProgressPhaseMessageForItem(thread, turn, id),
       getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
@@ -1074,6 +1075,7 @@ export class BridgeService {
   async shutdown(): Promise<void> {
     this.goShortcutService.cancelAll();
     this.versionUpdateNotifier.stop();
+    await this.goShortcutService.drain();
     this.typingService.stop();
     await this.statusLifecycleService.stop();
     await this.progressService.stop();

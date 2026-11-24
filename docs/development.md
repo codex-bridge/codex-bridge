@@ -180,8 +180,12 @@ Telegram defaults to summary-only workflow output. Active phases aggregate and
 persist without a platform message ID. At the phase boundary or turn end, Bridge
 creates one summary in workflow order, before the next chronological message.
 Late results edit that summary rather than creating another block. Slack and Web
-keep their existing live previews. Telegram also omits live Working and typing
-panels; approvals, questions, conversation replies and Actions remain available.
+keep their existing live previews. Telegram retains a Working panel with status
+changes coalesced at a minimum twenty-second interval, without clock-only refreshes.
+It omits typing; approvals, questions, conversation replies and Actions remain
+available. Queue-count changes use the same interval and duplicate observations
+do not refresh the clock. Completion cancels pending refreshes and finalizes the
+existing panel without waiting for its change interval; write budgets still apply.
 
 TG Run counts use distinct upstream execution item IDs, not displayed preview
 versions. Missing item identity makes the count unavailable rather than guessed.
@@ -195,9 +199,9 @@ restart. Old cards created before this policy are finalized in place. New summar
 creation uses the chronological queue; old-card edits continue to wait outside it
 for idle/background admission. Shared Telegram write budgets apply to both.
 
-The Telegram summary policy contains no live-preview or Working intervals. Those
-fields belong only to the optional live-display policy used by shared services;
-summary and live policies are separate TypeScript variants. Slack/Web keep their
+The Telegram summary policy contains no live-progress preview interval. Working
+has an independent interval shared by summary and live display policies; progress
+preview intervals belong only to the live TypeScript variant. Slack/Web keep their
 existing display behavior. First summary creation does not wait for the separate
 background-edit admission.
 
@@ -216,11 +220,22 @@ and unknown write outcomes are never automatically replayed.
 ### Actions and delivery timing
 
 Completed turns settle their internal route and lease before interactive Actions.
-After status cleanup and recovery handling, Actions are attempted before the final
-progress-summary edit. The schedule still yields one timer tick with a zero default
-delay; new work, pending decisions and ownership changes can cancel it. Cancellation
-also releases lifecycle cleanup waiting on the attempt. Physical transport queues
-and server-directed rate backoff still apply; in-flight requests are not preempted.
+After status cleanup and recovery handling, the last phase is finalized first.
+A summary without a platform message ID is first-sent before Actions; edits of
+existing cards wait outside workflow queues and yield to pending Actions. The
+schedule yields one timer tick with zero default delay. Network delivery runs
+outside the Codex notification queue. Version reminders precede Actions without
+triggering a synchronous version lookup.
+
+Turn completion and history recovery share one pending request per thread and
+destination, merging overlapping calls. A later explicit history recovery can
+create fresh controls. New-turn and interaction receipts invalidate pending
+Actions before entering the notification queue; a captured receipt guard also
+covers the interval before Actions has been scheduled. Selection, ownership,
+active-turn and pending-decision checks run again at the send boundary. Cancelled
+requests cannot clear a newer request's state. Physical transport queues and
+server-directed rate backoff still apply; in-flight requests are not preempted.
+Unknown send outcomes are not automatically replayed.
 
 `bridge.go_shortcut.scheduled` records the scheduling point. Both adapters use the
 shared timing collector: `slack.delivery.timing` and `telegram.delivery.timing`.

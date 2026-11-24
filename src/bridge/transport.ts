@@ -23,9 +23,10 @@ export type BridgeSentMessage = {
   message_id: string;
 };
 
-export type MessageRefreshPolicy =
-  | { progressMode: "summary"; typingEnabled: boolean }
-  | { progressMode?: "live"; typingEnabled: boolean; progressIntervalMs: number; workingIntervalMs: number };
+export type MessageRefreshPolicy = { typingEnabled: boolean; workingIntervalMs: number } & (
+  | { progressMode: "summary" }
+  | { progressMode?: "live"; progressIntervalMs: number }
+);
 
 export interface BridgeMessageTransport {
   readonly name: string;

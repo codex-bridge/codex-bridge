@@ -30,7 +30,7 @@ test("Actions embeds the scoped MCP summary without a separate send and hides th
     store: { getSessionLease: () => null, getSessionBindingById: () => null,
       listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null, getActiveSession: async () => session },
     messageOperations: { sendMessageSpec: async (_source, spec) => { sent.push(spec); return null; } },
-    pendingByThread: new Map(), lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/project",
     getMcpSummary: thread => { assert.equal(thread, "thread-1"); return summary; }
   });
   await service.flush(session);
@@ -43,7 +43,6 @@ test("Actions embeds the scoped MCP summary without a separate send and hides th
 test("go shortcut sends actions on the next timer tick and clears the assistant marker", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const sent: Array<{ chatId: string; message: MessageSpec; disableNotification?: boolean }> = [];
-  const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const lastAssistant = new Map<string, LastAssistantMessage>([
     [session.codexThreadId, { chatId: session.telegramChatId, messageId: "message-1", text: "done" }]
   ]);
@@ -60,18 +59,15 @@ test("go shortcut sends actions on the next timer tick and clears the assistant 
         return null;
       }
     },
-    pendingByThread: pending,
     lastAssistantMessageByThread: lastAssistant,
     getSessionDirectory: (value) => value.currentCwd ?? value.pathKey
   });
 
   service.schedule(session);
-  assert.equal(pending.has(session.codexThreadId), true);
-  assert.equal(sent.length, 0);
+    assert.equal(sent.length, 0);
   t.mock.timers.tick(1);
   await nextEventLoop();
 
-  assert.equal(pending.has(session.codexThreadId), false);
   assert.equal(lastAssistant.has(session.codexThreadId), false);
   assert.deepEqual(sent, [
     {
@@ -96,7 +92,6 @@ test("go shortcut sends actions on the next timer tick and clears the assistant 
 test("go shortcut cancels and suppresses actions while a decision is pending", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const sent: MessageSpec[] = [];
-  const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const lastAssistant = new Map<string, LastAssistantMessage>([
     [session.codexThreadId, { chatId: session.telegramChatId, messageId: "message-1", text: "done" }]
   ]);
@@ -113,7 +108,6 @@ test("go shortcut cancels and suppresses actions while a decision is pending", a
         return null;
       }
     },
-    pendingByThread: pending,
     lastAssistantMessageByThread: lastAssistant,
     getSessionDirectory: (value) => value.pathKey
   });
@@ -135,14 +129,13 @@ test("new work cancels Actions even while a preceding reminder is being delivere
   let release!: () => void;
   let started!: () => void;
   const sendingReminder = new Promise<void>((resolve) => { started = resolve; });
-  const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const lastAssistant = new Map<string, LastAssistantMessage>();
   const sent: MessageSpec[] = [];
   const service = new GoShortcutService({
     store: { getSessionLease: () => null, getSessionBindingById: () => null,
       getActiveSession: async () => session, listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
     messageOperations: { sendMessageSpec: async (_source, message) => { sent.push(message); return null; } },
-    pendingByThread: pending, lastAssistantMessageByThread: lastAssistant, getSessionDirectory: () => "/project",
+    lastAssistantMessageByThread: lastAssistant, getSessionDirectory: () => "/project",
     beforeActions: async () => { started(); await new Promise<void>((resolve) => { release = resolve; }); }
   });
   service.schedule(session); t.mock.timers.tick(1);
@@ -167,11 +160,53 @@ test("Actions are suppressed after ownership moves while a reminder is pending",
       getSessionLease: () => ({ state: "active", ownerBindingId: "binding" }) as never,
       getSessionBindingById: () => ({ sourceId: owner }) as never,
       listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
-    messageOperations: { sendMessageSpec: async () => { sends++; return null; } }, pendingByThread: new Map(),
+    messageOperations: { sendMessageSpec: async () => { sends++; return null; } },
     lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/work",
     beforeActions: async () => { ready(); await blocked; }
   });
   const completion = service.schedule(session); t.mock.timers.tick(1); await started;
   owner = "other-topic"; release(); await completion;
+  assert.equal(sends, 0);
+});
+
+for (const first of ["history", "completion"] as const) {
+  test(`overlapping ${first}-first requests share one Actions send`, async () => {
+    let release!: () => void, entered!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    let sends = 0;
+    const service = new GoShortcutService({
+      store: { getActiveSession: async () => session, getSessionLease: () => null, getSessionBindingById: () => null,
+        listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
+      messageOperations: { sendMessageSpec: async () => { sends++; return { message_id: "actions" }; } },
+      lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/work",
+      beforeActions: async () => { entered(); await blocked; }
+    });
+    const start = (kind: typeof first) => kind === "history" ? service.sendAfterTranscript(session, "chat-1")
+      : service.schedule(session, { turnId: "turn" });
+    const initial = start(first); await ready;
+    const concurrent = start(first === "history" ? "completion" : "history");
+    await nextEventLoop(); release();
+    await Promise.all([initial, concurrent]);
+    assert.equal(sends, 1);
+    await service.sendAfterTranscript(session, "chat-1");
+    assert.equal(sends, 2, "a later explicit history recovery still gets its own controls");
+  });
+}
+
+test("cancellation during async eligibility lookup prevents the pending send", async () => {
+  let release!: () => void, entered!: () => void, calls = 0, sends = 0;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const service = new GoShortcutService({
+    store: { getActiveSession: async () => session, getSessionLease: () => null, getSessionBindingById: () => null,
+      listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => {
+        if (++calls === 2) { entered(); await blocked; } return null;
+      } },
+    messageOperations: { sendMessageSpec: async () => { sends++; return null; } },
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/work"
+  });
+  const sending = service.flush(session); await ready;
+  service.invalidate(session.codexThreadId); release(); await sending; await service.drain();
   assert.equal(sends, 0);
 });

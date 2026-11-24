@@ -8,6 +8,4 @@ export class StatusRuntimeState {
   readonly statusLastEditAtBySession = new Map<string, number>();
   readonly statusOpBySession = new Map<string, Promise<void>>();
 
-  resetEditThrottle(sessionId: string): void { this.statusLastEditAtBySession.delete(sessionId); }
-  getLabel(sessionId: string): string | undefined { return this.statusLabelBySession.get(sessionId); }
 }

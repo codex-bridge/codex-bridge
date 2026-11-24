@@ -283,9 +283,8 @@ test("queued cancellation reports an explicit outcome instead of inferring succe
       store,
       codexClient: { deleteQueuedSubmission: async () => deleted } as unknown as CodexAppServerClient,
       sessionOwnershipService: { getSessionOwnershipPrompt: async () => null } as never,
-      statusRuntimeState: { resetEditThrottle: () => {}, getLabel: () => null },
       ensureChatAllowed: async () => {}, getSessionDirectory: () => "/work",
-      setSessionStatus: async () => {}, rememberNotificationSessionId: () => {}
+      refreshSessionStatus: async () => {}, rememberNotificationSessionId: () => {}
     });
 
     const refused = await service.cancelWithOutcome("web:local", row.id);

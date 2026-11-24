@@ -6,16 +6,14 @@ import { createMessage, messageContextForSession } from "../messages/factory.js"
 import { actionRow, helpAction, sessionAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionOwnershipService } from "../sessions/ownership.js";
-import type { StatusRuntimeState } from "../status/runtime-state.js";
 
 export type QueuedSubmissionDependencies = {
   store: BridgeStore;
   codexClient: CodexAppServerClient;
   sessionOwnershipService: SessionOwnershipService;
-  statusRuntimeState: Pick<StatusRuntimeState, "resetEditThrottle" | "getLabel">;
   ensureChatAllowed: (chatId: string) => Promise<void>;
   getSessionDirectory: (session: SessionRecord) => string;
-  setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
+  refreshSessionStatus: (session: SessionRecord) => Promise<void>;
   rememberNotificationSessionId: (threadId: string, sessionId: string) => void;
 };
 
@@ -71,8 +69,7 @@ export class QueuedSubmissionService {
     await this.deps.store.updateQueuedSubmission(id, { state: "cancelled" });
     await markManagedAttachmentPathsStatus(row.attachmentPaths, "failed");
     if (session) {
-      this.deps.statusRuntimeState.resetEditThrottle(session.id);
-      await this.deps.setSessionStatus(session, this.deps.statusRuntimeState.getLabel(session.id) ?? "Working");
+      await this.deps.refreshSessionStatus(session);
     }
     return { cancelled: true, message: resultSpec("Queued message cancelled.", session ?? undefined) };
   }

@@ -1,7 +1,7 @@
 import type { AppServerNotification } from "../../codex/client.js";
 import type { ProgressDeliveryOptions } from "../progress/normalizer.js";
 
-export type NotificationDeliveryOptions = ProgressDeliveryOptions & { canRefreshStatus?: () => boolean };
+export type NotificationDeliveryOptions = ProgressDeliveryOptions & { canRefreshStatus?: () => boolean; canSendActions?: () => boolean };
 
 // Explicit metadata or panel-only updates handled without chronological output. Rate-limit
 // observations are transparent; their producer declares a boundary if it warns.

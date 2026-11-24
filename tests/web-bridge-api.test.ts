@@ -47,13 +47,13 @@ async function sendFixture(t: TestContext, attachmentRoot?: string) {
         await mutate(); guard?.(); calls.push(`steer:${text}`); timeouts.push(timeoutMs); inputParts.push(parts); return { turnId: "turn" };
       }
     } as never,
-    statusRuntimeState: { resetEditThrottle: () => {}, getLabel: () => null }, lastUserInputBySession: new Map(),
+    lastUserInputBySession: new Map(),
     sessionOwnershipService: {} as never, rememberNotificationSession: () => {}, getSessionDirectory: () => "/work",
     isStaleActiveTurnError: () => false, isMissingRuntimeThreadError: () => false, isActiveWriterConflictError: () => false,
     findProviderMismatch: async () => null, sessionHandoffCallback: () => "unused",
     createIncomingPromptSpec: (kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
     createSessionActionSpec: (_session, kind, text) => createMessage({ scope: "global", kind, body: [{ type: "text", text }] }),
-    sendLongSpec: async () => {}, setSessionStatus: async () => {} });
+    sendLongSpec: async () => {}, refreshSessionStatus: async () => {} });
   const api = new LocalWebBridgeApi(new SessionCatalogService({ store, getSessionDirectory: () => "/work",
     readEffectiveProvider: async () => null, codexClient: { listThreadsForCwd: async () => [], listArchivedThreadsForCwd: async () => [] } }),
   undefined, { access: new SessionAccessService(store), reader: { readSessionTranscript: async () => { throw new Error("not a send"); } },

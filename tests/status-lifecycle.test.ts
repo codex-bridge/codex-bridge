@@ -31,30 +31,50 @@ function fixture() {
     setEdit: (implementation: typeof edit) => { edit = implementation; } };
 }
 
-test("summary-only transports do not create or update a live Working panel", async () => {
-  const f = fixture();
-  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
-  await f.lifecycle.setSessionStatus(session, "Working");
-  await f.lifecycle.setSessionStatus(session, "Thinking");
-  await f.lifecycle.clearSessionStatus(session);
-  assert.equal(f.sent.length, 0); assert.equal(f.edits.length, 0);
-  await f.lifecycle.stop();
-});
-
-test("live Working honors its configured interval and omits intermediate edits", async t => {
+test("Telegram summary-only progress retains Working with a twenty-second change interval", async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
   const f = fixture(); t.after(() => f.lifecycle.stop());
-  f.deps.getRefreshPolicy = () => ({ typingEnabled: false, progressIntervalMs: 5_000, workingIntervalMs: 20_000 });
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
   f.deps.waitForBackgroundRefresh = async (_source, _session, signal) => !signal.aborted;
   await f.lifecycle.setSessionStatus(session, "Working");
+  assert.equal(f.sent.length, 1);
   for (const label of ["Thinking", "Running command", "Waiting"]) await f.lifecycle.setSessionStatus(session, label);
   t.mock.timers.tick(19_999); await new Promise(setImmediate);
   assert.equal(f.edits.length, 0);
   t.mock.timers.tick(1); await new Promise(setImmediate);
   assert.equal(f.edits.length, 1);
   assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Waiting · 20s/);
+  t.mock.timers.tick(60_000); await new Promise(setImmediate);
+  await f.lifecycle.setSessionStatus(session, "Waiting");
+  assert.equal(f.edits.length, 1, "unchanged status does not refresh the elapsed clock");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  await f.lifecycle.setSessionStatus(session, "Running");
   await f.lifecycle.clearSessionStatus(session);
+  t.mock.timers.tick(60_000); await new Promise(setImmediate);
   assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Done/);
+  assert.equal(f.edits.length, 3, "completion cancels the pending status and bypasses its interval");
+});
+
+test("queue-only changes refresh Working through the same interval", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  let queued = 0;
+  f.deps.store.countPendingQueuedSubmissions = async () => queued;
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  queued = 2;
+  await f.lifecycle.refreshSessionStatus(session);
+  t.mock.timers.tick(19_999); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 0);
+  queued = 3;
+  t.mock.timers.tick(1); await new Promise(setImmediate);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Queued: 3/);
+  t.mock.timers.tick(20_000);
+  await f.lifecycle.refreshSessionStatus(session);
+  assert.equal(f.edits.length, 1, "duplicate queue notifications do not refresh the clock");
+  await f.lifecycle.clearSessionStatus(session);
+  await f.lifecycle.refreshSessionStatus(session);
+  assert.equal(f.sent.length, 1, "a queue change cannot recreate a closed Working panel");
 });
 
 test("deferred Working detail updates with an unchanged label survive and are not appended twice", async t => {
@@ -325,4 +345,23 @@ test("synchronized unchanged Working edits and cleanup do not produce warning lo
   await f.lifecycle.clearAllSessionStatusMessages();
   assert.deepEqual(warnings, []);
   assert.equal(f.deps.statusMessageBySession.size, 0);
+});
+
+test("Working intervals start at confirmed delivery rather than time spent waiting to send", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const send = f.deps.sendMessageSpec;
+  f.deps.sendMessageSpec = async (...args) => { entered(); await blocked; return send(...args); };
+  const creating = f.lifecycle.setSessionStatus(session, "Working"); await ready;
+  t.mock.timers.tick(15_000); release(); await creating;
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  t.mock.timers.tick(19_999); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 0, "the initial network wait does not consume the next update interval");
+  t.mock.timers.tick(1); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Thinking · 35s/);
 });

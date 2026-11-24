@@ -36,6 +36,7 @@ export type StatusLifecycleDependencies = {
 
 export class StatusLifecycleService {
   private readonly pendingEdits = new Set<string>();
+  private readonly queueCountBySession = new Map<string, number>();
   private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly generations = new Map<string, object>();
   private readonly idleRefreshes = new Map<string, { revision: number; operation: (signal: AbortSignal) => Promise<void>; controller: AbortController; task: Promise<void> }>();
@@ -51,6 +52,10 @@ export class StatusLifecycleService {
   }
 
   async refreshSessionStatus(session: SessionRecord): Promise<void> {
+    if (!this.deps.statusMessageBySession.has(session.id)) return;
+    const queueCount = await this.deps.store.countPendingQueuedSubmissions(session.codexThreadId);
+    if (!this.deps.statusMessageBySession.has(session.id) || this.queueCountBySession.get(session.id) === queueCount) return;
+    this.pendingEdits.add(session.id);
     // A pending latest-state refresh already re-reads the queue count. Do not
     // replace its new label with the older label currently displayed on the card.
     if (this.idleRefreshes.has(session.id) || this.refreshTimers.has(session.id)) return;
@@ -82,7 +87,6 @@ export class StatusLifecycleService {
   ): Promise<void> {
     if (this.stopped) return;
     const refreshPolicy = this.deps.getRefreshPolicy?.(session.telegramChatId);
-    if (refreshPolicy?.progressMode === "summary") return;
     const generation = this.generations.get(session.id) ?? {};
     this.generations.set(session.id, generation);
     const eligible = () => !admissionSignal?.aborted && this.generations.get(session.id) === generation && canRefresh?.() !== false;
@@ -158,7 +162,7 @@ export class StatusLifecycleService {
           return;
         }
         if (result === "synced") {
-          this.rememberStatus(session.id, existing.messageId, text, label, now);
+          this.rememberStatus(session.id, existing.messageId, text, label, queueCount);
           return;
         }
         if (result !== "missing") {
@@ -175,7 +179,7 @@ export class StatusLifecycleService {
 
       const sent = await this.deps.sendMessageSpec(session.telegramChatId, messageSpec,
         { disable_notification: true, canSend: async () => eligible() });
-      if (sent) this.rememberStatus(session.id, sent.message_id, text, label, now);
+      if (sent) this.rememberStatus(session.id, sent.message_id, text, label, queueCount);
     });
   }
 
@@ -271,15 +275,17 @@ export class StatusLifecycleService {
     return formatStatusDetailPreview(raw);
   }
 
-  private rememberStatus(sessionId: string, messageId: string, text: string, label: string, now: number): void {
+  private rememberStatus(sessionId: string, messageId: string, text: string, label: string, queueCount: number): void {
     this.pendingEdits.delete(sessionId);
+    this.queueCountBySession.set(sessionId, queueCount);
     this.deps.statusMessageBySession.set(sessionId, { messageId, text });
     this.deps.statusLabelBySession.set(sessionId, label);
-    this.deps.statusLastEditAtBySession.set(sessionId, now);
+    this.deps.statusLastEditAtBySession.set(sessionId, Date.now());
   }
 
   private clearStatusState(sessionId: string): void {
     this.pendingEdits.delete(sessionId);
+    this.queueCountBySession.delete(sessionId);
     this.deps.statusMessageBySession.delete(sessionId);
     this.deps.statusStartedAtBySession.delete(sessionId);
     this.deps.statusLabelBySession.delete(sessionId);

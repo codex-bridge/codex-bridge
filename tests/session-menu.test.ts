@@ -3565,11 +3565,14 @@ test("closing a Run phase during a send keeps its phase summary", async () => {
     const clearing = progressService.clearProgressMessageForThread("thread-progress");
     releaseSend();
     await Promise.all([first, latest, clearing]);
+    await (service as unknown as { progressService: { retryPendingFinalDeliveries(): Promise<void> } })
+      .progressService.retryPendingFinalDeliveries();
 
     assert.equal(sends.length, 1);
     assert.match(edits.at(-1) ?? "", /^Run · .*project\nRun ×\d+ · Succeeded ×\d+$/);
     assert.deepEqual(deletes, []);
   } finally {
+    await service.shutdown();
     store.close();
     await rm(directory, { recursive: true, force: true });
   }
@@ -3760,12 +3763,15 @@ test("closing an Edited phase retains its phase summary", async () => {
     });
     await progressService.clearProgressMessageForThread("thread-progress");
     await pending;
+    await (service as unknown as { progressService: { retryPendingFinalDeliveries(): Promise<void> } })
+      .progressService.retryPendingFinalDeliveries();
 
     assert.equal(sends.length, 1);
     assert.equal(edits.length, 2);
     assert.match(edits.at(-1)?.text ?? "", /^Edited · .*project\nsrc\/a.ts \(\+1 -0\)\nsrc\/c.ts \(\+3 -1\)$/);
     assert.deepEqual(deletes, []);
   } finally {
+    await service.shutdown();
     store.close();
     await rm(directory, { recursive: true, force: true });
   }

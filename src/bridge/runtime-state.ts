@@ -21,7 +21,6 @@ export class BridgeRuntimeState {
   readonly inFlightTurnIdByThread = new Map<string, string>();
   readonly assistantOutputByThread = new Map<string, boolean>();
   readonly errorSeenByThread = new Map<string, boolean>();
-  readonly pendingGoShortcutByThread = new Map<string, ReturnType<typeof setTimeout>>();
   readonly lastAssistantTelegramByThread = new Map<string, LastAssistantMessage>();
   readonly mcpStartupStatus = new McpStartupTracker();
   readonly modelRuntimeEventByThread = new Map<string, ModelRuntimeEvent>();

@@ -111,7 +111,8 @@ export class NotificationDispatcher {
         turnLifecycle?.kind === "completed" ? turnLifecycle.turnId : undefined,
         turnLifecycle?.kind === "completed" ? turnLifecycle.terminalState : undefined,
         turnLifecycle?.error,
-        delivery.canRefreshStatus
+        delivery.canRefreshStatus,
+        delivery.canSendActions
       );
     }
 

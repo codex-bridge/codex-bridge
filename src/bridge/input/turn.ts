@@ -12,7 +12,6 @@ import type { SessionProviderMismatch } from "../sessions/provider-state.js";
 import type { IncomingTextInput } from "./preflight.js";
 import type { CodexTurnInputPart } from "../../codex/client.js";
 import type { CodexConfigSnapshot } from "../../codex/config-snapshot.js";
-import type { StatusRuntimeState } from "../status/runtime-state.js";
 
 function formatConfigSyncError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -38,7 +37,6 @@ export type IncomingTurnDependencies = {
   codexClient: CodexAppServerClient;
   turnRouteQueue: KeyedQueue;
   inFlightTurnIdByThread: Map<string, string>;
-  statusRuntimeState: Pick<StatusRuntimeState, "resetEditThrottle" | "getLabel">;
   lastUserInputBySession: Map<string, string>;
   sessionOwnershipService: SessionOwnershipService;
   rememberNotificationSession: (session: SessionRecord) => void;
@@ -56,7 +54,7 @@ export type IncomingTurnDependencies = {
     actions: MessageSpec["actions"]
   ) => MessageSpec;
   sendLongSpec: (chatId: string, messageSpec: MessageSpec) => Promise<void>;
-  setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
+  refreshSessionStatus: (session: SessionRecord) => Promise<void>;
   runDispatch?: <T>(session: SessionRecord, operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -146,8 +144,7 @@ export class IncomingTurnService {
           body: [{ type: "text", text: queueText }],
           actions: [messageAction("cancel", "Cancel queued message", queueCallback)]
         }));
-        this.deps.statusRuntimeState.resetEditThrottle(routedSession.id);
-        await this.deps.setSessionStatus(routedSession, this.deps.statusRuntimeState.getLabel(routedSession.id) ?? "Working");
+        await this.deps.refreshSessionStatus(routedSession);
         return { routed: true };
       }
       if (!activeTurnId) {
