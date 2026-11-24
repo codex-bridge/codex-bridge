@@ -1,6 +1,9 @@
 import type { AppServerProgressFileChange } from "../../codex/client.js";
 import type { ProgressFailureReason, ProgressPhaseKind } from "../../shared/types.js";
 
+/** Delivery hint only: aggregation and first-block creation always run. */
+export type ProgressDeliveryOptions = { suppressPreview?: boolean };
+
 export type ProgressNotificationEvent = {
   activity?: import("../../shared/types.js").ProgressActivity;
   operationKind?: "dynamicTool";

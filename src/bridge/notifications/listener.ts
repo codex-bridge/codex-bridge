@@ -12,6 +12,8 @@ import { NotificationApprovalService, type EarlyApproval } from "./approval.js";
 import { NotificationDispatcher } from "./dispatcher.js";
 import { SubagentDeliveryService } from "./subagent-delivery.js";
 import { SubagentTracker } from "./subagent-tracker.js";
+import { NotificationPreviewBacklog } from "./preview-backlog.js";
+import type { ProgressDeliveryOptions } from "../progress/normalizer.js";
 
 export type NotificationListenerDependencies = {
   clearUserInput?: () => void;
@@ -25,7 +27,7 @@ export type NotificationListenerDependencies = {
   notificationQueue: KeyedQueue;
   notificationDispatcher: NotificationDispatcher;
   notificationApprovalService: NotificationApprovalService;
-  handleAppServerNotification: (notification: AppServerNotification) => Promise<void>;
+  handleAppServerNotification: (notification: AppServerNotification, delivery?: ProgressDeliveryOptions) => Promise<void>;
   releaseBridgeLocksAfterAuthChange: () => number;
   store: BridgeStore;
   getRuntimeState: () => RuntimeState;
@@ -35,6 +37,7 @@ export type NotificationListenerDependencies = {
 };
 
 export class NotificationListener {
+  private readonly previewBacklog = new NotificationPreviewBacklog();
   private notificationUnsubscribe: (() => void) | null = null;
   private approvalUnsubscribe: (() => void) | null = null;
   private userInputUnsubscribe: (() => void) | null = null;
@@ -81,6 +84,7 @@ export class NotificationListener {
           }
         }
         if (notification.method === "bridge/runtime/reconnected") {
+          this.previewBacklog.reset();
           if (this.deps.getRuntimeState() === "failed" || this.deps.getRuntimeState() === "disconnected") {
             this.deps.setRuntimeState("connecting");
             this.deps.setRuntimeState("connected");
@@ -88,6 +92,7 @@ export class NotificationListener {
           return;
         }
         if (notification.method === "bridge/auth/reconnected") {
+          this.previewBacklog.reset();
           if (this.deps.getRuntimeState() === "failed" || this.deps.getRuntimeState() === "disconnected") {
             this.deps.setRuntimeState("connecting");
             this.deps.setRuntimeState("connected");
@@ -127,8 +132,9 @@ export class NotificationListener {
         }
         if (observed.handled) return;
         const key = this.deps.notificationDispatcher.getQueueKey(notification);
+        const start = this.previewBacklog.track(key, notification);
         void this.deps.notificationQueue
-          .run(key, () => this.deps.handleAppServerNotification(notification))
+          .run(key, () => this.deps.handleAppServerNotification(notification, start()))
           .catch((error) => {
             logger.error("bridge.notification.unhandled", {
               method: notification.method,
@@ -140,6 +146,7 @@ export class NotificationListener {
 
     if (!this.approvalUnsubscribe) {
       this.approvalUnsubscribe = this.deps.codexClient.onApprovalRequest((request) => {
+        this.previewBacklog.boundary(request.threadId);
         void this.deps.notificationQueue
           .run(request.threadId, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
           .catch((error) => {
@@ -153,6 +160,7 @@ export class NotificationListener {
     }
     if (!this.userInputUnsubscribe) {
       this.userInputUnsubscribe = this.deps.codexClient.onUserInputRequest(request => {
+        this.previewBacklog.boundary(request.threadId);
         void this.deps.notificationQueue.run(request.threadId, () => this.deps.notificationApprovalService.handleApprovalRequest(request))
           .catch(() => logger.error("bridge.user_input.delivery_failed", { requestId: request.requestId, threadId: request.threadId }));
       });
@@ -160,6 +168,7 @@ export class NotificationListener {
   }
 
   detach(): void {
+    this.previewBacklog.reset();
     this.deps.clearUserInput?.();
     this.deps.subagentDelivery.reset();
     this.deps.subagents.reset();

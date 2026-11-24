@@ -110,6 +110,22 @@ boundaries. Optional aggregate item metadata supports old database rows without 
 migration; missing identities are never inferred from text or timing. Ending a
 message phase does not complete or fail the Codex task.
 
+The notification listener coalesces queued previews for consecutive progress of the
+same type and explicit thread/turn. Every notification still executes in FIFO order
+and reaches aggregation; only superseded active-card edits are omitted. Creating a
+block is never omitted, even when its first preview has already been superseded:
+subsequent edits require the platform message ID. The latest meaningful preview is
+retained, and phase finalization still delivers the full summary. `Run` counts only
+successfully displayed content, not received events or omitted previews.
+
+Type changes, failures, interactions and all non-progress notifications stop preview
+coalescing. Unknown events and missing turn IDs are conservative barriers; reasoning
+deltas retain their existing stateful tracker and preview throttle. In-flight writes,
+late results on original summaries and final-summary retries are never coalesced.
+This reduces network backlog, not the number of events processed, and adds no timer
+or persistent queue. It does not bypass transport rate limits or retry unknown send
+outcomes.
+
 ### Actions and delivery timing
 
 Completed turns settle their internal route and lease before interactive Actions.

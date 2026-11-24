@@ -38,6 +38,7 @@ import {
 } from "./sessions/ownership.js";
 import { TypingService } from "./progress/typing.js";
 import { ProgressService, type ProgressNotificationEvent } from "./progress/service.js";
+import type { ProgressDeliveryOptions } from "./progress/normalizer.js";
 import { SubagentDeliveryService } from "./notifications/subagent-delivery.js";
 import { NotificationTurnService } from "./notifications/turns.js";
 import { NotificationRecoveryService } from "./notifications/recovery.js";
@@ -601,7 +602,7 @@ export class BridgeService {
       notificationMessageService: this.notificationMessageService,
       notificationAuxiliaryService: this.notificationAuxiliaryService,
       resolveNotificationSession: (threadId) => this.notificationDeliveryTargets.resolve(threadId),
-      sendProgressMessage: (session, event, turnId) => this.sendProgressMessage(session, event, turnId),
+      sendProgressMessage: (session, event, turnId, delivery) => this.sendProgressMessage(session, event, turnId, delivery),
       recordBridgeConnectionFailure: (session, threadId, turnId) =>
         this.progressService.recordBridgeConnectionFailure(session, threadId, turnId),
       onRuntimeStopped: (session, turnId) => this.webAttention?.runtimeStopped(session, turnId)
@@ -632,7 +633,7 @@ export class BridgeService {
       notificationQueue: this.notificationQueue,
       notificationDispatcher: this.notificationDispatcher,
       notificationApprovalService: this.notificationApprovalService,
-      handleAppServerNotification: (notification) => this.notificationDispatcher.handle(notification),
+      handleAppServerNotification: (notification, delivery) => this.notificationDispatcher.handle(notification, delivery),
       releaseBridgeLocksAfterAuthChange: () => store.releaseBridgeLocksAfterAuthChange(),
       store,
       getRuntimeState: () => this.runtime.state,
@@ -1465,9 +1466,10 @@ export class BridgeService {
   private async sendProgressMessage(
     session: SessionRecord,
     event: ProgressNotificationEvent,
-    turnId?: string
+    turnId?: string,
+    delivery?: ProgressDeliveryOptions
   ): Promise<void> {
-    return this.progressService.sendProgressMessage(session, event, turnId);
+    return this.progressService.sendProgressMessage(session, event, turnId, delivery);
   }
 
   // COMPATIBILITY(TEST): integration tests exercise automatic compact recovery via the Bridge facade.

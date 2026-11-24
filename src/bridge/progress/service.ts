@@ -8,6 +8,7 @@ import type {
 } from "../../shared/types.js";
 import { logger } from "../../logging/logger.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
+import type { MessageSpec } from "../messages/types.js";
 import { truncateTemporaryMessageSpec } from "../messages/temporary.js";
 import type { BridgeMessageOptions } from "../transport.js";
 import { createProgressMessageSpec } from "../renderers/progress.js";
@@ -16,6 +17,7 @@ import { FinalProgressDelivery } from "./final-delivery.js";
 import { appendPhaseEvent, emptyPhaseAggregate, opensNewPhase } from "./lifecycle.js";
 import {
   normalizeProgressEvent,
+  type ProgressDeliveryOptions,
   type ProgressNotificationEvent
 } from "./normalizer.js";
 
@@ -24,6 +26,7 @@ import { WorkflowSequence, type WorkflowAppend } from "./workflow-sequence.js";
 export type { ProgressNotificationEvent } from "./normalizer.js";
 
 type ProgressTerminal = "completed" | "failed" | "interrupted";
+type ProgressPreview = { spec: MessageSpec; text: string; failed: boolean };
 
 export type ProgressServiceDependencies = {
   getActiveTurnRoute: (threadId: string) => TurnRouteRecord | null;
@@ -82,6 +85,7 @@ export class ProgressService {
   private readonly finalDelivery: FinalProgressDelivery;
   private readonly sequence: WorkflowSequence;
   private readonly lastProgressByTurn = new Map<string, { text: string; failed: boolean; sentAt: number }>();
+  private readonly pendingPreviewByTurn = new Map<string, { phaseId: string; preview: ProgressPreview }>();
 
   constructor(private readonly deps: ProgressServiceDependencies) {
     this.delivery = new PhaseDeliveryAdapter(deps);
@@ -102,11 +106,13 @@ export class ProgressService {
   async stop(): Promise<void> {
     await this.finalDelivery.stop();
     await this.sequence.drain();
+    this.pendingPreviewByTurn.clear();
   }
 
   readonly appendWorkflowMessage: WorkflowAppend = (session, operation, context) => this.sequence.append(session, operation, context);
 
-  async sendProgressMessage(session: SessionRecord, event: ProgressNotificationEvent, turnId?: string): Promise<void> {
+  async sendProgressMessage(session: SessionRecord, event: ProgressNotificationEvent, turnId?: string,
+    delivery: ProgressDeliveryOptions = {}): Promise<void> {
     const resolvedTurnId = turnId ?? this.deps.getInFlightTurnId(event.threadId);
     if (!resolvedTurnId) return;
     const normalized = normalizeProgressEvent(event);
@@ -126,7 +132,10 @@ export class ProgressService {
       if (owner && owner.state !== "active") {
         // A late completion updates its original summary, never opens another phase.
         const aggregate = appendPhaseEvent(owner.aggregate, normalized);
-        if (aggregate === owner.aggregate) return;
+        if (aggregate === owner.aggregate) {
+          if (!delivery.suppressPreview) await this.flushPendingPreview(key, active);
+          return;
+        }
         let updated = this.deps.updateFinalProgressPhaseAggregate(owner.id, aggregate);
         if (updated && event.failed && updated.state === "phase_complete") {
           updated = this.deps.updateFinalProgressPhaseMessageState({
@@ -134,6 +143,7 @@ export class ProgressService {
           });
         }
         if (updated) await this.finalDelivery.deliver(updated.id);
+        if (!delivery.suppressPreview) await this.flushPendingPreview(key, active);
         return;
       }
       const now = Date.now();
@@ -141,9 +151,6 @@ export class ProgressService {
       const duplicatePreview = previous?.text === text && previous.failed === event.failed && now - previous.sentAt < 30_000;
       const throttlePreview = normalized.kind === "thinking" && active?.phaseKind === "thinking" &&
         event.completed !== true && previous && now - previous.sentAt < 5_000;
-      // New identities and completion metadata must reach the aggregate even if the preview matches.
-      if (active && duplicatePreview && normalized.kind !== "edited" && !event.activity &&
-        (!event.itemId || owner?.id === active.id && event.completed !== true)) return;
       if (normalized.kind === "called" && event.operationKind !== "dynamicTool" && !event.failed && this.deps.shouldSkipCalledProgress(session, now)) return;
       if (opensNewPhase(active, normalized) && active) {
         this.lastProgressByTurn.delete(key);
@@ -152,7 +159,10 @@ export class ProgressService {
       }
 
       const aggregate = appendPhaseEvent(active?.aggregate ?? emptyPhaseAggregate(), normalized);
-      if (active && aggregate === active.aggregate) return;
+      if (active && aggregate === active.aggregate) {
+        if (!delivery.suppressPreview) await this.flushPendingPreview(key, active);
+        return;
+      }
       let record: ProgressPhaseMessageRecord | null;
       if (active) {
         const updated = this.deps.updateActiveProgressPhaseMessage(active.id, {
@@ -162,11 +172,18 @@ export class ProgressService {
           aggregate
         });
         record = updated ?? active;
-        if (!duplicatePreview && !throttlePreview && await this.delivery.edit(record.sourceId, record.platformMessageId, preview)) {
-          this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: now });
-          if (record.phaseKind === "run") record = this.deps.recordSuccessfulRunContentUpdate(record.id) ?? record;
+        if (delivery.suppressPreview && !event.failed) {
+          if (!duplicatePreview && !throttlePreview) {
+            this.pendingPreviewByTurn.set(key, { phaseId: record.id, preview: { spec: preview, text, failed: event.failed } });
+          } else this.pendingPreviewByTurn.delete(key);
+        } else {
+          this.pendingPreviewByTurn.delete(key);
+          if (!duplicatePreview && !throttlePreview) {
+            await this.editPreview(key, record, { spec: preview, text, failed: event.failed });
+          }
         }
       } else {
+        // Creation is never coalesced: later edits need the platform message ID.
         const sent = await this.delivery.send(session.telegramChatId, preview);
         if (!sent) return;
         this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: now });
@@ -215,6 +232,7 @@ export class ProgressService {
     const terminal = options.terminal ?? "completed";
     await this.enqueue(this.turnKey(threadId, turnId), async () => {
       this.lastProgressByTurn.delete(this.turnKey(threadId, turnId));
+      this.pendingPreviewByTurn.delete(this.turnKey(threadId, turnId));
       const active = this.deps.getActiveProgressPhaseMessage(threadId, turnId);
       if (active) {
         await this.finalizePhase(active, terminalState(terminal), null);
@@ -241,6 +259,7 @@ export class ProgressService {
     }
     await this.retryPendingFinalDeliveries();
     this.lastProgressByTurn.clear();
+    this.pendingPreviewByTurn.clear();
   }
 
   async retryPendingFinalDeliveries(): Promise<void> {
@@ -266,6 +285,7 @@ export class ProgressService {
     state: Exclude<ProgressPhaseState, "active">,
     failureReason: ProgressFailureReason | null
   ): Promise<void> {
+    this.pendingPreviewByTurn.delete(this.turnKey(active.codexThreadId, active.turnId));
     const finalized = this.deps.finalizeProgressPhaseMessage({
       id: active.id,
       state,
@@ -274,6 +294,21 @@ export class ProgressService {
     });
     if (!finalized) return;
     await this.finalDelivery.deliver(finalized.id);
+  }
+
+  private async editPreview(key: string, record: ProgressPhaseMessageRecord, preview: ProgressPreview): Promise<void> {
+    if (await this.delivery.edit(record.sourceId, record.platformMessageId, preview.spec)) {
+      this.lastProgressByTurn.set(key, { text: preview.text, failed: preview.failed, sentAt: Date.now() });
+      if (record.phaseKind === "run") this.deps.recordSuccessfulRunContentUpdate(record.id);
+    }
+  }
+
+  private async flushPendingPreview(key: string, active: ProgressPhaseMessageRecord | null): Promise<void> {
+    const pending = this.pendingPreviewByTurn.get(key);
+    this.pendingPreviewByTurn.delete(key);
+    // A duplicate/late result may be the last queued notification. It must not
+    // swallow the latest meaningful preview of the current phase.
+    if (active && pending?.phaseId === active.id) await this.editPreview(key, active, pending.preview);
   }
 
   private enqueue(key: string, operation: () => Promise<void>): Promise<void> {

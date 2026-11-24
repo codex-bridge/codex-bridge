@@ -23,6 +23,7 @@ import { NotificationMessageService } from "./messages.js";
 import { NotificationRecoveryService } from "./recovery.js";
 import { NotificationTurnService } from "./turns.js";
 import type { ProgressNotificationEvent } from "../progress/service.js";
+import type { ProgressDeliveryOptions } from "../progress/normalizer.js";
 import { canDeliverSession } from "./delivery-target.js";
 import { ReasoningSummaryTracker } from "../../codex/reasoning-summary.js";
 
@@ -35,7 +36,7 @@ export type NotificationDispatcherDependencies = {
   notificationMessageService: NotificationMessageService;
   notificationAuxiliaryService: NotificationAuxiliaryService;
   resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
-  sendProgressMessage: (session: SessionRecord, event: ProgressNotificationEvent, turnId: string) => Promise<void>;
+  sendProgressMessage: (session: SessionRecord, event: ProgressNotificationEvent, turnId: string, delivery?: ProgressDeliveryOptions) => Promise<void>;
   recordBridgeConnectionFailure: (session: SessionRecord, threadId: string, turnId: string) => Promise<boolean>;
   onRuntimeStopped?: (session: SessionRecord, turnId: string) => void;
 };
@@ -45,7 +46,7 @@ export class NotificationDispatcher {
 
   constructor(private readonly deps: NotificationDispatcherDependencies) {}
 
-  async handle(notification: AppServerNotification): Promise<void> {
+  async handle(notification: AppServerNotification, delivery: ProgressDeliveryOptions = {}): Promise<void> {
     if (notification.method === "bridge/connection/lost") {
       this.reasoningSummaries.reset();
       if ((notification.params as { expected?: boolean } | undefined)?.expected !== false) return;
@@ -171,7 +172,7 @@ export class NotificationDispatcher {
         route.sourceId === session.telegramChatId &&
         (!progressEvent.turnId || progressEvent.turnId === route.turnId)
       ) {
-        await this.deps.sendProgressMessage(session, progressEvent, route.turnId).catch((error) => {
+        await this.deps.sendProgressMessage(session, progressEvent, route.turnId, delivery).catch((error) => {
           logger.warn("bridge.progress.delivery_failed", {
             sessionId: session.id,
             threadId: progressEvent.threadId,
