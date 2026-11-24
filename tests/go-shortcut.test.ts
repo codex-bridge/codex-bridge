@@ -32,6 +32,7 @@ test("go shortcut sends actions on the next timer tick and clears the assistant 
   ]);
   const service = new GoShortcutService({
     store: {
+      getSessionLease: () => null, getSessionBindingById: () => null,
       listPendingDecisions: async () => [],
       getAwaitingInputDecisionForSession: async () => null,
       getActiveSession: async () => session
@@ -84,6 +85,7 @@ test("go shortcut cancels and suppresses actions while a decision is pending", a
   ]);
   const service = new GoShortcutService({
     store: {
+      getSessionLease: () => null, getSessionBindingById: () => null,
       listPendingDecisions: async () => [{}] as never[],
       getAwaitingInputDecisionForSession: async () => null,
       getActiveSession: async () => session
@@ -109,4 +111,28 @@ test("go shortcut cancels and suppresses actions while a decision is pending", a
   await service.flush(session);
   assert.equal(sent.length, 0);
   assert.equal(lastAssistant.has(session.codexThreadId), false);
+});
+
+test("new work cancels Actions even while a preceding reminder is being delivered", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let release!: () => void;
+  let started!: () => void;
+  const sendingReminder = new Promise<void>((resolve) => { started = resolve; });
+  const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  const lastAssistant = new Map<string, LastAssistantMessage>();
+  const sent: MessageSpec[] = [];
+  const service = new GoShortcutService({
+    store: { getSessionLease: () => null, getSessionBindingById: () => null,
+      getActiveSession: async () => session, listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
+    messageOperations: { sendMessageSpec: async (_source, message) => { sent.push(message); return null; } },
+    pendingByThread: pending, lastAssistantMessageByThread: lastAssistant, getSessionDirectory: () => "/project",
+    beforeActions: async () => { started(); await new Promise<void>((resolve) => { release = resolve; }); }
+  });
+  service.schedule(session); t.mock.timers.tick(1);
+  await sendingReminder;
+  service.cancel(session.codexThreadId);
+  lastAssistant.set(session.codexThreadId, { chatId: session.telegramChatId, messageId: "new-turn", text: "new output" });
+  release(); await nextEventLoop();
+  assert.deepEqual(sent, []);
+  assert.equal(lastAssistant.get(session.codexThreadId)?.messageId, "new-turn");
 });

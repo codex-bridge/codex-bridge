@@ -88,6 +88,28 @@ SLACK_AUDIO_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 Socket Mode reconnect is automatic. Change the client/server ping timeouts only
 when logs show a sustained network problem.
 
+## Codex release reminders
+
+Bridge checks the installed CLI against the official `@openai/codex` npm
+`latest` release in the background at startup and every 24 hours. The registry
+request has a 10-second timeout. Missing or invalid versions and failed checks
+produce no chat notification; another check runs at the next daily interval.
+Bridge never installs an update automatically.
+
+When a newer stable release is available, Bridge waits for the next eligible
+Actions message and sends the release reminder immediately before its buttons.
+The reminder uses that Actions message's conversation and authorization; pending
+approvals or input keep it deferred. Ordinary replies and conversation-history
+restoration share this path. Without a pending release, Actions do not wait for
+an external version lookup.
+
+Pending releases and deduplication are process-wide and memory-only. Each new
+release gets at most one send attempt across all sessions; a later release can
+trigger another reminder, and restarting Bridge allows a reminder again. An
+unsent reminder skipped after losing authorization remains pending. A network
+send with an uncertain outcome is not automatically replayed. Checks continue
+after a reminder, and no message is sent when no newer release is available.
+
 ## PM2 lifecycle
 
 `ecosystem.config.cjs` starts one Bridge runtime, loads `.env.bridge`, writes the

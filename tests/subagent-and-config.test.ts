@@ -281,7 +281,7 @@ test("parent terminal freezes the queued subagent summary after it is created", 
   } finally { store.close(); }
 });
 
-test("child completion cannot claim a pending global version notification", async () => {
+test("turn completion cannot claim version reminders before Actions", async () => {
   const store = new BridgeStore(":memory:");
   let notify!: (event: AppServerNotification) => void;
   const client = {
@@ -304,12 +304,12 @@ test("child completion cannot claim a pending global version notification", asyn
     notificationSessionIdByThread: Map<string, string>;
     notificationQueue: KeyedQueue;
     versionUpdateNotifier: {
-      deliverAfterRootTurn(session: { id: string } | null): Promise<boolean>;
+      deliverBeforeActions(session: { id: string } | null): Promise<boolean>;
     };
     attachCodexListeners(): void;
     detachCodexListeners(): void;
   };
-  internal.versionUpdateNotifier.deliverAfterRootTurn = async (resolvedSession) => {
+  internal.versionUpdateNotifier.deliverBeforeActions = async (resolvedSession) => {
     deliveries.push(resolvedSession?.id ?? null);
     return true;
   };
@@ -362,7 +362,7 @@ test("child completion cannot claim a pending global version notification", asyn
       turn: { id: "p2", status: "cancelled" }
     } });
     await internal.notificationQueue.run("parent", async () => undefined);
-    assert.deepEqual(deliveries, [session.id]);
+    assert.deepEqual(deliveries, []);
   } finally {
     internal.detachCodexListeners();
     store.close();

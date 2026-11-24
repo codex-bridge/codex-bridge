@@ -1397,7 +1397,7 @@ test("bootstrap connects without eagerly discovering all sessions", async () => 
   let connected = false;
   let discoveryCount = 0;
   const service = new BridgeService(
-    testConfig(databasePath),
+    { ...testConfig(databasePath), codexAppServerCommand: process.execPath },
     store,
     {
       connect: async () => {
@@ -1419,6 +1419,7 @@ test("bootstrap connects without eagerly discovering all sessions", async () => 
     assert.equal(connected, true);
     assert.equal(discoveryCount, 0);
   } finally {
+    await service.shutdown();
     store.close();
     await rm(directory, { recursive: true, force: true });
   }
@@ -1430,7 +1431,7 @@ test("bootstrap reconciles durable active turns without deleting their progress 
   const store = new BridgeStore(databasePath);
   const edits: string[] = [];
   const service = new BridgeService(
-    testConfig(databasePath),
+    { ...testConfig(databasePath), codexAppServerCommand: process.execPath },
     store,
     {
       connect: async () => {},
@@ -1513,6 +1514,7 @@ test("bootstrap reconciles durable active turns without deleting their progress 
     assert.equal(store.getActiveTurnRoute(notLoaded.codexThreadId)?.turnId, "turn-not-loaded");
     assert.equal(store.getProgressPhaseMessage(notLoadedPhase.id)?.state, "active");
   } finally {
+    await service.shutdown();
     store.close();
     await rm(directory, { recursive: true, force: true });
   }

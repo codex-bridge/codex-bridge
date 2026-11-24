@@ -78,7 +78,7 @@ import {
 import { SessionMenuSnapshotCache } from "./sessions/menu-snapshots.js";
 import { MessageDeliveryService } from "./messages/sender.js";
 import { HistoryDeliveryService } from "./messages/history-delivery.js";
-import { readCodexVersion } from "../codex/version-reader.js";
+import { readCodexVersion, readLatestCodexVersion } from "../codex/version-reader.js";
 import {
   createBatchDecisionMessageSpec,
   createDecisionMessageSpec,
@@ -396,21 +396,23 @@ export class BridgeService {
       }
     });
     this.versionUpdateNotifier = new VersionUpdateNotifier({
-      readVersion: () => readCodexVersion(this.config.codexAppServerCommand),
-      deliver: (session, update) => this.messageOperations.sendLongSpec(
-        session.telegramChatId,
+      readInstalledVersion: () => readCodexVersion(this.config.codexAppServerCommand),
+      readLatestVersion: () => readLatestCodexVersion(),
+      deliver: (session, sourceId, update, canSend) => this.messageOperations.sendMessageSpec(
+        sourceId,
         createMessage({
           kind: "version-update",
           session: { id: session.codexThreadId, directory: this.getSessionDirectory(session) },
           body: [{ type: "text", text: `${update.baseline} → ${update.latest}` }]
-        })
-      ).then(() => undefined)
+        }), { canSend, disable_notification: true }
+      ).then((message) => message !== null)
     });
     this.goShortcutService = new GoShortcutService({
       store,
       messageOperations: this.messageOperations,
       pendingByThread: state.pendingGoShortcutByThread,
       lastAssistantMessageByThread: state.lastAssistantTelegramByThread,
+      beforeActions: (session, sourceId, canSend) => this.versionUpdateNotifier.deliverBeforeActions(session, sourceId, canSend),
       getSessionDirectory: (session) => this.getSessionDirectory(session)
     });
     this.historyDeliveryService = new HistoryDeliveryService({
@@ -532,7 +534,6 @@ export class BridgeService {
       scheduleGoShortcut: (session) => this.goShortcutService.schedule(session),
       cancelGoShortcut: (threadId) => this.goShortcutService.cancel(threadId),
       rememberRateLimitSession: (threadId, sessionId) => this.rateLimitNotifier.rememberSession(threadId, sessionId),
-      deliverVersionUpdateAfterRootTurn: (session) => this.versionUpdateNotifier.deliverAfterRootTurn(session),
       onTurnSettled: (session, event) => this.webAttention?.turnSettled(session, event)
     });
     this.notificationRecoveryService = new NotificationRecoveryService({
@@ -1043,7 +1044,8 @@ export class BridgeService {
   async bootstrap(): Promise<void> {
     await this.runtimeCommandService.bootstrap();
     this.progressService.start();
-    await this.versionUpdateNotifier.start();
+    // Release lookup runs in the background; it never delays the first Actions.
+    void this.versionUpdateNotifier.start();
   }
 
   async shutdown(): Promise<void> {

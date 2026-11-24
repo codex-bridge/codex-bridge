@@ -41,3 +41,18 @@ export async function readCodexVersion(
   const result = await runner(command, ["--version"]);
   return parseCodexVersion(`${result.stdout}\n${result.stderr}`);
 }
+
+/** npm's latest tag is the stable release published for the official CLI package. */
+export async function readLatestCodexVersion(request: typeof fetch = fetch): Promise<string> {
+  const response = await request("https://registry.npmjs.org/@openai%2Fcodex/latest", {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`Codex release check returned HTTP ${response.status}.`);
+  const metadata: unknown = await response.json();
+  const version = metadata && typeof metadata === "object" && "version" in metadata ? metadata.version : null;
+  if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error("Codex release check returned an invalid stable version.");
+  }
+  return version;
+}

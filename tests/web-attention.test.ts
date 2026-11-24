@@ -114,7 +114,7 @@ test("turn integration emits only after terminal processing, suppresses automati
       resolveNotificationSession: async () => h.session, applyStatusUpdate: async () => {},
       handleRecoveryTaskComplete: async () => recovery, clearProgressMessageForThread: async () => {},
       scheduleGoShortcut: () => {}, cancelGoShortcut: () => {}, rememberRateLimitSession: () => {},
-      deliverVersionUpdateAfterRootTurn: async () => false, promoteSessionHandoff: async () => {},
+      promoteSessionHandoff: async () => {},
       onTurnSettled: (session, event) => h.attention.turnSettled(session, event) });
     const status = { threadId: "thread", kind: "clear" as const, label: null, detail: null, detailMode: null };
     await turns.handleStatusUpdate(status, "turn", "failed", "Terminal reason");

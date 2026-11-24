@@ -36,9 +36,9 @@ test("Codex update has the same concise content on Slack and Telegram", () => {
 
   assert.deepEqual(slack, {
     type: "markdown",
-    text: "**Codex update · \\.\\.\\.\\/projects\\/api\\-service**\n0\\.158\\.0 → 0\\.159\\.0"
+    text: "**Codex update available · \\.\\.\\.\\/projects\\/api\\-service**\n0\\.158\\.0 → 0\\.159\\.0"
   });
-  assert.equal(telegram.html, "<b>Codex update · .../projects/api-service</b>\n0.158.0 → 0.159.0");
+  assert.equal(telegram.html, "<b>Codex update available · .../projects/api-service</b>\n0.158.0 → 0.159.0");
 });
 
 test("Slack renders an explicit message spec without inferring actions from text", async () => {

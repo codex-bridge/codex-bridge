@@ -6,13 +6,16 @@ import { createMessage } from "../messages/factory.js";
 import type { MessageSpec } from "../messages/types.js";
 import type { BridgeMessageOperations } from "../messages/operations.js";
 import type { LastAssistantMessage } from "../runtime-state.js";
+import { canDeliverSession } from "../notifications/delivery-target.js";
 
 export type GoShortcutServiceDependencies = {
-  store: Pick<BridgeStore, "listPendingDecisions" | "getAwaitingInputDecisionForSession" | "getActiveSession">;
+  store: Pick<BridgeStore, "listPendingDecisions" | "getAwaitingInputDecisionForSession" | "getActiveSession" |
+    "getSessionLease" | "getSessionBindingById">;
   messageOperations: Pick<BridgeMessageOperations, "sendMessageSpec">;
   pendingByThread: Map<string, ReturnType<typeof setTimeout>>;
   lastAssistantMessageByThread: Pick<Map<string, LastAssistantMessage>, "delete">;
   getSessionDirectory: (session: SessionRecord) => string;
+  beforeActions?: (session: SessionRecord, sourceId: string, canSend: () => Promise<boolean>) => Promise<unknown>;
   delayMs?: number;
 };
 
@@ -48,9 +51,16 @@ export class GoShortcutService {
   }
 
   async flush(session: SessionRecord): Promise<void> {
-    this.deps.pendingByThread.delete(session.codexThreadId);
-    await this.maybeSend(session);
-    this.deps.lastAssistantMessageByThread.delete(session.codexThreadId);
+    const scheduled = this.deps.pendingByThread.get(session.codexThreadId);
+    const current = () => !scheduled || this.deps.pendingByThread.get(session.codexThreadId) === scheduled;
+    try {
+      await this.maybeSend(session, session.telegramChatId, async () => current());
+    } finally {
+      if (current()) {
+        this.deps.pendingByThread.delete(session.codexThreadId);
+        this.deps.lastAssistantMessageByThread.delete(session.codexThreadId);
+      }
+    }
   }
 
   async sendAfterTranscript(session: SessionRecord, chatId: string, canSend?: () => Promise<boolean>): Promise<void> {
@@ -61,11 +71,16 @@ export class GoShortcutService {
   }
 
   private async maybeSend(session: SessionRecord, chatId = session.telegramChatId, canSend?: () => Promise<boolean>): Promise<void> {
-    const pendingDecisions = await this.deps.store.listPendingDecisions(session.id);
-    const awaitingInput = await this.deps.store.getAwaitingInputDecisionForSession(session.id);
-    if (pendingDecisions.length > 0 || awaitingInput) {
-      return;
-    }
+    const eligible = async () => {
+      if (canSend && !await canSend()) return false;
+      if (!await canDeliverSession(this.deps.store, session, chatId)) return false;
+      const pendingDecisions = await this.deps.store.listPendingDecisions(session.id);
+      const awaitingInput = await this.deps.store.getAwaitingInputDecisionForSession(session.id);
+      return pendingDecisions.length === 0 && !awaitingInput;
+    };
+    if (!await eligible()) return;
+    await this.deps.beforeActions?.(session, chatId, eligible);
+    if (!await eligible()) return;
 
     const messageSpec: MessageSpec = createMessage({
       kind: "actions",
@@ -77,7 +92,7 @@ export class GoShortcutService {
       )
     });
     await this.deps.messageOperations.sendMessageSpec(chatId, messageSpec, {
-      disable_notification: true, canSend
+      disable_notification: true, canSend: eligible
     });
   }
 }

@@ -215,7 +215,7 @@ test("terminal notifications promote ownership while preserving its requested se
       errorSeenByThread: new Map(), lastAssistantTelegramByThread: new Map(), queuedSubmissionService: { reconcileStartedSubmission: async () => {} },
       resolveNotificationSession: async () => session, applyStatusUpdate: async () => {}, handleRecoveryTaskComplete: async () => false,
       clearProgressMessageForThread: async () => {}, scheduleGoShortcut: () => {}, cancelGoShortcut: () => {},
-      rememberRateLimitSession: () => {}, deliverVersionUpdateAfterRootTurn: async () => false,
+      rememberRateLimitSession: () => {},
       promoteSessionHandoff: (value) => binding.promote(value) });
     await turns.handleTurnLifecycle({ kind: "completed", threadId: "running", turnId: "turn", terminalState: "completed" });
     assert.equal(store.getSessionBindingById(store.getSessionLease(session.id)!.ownerBindingId!)?.sourceId, "web:local");

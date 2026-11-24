@@ -23,7 +23,6 @@ export type NotificationTurnDependencies = {
   scheduleGoShortcut: (session: SessionRecord) => void;
   cancelGoShortcut: (threadId: string) => void;
   rememberRateLimitSession: (threadId: string, sessionId: string) => void;
-  deliverVersionUpdateAfterRootTurn: (session: SessionRecord | null) => Promise<boolean>;
   onTurnSettled?: (session: SessionRecord, event: AppServerTurnLifecycleEvent) => void;
 };
 
@@ -130,7 +129,6 @@ export class NotificationTurnService {
         terminal: turnLifecycle.terminalState ?? "interrupted",
         turnId: turnLifecycle.turnId
       });
-      await this.deps.deliverVersionUpdateAfterRootTurn(session);
     }
   }
 }

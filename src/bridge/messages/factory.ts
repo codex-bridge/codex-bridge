@@ -26,7 +26,7 @@ const MESSAGE_LABELS: Record<MessageKind, string> = {
   "stream-error": "Codex stream error",
   "compact-started": "Compact started",
   "compact-completed": "Compact completed",
-  "version-update": "Codex update",
+  "version-update": "Codex update available",
   queue: "Queue",
   subagent: "Subagent",
   refresh: "Codex",
