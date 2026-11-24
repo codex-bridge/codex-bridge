@@ -51,8 +51,9 @@ flow avoids third-party lookup bots:
 Keep the unrestricted interval short. Do not use the same token in another
 polling process while Bridge is running.
 
-Direct messages are the recommended setup. For a group, add the bot to the
-group and allow the group's numeric chat ID. Telegram privacy mode may prevent
+Use a private chat for one conversation entry, or a group with Topics for
+concurrent conversations with multiple sessions. For a group, add the bot and
+allow the group's numeric chat ID. Telegram privacy mode may prevent
 the bot from receiving ordinary group text. Disable privacy through BotFather
 only when the group workflow requires all messages, and review the wider access
 that this grants first.
@@ -80,7 +81,12 @@ complete current command list to Telegram at startup.
 
 ## Group topics
 
-In a supergroup with Topics enabled:
+One supergroup with Topics enabled can operate multiple Codex sessions at the
+same time. Each topic is an independent conversation entry with its own selected
+session; a busy session in one topic does not prevent another topic from working
+with a different session. Ownership limits apply to each session, not the group.
+
+To set this up:
 
 1. Add the bot and put the group's numeric chat ID in `TELEGRAM_ALLOWED_CHAT_IDS`.
    Topic IDs do not belong in this allowlist.

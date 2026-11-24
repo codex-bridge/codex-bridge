@@ -26,11 +26,15 @@ Codex Bridge 于 2026 年 3 月开始开发，在首次公开发布前经历了�
 | 客户端 | 主要用途 | 当前支持 |
 | --- | --- | --- |
 | Web | 主要工作台 | 项目、Session、消息、图片上传、审批和连接接管。 |
-| Telegram | 移动端访问 | 私聊和群组 Topic、图片、可选音频转写、阶段汇总和审批。 |
+| Telegram | 移动端与多 Session 对话 | 同一群通过不同 Topic 同时对话多个 Session，也支持私聊、图片、可选音频转写、汇总和审批。 |
 | Slack | 团队对话 | Thread 路由、审批、图片和可选语音转写。 |
 
 Web 可以独立运行，Telegram 和 Slack 是可选适配器。启用的客户端共享同一个
 Bridge 进程和 Codex Runtime。
+
+启用 Topic 的 Telegram 群可以同时与多个 Session 对话：每个 Topic 分别选择
+并操作自己的 Session。所有权限制针对单个 Session，不是限制整个群只能使用
+一个 Session。
 
 ## 兼容性
 

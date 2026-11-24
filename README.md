@@ -29,11 +29,15 @@ commits before its first public release.
 | Client | Main use | Current support |
 | --- | --- | --- |
 | Web | Primary workbench | Projects, sessions, messages, image uploads, approvals, and connection takeover. |
-| Telegram | Mobile access | Private chats and group topics, images, optional audio transcription, phase summaries, and approvals. |
+| Telegram | Mobile and parallel sessions | Multiple sessions in one group through separate topics, plus private chats, images, optional audio transcription, summaries, and approvals. |
 | Slack | Team chat | Thread-aware routing, approvals, images, and optional voice transcription. |
 
 Web can run by itself. Telegram and Slack are optional adapters. All enabled
 clients share one Bridge process and one Codex runtime.
+
+A Telegram group with Topics enabled can chat with multiple sessions at the same
+time: each topic selects and controls its own session. Ownership is enforced per
+session, not across the entire group.
 
 ## Compatibility
 
