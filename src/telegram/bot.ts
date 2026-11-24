@@ -1,17 +1,18 @@
-import { Bot, Context, InlineKeyboard } from "grammy";
+import { Bot, Context } from "grammy";
 
 import type { BridgeTelegramBotPort } from "../bridge/contracts.js";
 import type { AppConfig } from "../config/index.js";
 import { createMessage, messageContextForSession } from "../bridge/messages/factory.js";
 import { helpAction, sessionAction } from "../bridge/messages/actions.js";
-import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
 import { logger } from "../logging/logger.js";
-import { isTelegramRichMessageRejection } from "./errors.js";
-import { renderTelegramMessageSpec } from "./message-renderer.js";
 import { createTelegramInteractionContext } from "./interactions/context.js";
 import { createTelegramHelpMessage } from "./interactions/help.js";
 import { dispatchTelegramInteraction } from "./interactions/router.js";
+
+import { telegramSourceForContext } from "../shared/telegram-address.js";
+import { TelegramMessageTransport } from "./transport.js";
+import { formatTelegramHtml } from "./text.js";
 
 const knownCommands = new Set([
   "help",
@@ -51,8 +52,16 @@ function getCommandArgument(text: string): string {
   return trimmed.slice(match.index).trim();
 }
 
-export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPort): Bot {
-  const bot = new Bot(config.telegramBotToken);
+export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPort, bot = new Bot(config.telegramBotToken)): Bot {
+  const transport = new TelegramMessageTransport(bot, formatTelegramHtml);
+  bot.use(async (ctx, next) => {
+    if (ctx.callbackQuery?.message?.date === 0) {
+      await ctx.answerCallbackQuery({ text: "This message is unavailable. Open /sessions in the intended topic." });
+      return;
+    }
+    if (ctx.chat) await service.ensureChatAllowed(telegramSourceForContext(ctx));
+    await next();
+  });
   const replyPrompt = async (
     ctx: Context,
     text: string,
@@ -61,58 +70,17 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     await replySpec(ctx, createMessage({
       kind: "system",
       titleLabel: "Codex",
-      ...messageContextForSession(await service.getActiveSessionContext(String(ctx.chat?.id ?? ""))),
+      ...messageContextForSession(await service.getActiveSessionContext(telegramSourceForContext(ctx))),
       body: [{ type: "text", text }],
       actions
     }));
   };
-  const replySpec = async (ctx: Context, messageSpec: MessageSpec) => {
-    const rendered = renderTelegramMessageSpec(messageSpec);
-    try {
-      await ctx.replyWithRichMessage({ markdown: rendered.markdown }, {
-        reply_markup: rendered.keyboard
-      });
-    } catch (error) {
-      if (!isTelegramRichMessageRejection(error)) throw error;
-      logger.warn("telegram.rich_message_rejected", {
-        operation: "reply",
-        chatId: ctx.chat?.id,
-        description: error.description
-      });
-      try {
-        await ctx.reply(rendered.html, {
-          parse_mode: "HTML",
-          reply_markup: rendered.keyboard
-        });
-      } catch (fallbackError) {
-        if (!isTelegramRichMessageRejection(fallbackError)) throw fallbackError;
-        await ctx.reply(renderLegacyMessage(messageSpec), { reply_markup: rendered.keyboard });
-      }
-    }
+  const replySpec = async (ctx: Context, messageSpec: MessageSpec): Promise<void> => {
+    await transport.sendMessageSpec(telegramSourceForContext(ctx), messageSpec);
   };
-  const editSpec = async (ctx: Context, messageSpec: MessageSpec) => {
-    const rendered = renderTelegramMessageSpec(messageSpec);
-    try {
-      await ctx.editMessageText({ markdown: rendered.markdown }, {
-        reply_markup: rendered.keyboard
-      });
-    } catch (error) {
-      if (!isTelegramRichMessageRejection(error)) throw error;
-      logger.warn("telegram.rich_message_rejected", {
-        operation: "context_edit",
-        chatId: ctx.chat?.id,
-        description: error.description
-      });
-      try {
-        await ctx.editMessageText(rendered.html, {
-          parse_mode: "HTML",
-          reply_markup: rendered.keyboard
-        });
-      } catch (fallbackError) {
-        if (!isTelegramRichMessageRejection(fallbackError)) throw fallbackError;
-        await ctx.editMessageText(renderLegacyMessage(messageSpec), { reply_markup: rendered.keyboard });
-      }
-    }
+  const editSpec = async (ctx: Context, messageSpec: MessageSpec): Promise<void> => {
+    if (!ctx.msg) throw new Error("No Telegram message context is available.");
+    await transport.editMessageSpec(telegramSourceForContext(ctx), String(ctx.msg.message_id), messageSpec);
   };
 
   void bot.api
@@ -143,9 +111,8 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     if (!ctx.chat) {
       return;
     }
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.help", { chatId });
-    await service.ensureChatAllowed(chatId);
     await replySpec(ctx, createTelegramHelpMessage(
       await service.getActiveSessionContext(chatId),
       await service.getHelpMenuActions(chatId)
@@ -155,47 +122,41 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
   bot.command("help", handleHelp);
 
   bot.command("session_new", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.session_new", { chatId });
-    await service.ensureChatAllowed(chatId);
     const prompt = await service.requestCreateSessionForCurrentDirectory(chatId);
     await replySpec(ctx, prompt);
   });
 
   bot.command("sessions", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.sessions", { chatId });
-    await service.ensureChatAllowed(chatId);
     const menu = await service.renderSessionMenu(chatId, 0, { refresh: true, includeUnknownThreads: true });
     await replySpec(ctx, menu);
   });
 
   bot.command("goal", async (ctx) => {
-    const chatId = String(ctx.chat.id);
-    await service.ensureChatAllowed(chatId);
+    const chatId = telegramSourceForContext(ctx);
     const menu = await service.setActiveGoalObjective(chatId, getCommandArgument(ctx.message?.text ?? ""));
     await replySpec(ctx, menu);
   });
 
   bot.command("goals", async (ctx) => {
-    const chatId = String(ctx.chat.id);
-    await service.ensureChatAllowed(chatId);
+    const chatId = telegramSourceForContext(ctx);
     const menu = await service.renderGoalsMenu(chatId);
     await replySpec(ctx, menu);
   });
 
   bot.command("section_rename", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     const name = getCommandArgument(ctx.message?.text ?? "");
     logger.info("telegram.command.section_rename", { chatId });
-    await service.ensureChatAllowed(chatId);
     await replySpec(ctx, await service.renameActiveSectionMessage(chatId, name));
   });
 
   bot.command("go", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.go", { chatId });
-    await service.ensureChatAllowed(chatId);
     const result = await service.handleIncomingUserText({
       telegramChatId: chatId,
       telegramMessageId: String(ctx.msg?.message_id ?? ""),
@@ -209,9 +170,8 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
   });
 
   bot.command("next", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.next", { chatId });
-    await service.ensureChatAllowed(chatId);
     const result = await service.handleIncomingUserText({
       telegramChatId: chatId,
       telegramMessageId: String(ctx.msg?.message_id ?? ""),
@@ -225,7 +185,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
   });
 
   bot.command("queue", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     const text = getCommandArgument(ctx.message?.text ?? "");
     if (!text) {
       await replyPrompt(ctx, "Send /queue followed by the message to run after the current turn.");
@@ -244,54 +204,47 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
   });
 
   bot.command("bot_disconnect", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.bot_disconnect", { chatId });
-    await service.ensureChatAllowed(chatId);
     await replySpec(ctx, await service.disconnectBotRuntimeMessage(chatId));
   });
 
   bot.command("bot_connect", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.bot_connect", { chatId });
-    await service.ensureChatAllowed(chatId);
     await replySpec(ctx, await service.connectBotRuntimeMessage(chatId));
   });
 
   bot.command("interrupt", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.interrupt", { chatId });
-    await service.ensureChatAllowed(chatId);
     await replySpec(ctx, await service.stopActiveSessionMessage(chatId));
   });
 
   bot.command("codex_status", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.codex_status", { chatId });
-    await service.ensureChatAllowed(chatId);
     const result = await service.statusActiveSessionMessage(chatId);
     await replySpec(ctx, result);
   });
 
   bot.command("codex_status_full", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.codex_status_full", { chatId });
-    await service.ensureChatAllowed(chatId);
     const result = await service.statusActiveSessionMessage(chatId, true);
     await replySpec(ctx, result);
   });
 
   bot.command("compact", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.compact", { chatId });
-    await service.ensureChatAllowed(chatId);
     const result = await service.compactActiveSessionMessage(chatId);
     await service.deliverCompactResult(chatId, result, async () => { await replySpec(ctx, result); });
   });
 
   bot.command("bot_restart", async (ctx) => {
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.command.bot_restart", { chatId });
-    await service.ensureChatAllowed(chatId);
     await replySpec(ctx, await service.restartServiceMessage(chatId));
   });
 
@@ -300,7 +253,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       return;
     }
 
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     logger.info("telegram.message.received", {
       chatId,
       messageId: ctx.message.message_id,
@@ -333,7 +286,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       return;
     }
 
-    const chatId = String(ctx.chat.id);
+    const chatId = telegramSourceForContext(ctx);
     const data = ctx.callbackQuery.data;
     logger.info("telegram.callback.received", { chatId, data });
 
@@ -350,7 +303,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       context: interaction,
       responder: {
         clearActions: async () => {
-          await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() });
+          await transport.clearMessageActions(chatId, String(ctx.callbackQuery.message!.message_id));
         },
         edit: async (message) => editSpec(ctx, message),
         send: async (message) => replySpec(ctx, message)

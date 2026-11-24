@@ -1,202 +1,134 @@
 import type { Bot, InlineKeyboard } from "grammy";
-
-import type {
-  BridgeMessageOptions,
-  BridgeMessageTransport,
-  BridgeSentMessage
-} from "../bridge/transport.js";
+import type { BridgeMessageOptions, BridgeMessageTransport, BridgeSentMessage } from "../bridge/transport.js";
 import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
 import { logger } from "../logging/logger.js";
+import { parseTelegramAddress, type TelegramAddress } from "../shared/telegram-address.js";
 import { isTelegramRichMessageRejection } from "./errors.js";
 import { renderTelegramMessageSpec } from "./message-renderer.js";
-import { messageTransportPlatform } from "../shared/source-address.js";
+import { TelegramApiScheduler, telegramSchedulerFor } from "./api-scheduler.js";
+
+type TelegramSendOptions = { disable_notification?: boolean; message_thread_id?: number };
 
 export class TelegramMessageTransport implements BridgeMessageTransport {
   readonly name = "telegram";
 
-  constructor(
-    private readonly bot: Bot,
-    private readonly formatHtml: (text: string) => string
-  ) {}
+  constructor(private readonly bot: Bot, private readonly formatHtml: (text: string) => string,
+    private readonly scheduler: TelegramApiScheduler = telegramSchedulerFor(bot)) {}
 
-  canHandle(chatId: string): boolean {
-    return messageTransportPlatform(chatId) === "telegram";
+  canHandle(sourceId: string): boolean { return parseTelegramAddress(sourceId) !== null; }
+
+  async sendMessageSpec(sourceId: string, spec: MessageSpec, options?: BridgeMessageOptions): Promise<BridgeSentMessage | null> {
+    const rendered = renderTelegramMessageSpec(spec);
+    return this.write(sourceId, options, async target => {
+      const sendOptions = this.sendOptions(target, options);
+      try {
+        const sent = await this.bot.api.sendRichMessage(target.chatId, { markdown: rendered.markdown }, {
+          ...sendOptions, reply_markup: rendered.keyboard
+        });
+        return { message_id: String(sent.message_id) };
+      } catch (error) {
+        if (!isTelegramRichMessageRejection(error)) throw error;
+        logger.warn("telegram.rich_message_rejected", { operation: "send", chatId: sourceId, description: error.description });
+        return this.sendHtmlFallback(target.chatId, spec, rendered.html, rendered.keyboard, sendOptions, options?.canSend);
+      }
+    });
   }
 
-  async sendMessageSpec(
-    chatId: string,
-    messageSpec: MessageSpec,
-    options?: BridgeMessageOptions
-  ): Promise<BridgeSentMessage | null> {
-    const { formattedText, messageSpec: _messageSpec, purpose, textFormat, ...telegramOptions } = options ?? {};
-    void formattedText;
-    void _messageSpec;
-    void purpose;
-    void textFormat;
-    const rendered = renderTelegramMessageSpec(messageSpec);
-    try {
-      const sent = await this.bot.api.sendRichMessage(chatId, { markdown: rendered.markdown }, {
-        ...telegramOptions,
-        reply_markup: rendered.keyboard
+  async sendMessage(sourceId: string, text: string, options?: BridgeMessageOptions): Promise<BridgeSentMessage | null> {
+    if (options?.messageSpec) return this.sendMessageSpec(sourceId, options.messageSpec, options);
+    const html = options?.textFormat === "html";
+    return this.write(sourceId, options, async target => {
+      const sent = await this.bot.api.sendMessage(target.chatId, html ? options.formattedText ?? this.formatHtml(text) : text, {
+        ...this.sendOptions(target, options), parse_mode: html ? "HTML" : undefined
       });
       return { message_id: String(sent.message_id) };
-    } catch (error) {
-      if (!isTelegramRichMessageRejection(error)) throw error;
-      logger.warn("telegram.rich_message_rejected", {
-        operation: "send",
-        chatId,
-        description: error.description
-      });
-      return this.sendHtmlFallback(chatId, messageSpec, rendered.html, rendered.keyboard, telegramOptions);
-    }
-  }
-
-  async sendMessage(
-    chatId: string,
-    text: string,
-    options?: BridgeMessageOptions
-  ): Promise<BridgeSentMessage | null> {
-    if (options?.messageSpec) {
-      return this.sendMessageSpec(chatId, options.messageSpec, options);
-    }
-    const { textFormat = "plain", formattedText, purpose, messageSpec: _messageSpec, ...telegramOptions } = options ?? {};
-    void purpose;
-    void _messageSpec;
-    const textToSend = textFormat === "html" ? (formattedText ?? this.formatHtml(text)) : text;
-    const sent = await this.bot.api.sendMessage(chatId, textToSend, {
-      ...telegramOptions,
-      parse_mode: textFormat === "html" ? "HTML" : undefined
     });
-    return { message_id: String(sent.message_id) };
   }
 
-  async editMessageText(
-    chatId: string,
-    messageId: string,
-    text: string,
-    options?: BridgeMessageOptions
-  ): Promise<boolean> {
-    if (options?.messageSpec) {
-      return this.editMessageSpec(chatId, messageId, options.messageSpec, options);
-    }
-    const { textFormat = "plain", formattedText, purpose, messageSpec: _messageSpec, ...telegramOptions } = options ?? {};
-    void purpose;
-    void _messageSpec;
-    const textToSend = textFormat === "html" ? (formattedText ?? this.formatHtml(text)) : text;
-    await this.bot.api.editMessageText(chatId, Number.parseInt(messageId, 10), textToSend, {
-      ...telegramOptions,
-      parse_mode: textFormat === "html" ? "HTML" : undefined
-    });
-    return true;
-  }
-
-  async editMessageSpec(
-    chatId: string,
-    messageId: string,
-    messageSpec: MessageSpec,
-    options?: BridgeMessageOptions
-  ): Promise<boolean> {
-    const { formattedText, messageSpec: _messageSpec, purpose, textFormat, ...telegramOptions } = options ?? {};
-    void formattedText;
-    void _messageSpec;
-    void purpose;
-    void textFormat;
-    const rendered = renderTelegramMessageSpec(messageSpec);
-    const parsedMessageId = Number.parseInt(messageId, 10);
-    try {
-      await this.bot.api.editMessageText(chatId, parsedMessageId, { markdown: rendered.markdown }, {
-        ...telegramOptions,
-        reply_markup: rendered.keyboard
+  async editMessageText(sourceId: string, messageId: string, text: string, options?: BridgeMessageOptions): Promise<boolean> {
+    if (options?.messageSpec) return this.editMessageSpec(sourceId, messageId, options.messageSpec, options);
+    const html = options?.textFormat === "html";
+    return await this.write(sourceId, options, async target => {
+      await this.bot.api.editMessageText(target.chatId, Number(messageId), html ? options.formattedText ?? this.formatHtml(text) : text, {
+        parse_mode: html ? "HTML" : undefined
       });
       return true;
-    } catch (error) {
-      if (!isTelegramRichMessageRejection(error)) throw error;
-      logger.warn("telegram.rich_message_rejected", {
-        operation: "edit",
-        chatId,
-        messageId,
-        description: error.description
-      });
-      await this.editHtmlFallback(
-        chatId,
-        parsedMessageId,
-        messageSpec,
-        rendered.html,
-        rendered.keyboard,
-        telegramOptions
-      );
-      return true;
-    }
+    }) ?? false;
   }
 
-  async deleteMessage(chatId: string, messageId: string): Promise<boolean> {
-    await this.bot.api.deleteMessage(chatId, Number.parseInt(messageId, 10));
-    return true;
+  async editMessageSpec(sourceId: string, messageId: string, spec: MessageSpec, options?: BridgeMessageOptions): Promise<boolean> {
+    const rendered = renderTelegramMessageSpec(spec);
+    return await this.write(sourceId, options, async target => {
+      // Edits identify an existing message in the physical chat; no topic field is accepted.
+      const editOptions = { disable_notification: options?.disable_notification, reply_markup: rendered.keyboard };
+      try {
+        await this.bot.api.editMessageText(target.chatId, Number(messageId), { markdown: rendered.markdown }, editOptions);
+        return true;
+      } catch (error) {
+        if (!isTelegramRichMessageRejection(error)) throw error;
+        logger.warn("telegram.rich_message_rejected", { operation: "edit", chatId: sourceId, messageId, description: error.description });
+        if (await options?.canSend?.() === false) return false;
+        try {
+          await this.bot.api.editMessageText(target.chatId, Number(messageId), rendered.html, { ...editOptions, parse_mode: "HTML" });
+        } catch (fallbackError) {
+          if (!isTelegramRichMessageRejection(fallbackError)) throw fallbackError;
+          if (await options?.canSend?.() === false) return false;
+          await this.bot.api.editMessageText(target.chatId, Number(messageId), renderLegacyMessage(spec), editOptions);
+        }
+        return true;
+      }
+    }) ?? false;
   }
 
-  async clearMessageActions(
-    chatId: string,
-    messageId: string,
-    _text?: string,
-    _contentBlocks?: unknown[]
-  ): Promise<boolean> {
-    void _text;
-    void _contentBlocks;
-    await this.bot.api.editMessageReplyMarkup(chatId, Number.parseInt(messageId, 10), {
-      reply_markup: undefined
+  async deleteMessage(sourceId: string, messageId: string): Promise<boolean> {
+    return await this.write(sourceId, undefined, async target => {
+      await this.bot.api.deleteMessage(target.chatId, Number(messageId)); return true;
+    }) ?? false;
+  }
+
+  async clearMessageActions(sourceId: string, messageId: string, _text?: string, _contentBlocks?: unknown[]): Promise<boolean> {
+    void _text; void _contentBlocks;
+    return await this.write(sourceId, undefined, async target => {
+      await this.bot.api.editMessageReplyMarkup(target.chatId, Number(messageId), { reply_markup: undefined }); return true;
+    }) ?? false;
+  }
+
+  async sendTyping(sourceId: string): Promise<void> {
+    await this.write(sourceId, undefined, target => this.bot.api.sendChatAction(target.chatId, "typing", {
+      ...(target.topicId === null ? {} : { message_thread_id: target.topicId })
+    }));
+  }
+
+  private sendOptions(target: TelegramAddress, options?: BridgeMessageOptions): TelegramSendOptions {
+    return {
+      ...(options?.disable_notification === undefined ? {} : { disable_notification: options.disable_notification }),
+      ...(target.topicId === null ? {} : { message_thread_id: target.topicId })
+    };
+  }
+
+  private write<T>(sourceId: string, options: BridgeMessageOptions | undefined,
+    operation: (target: TelegramAddress) => Promise<T>): Promise<T | null> {
+    const target = parseTelegramAddress(sourceId);
+    if (!target) throw new Error("Invalid Telegram source address.");
+    return this.scheduler.run(target.chatId, async () => {
+      // Queuing and server-directed backoff may outlive a revocable delivery lease.
+      if (await options?.canSend?.() === false) return null;
+      return operation(target);
     });
-    return true;
   }
 
-  async sendTyping(chatId: string): Promise<void> {
-    await this.bot.api.sendChatAction(chatId, "typing");
-  }
-
-  private async sendHtmlFallback(
-    chatId: string,
-    messageSpec: MessageSpec,
-    html: string,
-    replyMarkup: InlineKeyboard | undefined,
-    telegramOptions: Pick<BridgeMessageOptions, "disable_notification">
-  ): Promise<BridgeSentMessage> {
+  private async sendHtmlFallback(chatId: string, spec: MessageSpec, html: string, keyboard: InlineKeyboard | undefined,
+    options: TelegramSendOptions, canSend?: () => Promise<boolean>): Promise<BridgeSentMessage | null> {
+    if (await canSend?.() === false) return null;
     try {
-      const sent = await this.bot.api.sendMessage(chatId, html, {
-        ...telegramOptions,
-        parse_mode: "HTML",
-        reply_markup: replyMarkup
-      });
+      const sent = await this.bot.api.sendMessage(chatId, html, { ...options, parse_mode: "HTML", reply_markup: keyboard });
       return { message_id: String(sent.message_id) };
     } catch (error) {
       if (!isTelegramRichMessageRejection(error)) throw error;
-      const sent = await this.bot.api.sendMessage(chatId, renderLegacyMessage(messageSpec), {
-        ...telegramOptions,
-        reply_markup: replyMarkup
-      });
+      if (await canSend?.() === false) return null;
+      const sent = await this.bot.api.sendMessage(chatId, renderLegacyMessage(spec), { ...options, reply_markup: keyboard });
       return { message_id: String(sent.message_id) };
-    }
-  }
-
-  private async editHtmlFallback(
-    chatId: string,
-    messageId: number,
-    messageSpec: MessageSpec,
-    html: string,
-    replyMarkup: InlineKeyboard | undefined,
-    telegramOptions: Pick<BridgeMessageOptions, "disable_notification">
-  ): Promise<void> {
-    try {
-      await this.bot.api.editMessageText(chatId, messageId, html, {
-        ...telegramOptions,
-        parse_mode: "HTML",
-        reply_markup: replyMarkup
-      });
-    } catch (error) {
-      if (!isTelegramRichMessageRejection(error)) throw error;
-      await this.bot.api.editMessageText(chatId, messageId, renderLegacyMessage(messageSpec), {
-        ...telegramOptions,
-        reply_markup: replyMarkup
-      });
     }
   }
 }

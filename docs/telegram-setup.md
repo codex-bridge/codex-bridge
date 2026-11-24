@@ -78,6 +78,40 @@ Useful commands include `/sessions`, `/session_new`, `/go`, `/next`, `/queue`,
 `/interrupt`, `/codex_status`, `/compact`, and `/help`. Bridge publishes the
 complete current command list to Telegram at startup.
 
+## Group topics
+
+In a supergroup with Topics enabled:
+
+1. Add the bot and put the group's numeric chat ID in `TELEGRAM_ALLOWED_CHAT_IDS`.
+   Topic IDs do not belong in this allowlist.
+2. Ensure the bot can receive ordinary group messages: make it an administrator
+   or configure the appropriate BotFather privacy setting.
+3. Create topics manually in Telegram.
+4. Open `/sessions` inside each topic, select a session, and acquire it with the
+   existing session controls. Each topic keeps its own selection.
+
+Bridge does not create, rename, close or delete topics, and does not require topic
+management permission for this workflow. Private chat, ordinary groups and General
+remain available with the same session controls. An unbound entry prompts for a
+session; it does not inherit another topic's selection. All group members who can
+use the bot share these controls; topics are not per-user authorization boundaries.
+
+Conversation replies, progress, approval cards, Actions and typing stay in the
+originating topic. Different sessions can work through different topics. Reusing
+one session across topics, private chat, Slack or Web follows the normal ownership
+handoff rules; switching selection does not redirect already accepted work.
+
+If a topic becomes unavailable or the bot loses permission, Bridge does not send
+the conversation to General or private chat instead. Restore access or explicitly
+acquire the session from another entry. Buttons on inaccessible messages cannot
+route actions; open a fresh `/sessions` menu in the intended entry.
+
+All topics share the physical group's send queue. Telegram's explicit `429`
+`retry_after` response pauses that chat and permits one retry after the requested
+wait; a second rejection leaves the cooldown for subsequent writes. Unknown
+network outcomes are not automatically replayed by the Telegram transport. Topic
+routing does not give each topic a separate Telegram rate allowance.
+
 ## Troubleshooting
 
 - **The bot does not reply:** verify the token, confirm the chat ID is allowed,

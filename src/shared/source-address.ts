@@ -1,4 +1,5 @@
 import type { SessionBindingRecord } from "./types.js";
+import { parseTelegramAddress } from "./telegram-address.js";
 
 // All windows use one stable Web source. Window credentials are not session bindings.
 export const WEB_SOURCE_ID = "web:local";
@@ -9,7 +10,7 @@ export type SourceAddress = Pick<SessionBindingRecord, "platform" | "botKey" | "
 export function messageTransportPlatform(sourceId: string): SourceAddress["platform"] | null {
   if (/\s/.test(sourceId)) return null;
   if (sourceId === WEB_SOURCE_ID) return "web";
-  if (/^-?\d+$/.test(sourceId)) return "telegram";
+  if (parseTelegramAddress(sourceId)) return "telegram";
   const slack = /^slack:([^:]+):([^:]+)(?::(.+))?$/.exec(sourceId);
   if (!slack) return null;
   try {
@@ -19,6 +20,10 @@ export function messageTransportPlatform(sourceId: string): SourceAddress["platf
 }
 
 export function parseSourceAddress(sourceId: string): SourceAddress {
+  const telegram = parseTelegramAddress(sourceId);
+  if (telegram && telegram.topicId !== null) {
+    return { platform: "telegram", botKey: "telegram", channelId: telegram.chatId, threadId: String(telegram.topicId) };
+  }
   if (sourceId.startsWith("web:")) {
     if (!/^web:[A-Za-z0-9_-]+$/.test(sourceId)) {
       throw new Error("Invalid Web source address.");

@@ -33,7 +33,7 @@ function fixture() {
 
 test("Telegram, Slack and Web have disjoint routes in every registration order", (t) => {
   const f = fixture(); t.after(() => f.store.close());
-  const sources = [["123", "telegram"], ["-100123", "telegram"], ["slack:T:C", "slack"],
+  const sources = [["123", "telegram"], ["-100123", "telegram"], ["telegram:-100123:9", "telegram"], ["slack:T:C", "slack"],
     ["slack:T:C:123.456%3Athread", "slack"], ["web:local", "web"]] as const;
   const orders = [[f.telegram, f.slack, f.web], [f.telegram, f.web, f.slack], [f.slack, f.telegram, f.web],
     [f.slack, f.web, f.telegram], [f.web, f.telegram, f.slack], [f.web, f.slack, f.telegram]];

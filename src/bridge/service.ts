@@ -1,3 +1,4 @@
+import { parseTelegramAddress } from "../shared/telegram-address.js";
 import type { AppConfig } from "../config/index.js";
 import { getSessionSelectorChatId, parseSlackChatId } from "./chat-address.js";
 import { IncomingPayloadService, type IncomingAttachment } from "./input/payload.js";
@@ -1084,7 +1085,7 @@ export class BridgeService {
 
     if (
       this.config.telegramAllowedChatIds &&
-      !this.config.telegramAllowedChatIds.has(telegramChatId)
+      !this.config.telegramAllowedChatIds.has(parseTelegramAddress(telegramChatId)?.chatId ?? telegramChatId)
     ) {
       throw new Error(`Chat ${telegramChatId} is not allowed.`);
     }
