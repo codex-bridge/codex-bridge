@@ -224,6 +224,20 @@ transport time; do not add the two totals. Transport queue wait alone does not
 measure the earlier application backlog. Platform rate backoff still applies,
 and unknown write outcomes are never automatically replayed.
 
+### Automatic approval review visibility
+
+Automatic review start (`inProgress`) and approved completion notifications are
+silent on all transports. Denied, timed-out, aborted, strict-review-required and
+unknown outcomes remain visible. Manual review-mode content and actual approval
+requests are unaffected. Silent observations do not split workflow phases or
+supersede their previews.
+
+Guardian warnings contain only a thread ID and message, with no review identity.
+Bridge suppresses only the observed complete auto-approval success envelope with
+known risk/authorization values. It does not infer an association from event
+proximity or search arbitrary text for approval keywords. Changed formats remain
+visible. This is a presentation rule, not a change to approval execution.
+
 ### Actions and delivery timing
 
 Completed turns settle their internal route and lease before interactive Actions.

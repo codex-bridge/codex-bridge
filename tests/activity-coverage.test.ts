@@ -89,7 +89,7 @@ test("plan steps share readable status labels without rewriting user content or 
 });
 
 test("activity status labels preserve review meaning and unknown values across the shared renderer", () => {
-  for (const [status, label] of [["inProgress", "In progress"], ["approved", "Approved"], ["denied", "Denied"],
+  for (const [status, label] of [["inProgress", "In progress"], ["denied", "Denied"],
     ["timedOut", "Timed out"], ["aborted", "Aborted"], ["API_ONLY", "API_ONLY"], ["toString", "toString"]]) {
     const event = extractProgressEvent({ method: "item/autoApprovalReview/completed", params: { threadId: "thread", turnId: "turn",
       reviewId: "review", review: { status, rationale: "Original rationale" } } })!;

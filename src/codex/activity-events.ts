@@ -2,6 +2,7 @@ import type { AppServerNotification, AppServerProgressEvent } from "./client.js"
 import type { ProgressActivity } from "../shared/types.js";
 import { formatActivityStatus } from "../shared/activity-status.js";
 import { asRecord, firstString } from "./protocol-utils.js";
+import { isSilentAutoApprovalNotification } from "./approval-review-visibility.js";
 
 function event(threadId: string, turnId: string | undefined, activity: ProgressActivity, failed = false): AppServerProgressEvent {
   return { threadId, ...(turnId ? { turnId } : {}), itemId: activity.key, activity,
@@ -11,6 +12,7 @@ function event(threadId: string, turnId: string | undefined, activity: ProgressA
 
 /** Explicit public activity fields; never raw tool arguments, output, Hook context or deltas. */
 export function extractActivityEvent(notification: AppServerNotification): AppServerProgressEvent | null {
+  if (isSilentAutoApprovalNotification(notification)) return null;
   const p = asRecord(notification.params), threadId = firstString(p?.threadId);
   if (!threadId) return null;
   const turnId = firstString(p?.turnId);

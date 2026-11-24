@@ -1,4 +1,5 @@
 import type { AppServerNotification } from "../../codex/client.js";
+import { isSilentAutoApprovalNotification } from "../../codex/approval-review-visibility.js";
 import type { ProgressDeliveryOptions } from "../progress/normalizer.js";
 
 export type NotificationDeliveryOptions = ProgressDeliveryOptions & { canRefreshStatus?: () => boolean; canSendActions?: () => boolean };
@@ -13,5 +14,5 @@ const METADATA = new Set([
 ]);
 
 export function isMetadataNotification(notification: AppServerNotification): boolean {
-  return METADATA.has(notification.method);
+  return METADATA.has(notification.method) || isSilentAutoApprovalNotification(notification);
 }

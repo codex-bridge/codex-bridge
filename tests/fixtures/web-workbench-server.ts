@@ -119,7 +119,10 @@ const api: WebBridgeApi = {
         { method: "item/autoApprovalReview/completed", params: { threadId, turnId, reviewId: "fixture-auto", review: { status: "approved", rationale: "Fixture operation is read-only" } } },
         { method: "item/completed", params: { threadId, turnId, item: { id: "fixture-review", type: "exitedReviewMode", review: "The fixture review found no remaining issues." } } }
       ];
-      for (const notification of observations) await activities.sendProgressMessage(owned.session, extractProgressEvent(notification)!, turnId);
+      for (const notification of observations) {
+        const event = extractProgressEvent(notification);
+        if (event) await activities.sendProgressMessage(owned.session, event, turnId);
+      }
       await activities.clearProgressMessageForThread(threadId, { turnId });
     } else if (input.text === "service-warning") {
       await notices.handleWarning({ kind: "configWarning", threadId: null, message: "The fixture configuration contains an unsupported option.",

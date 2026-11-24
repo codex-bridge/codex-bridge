@@ -12,6 +12,7 @@ import { extractActivityEvent } from "./activity-events.js";
 import { classifyItemKind } from "./item-kind.js";
 import type { PresentedAssistantMessage } from "../shared/assistant-display.js";
 import { asRecord, firstString } from "./protocol-utils.js";
+import { isSilentAutoApprovalNotification } from "./approval-review-visibility.js";
 import { extractRateLimitsStatus } from "./rate-limit-extractors.js";
 import type {
   AppServerErrorEvent,
@@ -42,6 +43,7 @@ export type AppServerWarningEvent = {
 };
 
 export function extractWarningEvent(notification: AppServerNotification): AppServerWarningEvent | null {
+  if (isSilentAutoApprovalNotification(notification)) return null;
   const kind = notification.method;
   if (kind !== "warning" && kind !== "guardianWarning" && kind !== "configWarning" && kind !== "deprecationNotice") return null;
   const params = asRecord(notification.params);

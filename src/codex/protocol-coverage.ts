@@ -47,13 +47,13 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     { disposition: "handled", reason: "Scoped MCP status and failure reasons feed shared status views and deduplicated failure/recovery notices; OAuth success alone does not imply readiness.", names: [
       "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed"
     ] },
-    { disposition: "handled", reason: "Public warnings use declared session or service scope and shared presentation; identical observations are deduplicated in memory.", names: [
+    { disposition: "handled", reason: "Public warnings use declared scopes and shared presentation with deduplication. Only the known Guardian auto-approval success envelope is silent; unknown warnings remain visible.", names: [
       "warning", "guardianWarning", "configWarning", "deprecationNotice"
     ] },
     { disposition: "unsupported", reason: "Windows writable-path warnings still need a dedicated presentation contract.", names: [
       "windows/worldWritableWarning"
     ] },
-    { disposition: "handled", reason: "Plan snapshots and approval-review observations use the existing ordered activity lifecycle, without executing or approving actions.", names: [
+    { disposition: "handled", reason: "Plan snapshots and exceptional approval-review outcomes use ordered activities. In-progress and approved auto-reviews are silent; denied, timed-out, aborted, strict-review and unknown outcomes remain visible without deciding approval requests.", names: [
       "turn/plan/updated",
       "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
       "autoApprovalReview/strictReviewRequired"

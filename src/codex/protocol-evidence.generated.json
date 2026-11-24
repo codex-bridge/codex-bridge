@@ -557,6 +557,7 @@
     ],
     "guardianWarning": [
       "src/bridge/notifications/notices.ts",
+      "src/codex/approval-review-visibility.ts",
       "src/codex/notification-events.ts"
     ],
     "hook/completed": [
@@ -576,10 +577,12 @@
       "src/codex/notification-events.ts"
     ],
     "item/autoApprovalReview/completed": [
-      "src/codex/activity-events.ts"
+      "src/codex/activity-events.ts",
+      "src/codex/approval-review-visibility.ts"
     ],
     "item/autoApprovalReview/started": [
-      "src/codex/activity-events.ts"
+      "src/codex/activity-events.ts",
+      "src/codex/approval-review-visibility.ts"
     ],
     "item/commandExecution/requestApproval": [
       "src/bridge/decisions/formatters.ts",

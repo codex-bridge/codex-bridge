@@ -15,6 +15,7 @@ import { SubagentDeliveryService } from "./subagent-delivery.js";
 import { SubagentTracker } from "./subagent-tracker.js";
 import { NotificationPreviewBacklog } from "./preview-backlog.js";
 import type { NotificationDeliveryOptions } from "./delivery-effect.js";
+import { isSilentAutoApprovalNotification } from "../../codex/approval-review-visibility.js";
 
 export type NotificationListenerDependencies = {
   cancelActions?: (threadId: string) => void;
@@ -50,6 +51,7 @@ export class NotificationListener {
   attach(): void {
     if (!this.notificationUnsubscribe) {
       this.notificationUnsubscribe = this.deps.codexClient.onNotification((notification) => {
+        if (isSilentAutoApprovalNotification(notification)) return;
         const params = notification.params as {
           threadId?: string;
           requestId?: string;
