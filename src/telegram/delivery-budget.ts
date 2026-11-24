@@ -2,7 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Bot } from "grammy";
 import { parseTelegramAddress } from "../shared/telegram-address.js";
 
-export const telegramRefreshPolicy = { progressIntervalMs: 5_000, workingIntervalMs: 20_000, typingEnabled: false } as const;
+export const telegramRefreshPolicy = { progressIntervalMs: 5_000, workingIntervalMs: 20_000, typingEnabled: false, progressMode: "summary" } as const;
 
 type Clock = { now: () => number; sleep: (ms: number, signal?: AbortSignal) => Promise<void> };
 type Limits = { botPerSecond: number; groupPerMinute: number; chatIntervalMs: number; backgroundIntervalMs: number };

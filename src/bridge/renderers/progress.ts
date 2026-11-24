@@ -138,7 +138,10 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
   if (record.phaseKind === "run") {
     const { updates, failed } = aggregate.run;
     // A persisted card already has one successfully sent preview; updates counts later edits.
-    const displayedUpdates = updates + 1;
+    if (aggregate.summaryOnly && aggregate.itemCountReliable === false) {
+      return [...lines, "Execution count unavailable", ...(failed > 0 ? [`Failed ×${failed}`] : [])];
+    }
+    const displayedUpdates = aggregate.summaryOnly ? (aggregate.items?.length ?? 0) : updates + 1;
     // Display policy: only explicit failures count as failed; all other displayed runs count as succeeded.
     const succeeded = Math.max(0, displayedUpdates - failed);
     const statistics = [

@@ -18,6 +18,7 @@
     "lint": "eslint src tests web scripts/verify-codex.ts scripts/verify-codex",
     "lint:fix": "eslint src --fix",
     "test": "node --import tsx --test tests/*.test.ts",
+    "db:migration:create": "node scripts/create-db-migration.mjs",
     "db:migrate": "node --import tsx src/db-cli.ts migrate",
     "db:check": "node --import tsx src/db-cli.ts check",
     "db:backup": "node --import tsx src/db-cli.ts backup",

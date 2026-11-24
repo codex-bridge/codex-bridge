@@ -15,7 +15,7 @@ async function fixture(t: test.TestContext, limited = true) {
   const session = await store.upsertDiscoveredSession({ telegramChatId: "telegram:-1:10", codexThreadId: "thread", pathKey: "/project" });
   const writes: Array<{ id: string; spec: MessageSpec; edit: boolean }> = [];
   const service = fixtureProgressService(store, (id, spec, edit) => writes.push({ id, spec, edit }), () => false,
-    { getRefreshPolicy: () => limited ? telegramRefreshPolicy : undefined });
+    { getRefreshPolicy: () => limited ? { ...telegramRefreshPolicy, progressMode: undefined } : undefined });
   t.after(async () => { await service.stop(); store.close(); });
   return { store, session, service, writes };
 }

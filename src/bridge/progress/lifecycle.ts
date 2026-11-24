@@ -30,6 +30,7 @@ export function appendPhaseEvent(
     else items.push({ id: itemId, completed: completed === true });
   }
   const aggregate: ProgressPhaseAggregate = {
+    ...(current.summaryOnly ? { summaryOnly: true, itemCountReliable: current.itemCountReliable !== false && !!itemId } : {}),
     ...(items.length ? { items } : {}),
     eventCount: current.eventCount + 1,
     operations: current.operations.map((operation) => ({ ...operation })),

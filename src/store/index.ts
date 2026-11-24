@@ -473,7 +473,7 @@ export class BridgeStore {
     turnId: string;
     phaseKind: ProgressPhaseKind;
     sourceId: string;
-    platformMessageId: string;
+    platformMessageId: string | null;
     directory: string;
     text: string;
     aggregate?: ProgressPhaseAggregate;
@@ -517,6 +517,7 @@ export class BridgeStore {
     id: string;
     deliveryState: import("../shared/types.js").ProgressPhaseDeliveryState;
     correctionMessageId?: string | null;
+    platformMessageId?: string;
   }): ProgressPhaseMessageRecord | null {
     return this.progressPhaseMessageRepository.markDeliveryState(input);
   }

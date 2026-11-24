@@ -175,26 +175,30 @@ Old turns of one thread deliver summaries one at a time. A summary overtaken whi
 waiting at the transport stays pending for the next idle period; this scheduling
 skip does not mark its destination unavailable.
 
-Working updates retain only the latest eligible state. Existing panels refresh
-after foreground work, with a twenty-second limit on Telegram (five seconds on
-other transports) across label changes and one
-trailing refresh for the latest state. Completion cancels obsolete refreshes;
-late old-turn notifications cannot revive a completed panel. Queue-count updates
-reuse any pending latest-state refresh. Telegram omits typing entirely; its
-Working panel supplies running feedback. Other transports keep best-effort typing,
-waiting outside the notification queue and rechecking eligibility at the transport. Shutdown cancels
-waiting refreshes and drains writes already started. These policies reduce API
-traffic without changing event aggregation or the rule that Run counts successful
-content displays. Fewer intermediate displays can therefore produce a lower Run count.
+Telegram defaults to summary-only workflow output. Active phases aggregate and
+persist without a platform message ID. At the phase boundary or turn end, Bridge
+creates one summary in workflow order, before the next chronological message.
+Late results edit that summary rather than creating another block. Slack and Web
+keep their existing live previews. Telegram also omits live Working and typing
+panels; approvals, questions, conversation replies and Actions remain available.
 
-Telegram coalesces live edits of the same progress block on a five-second minimum
-interval and re-reads the latest pending snapshot after background admission.
-First block creation, type boundaries and final summaries remain; intermediate
-edits do not accumulate in a delayed-send backlog. Events still update durable
-aggregates, while Run counts continue to reflect successfully displayed content
-only. Final summaries read the latest aggregate and recover after restart. A
-synthetic burst test checks write reduction; a one-third total-call target is an
-operational goal requiring production measurement, not a guaranteed rate or ratio.
+TG Run counts use distinct upstream execution item IDs, not displayed preview
+versions. Missing item identity makes the count unavailable rather than guessed.
+Other transports retain the existing displayed-content counting rule. Events and
+explicit failures continue to aggregate even when nothing is shown during a phase.
+
+The summary's first send is claimed durably before I/O. Unknown send outcomes and
+crashes during that first send are not automatically replayed. Known IDs retain
+in-place final-delivery retries. Unsent closed phases remain recoverable after
+restart. Old cards created before this policy are finalized in place. New summary
+creation uses the chronological queue; old-card edits continue to wait outside it
+for idle/background admission. Shared Telegram write budgets apply to both.
+
+Migration 019 makes the phase's platform message ID nullable, preserving existing
+records and indexes. Existing on-disk databases get an automatic verified backup
+before the table rebuild. The project scaffolder `yarn db:migration:create name`
+creates and registers a migration without opening a database; review its body
+before applying. No migration or production restart is performed by scaffolding.
 
 `bridge.notification.timing` records application queue wait, handler processing
 and total time by method/key, without payload text. Processing includes nested

@@ -59,7 +59,7 @@ export type ProgressFailureReason =
   | "unavailable"
   | "cancelled"
   | "other_failure";
-export type ProgressPhaseDeliveryState = "synced" | "pending_finalization" | "correction_sent" | "unavailable";
+export type ProgressPhaseDeliveryState = "synced" | "pending_finalization" | "correction_sent" | "unavailable" | "unsent" | "sending" | "send_unknown";
 
 export interface ProgressPhaseOperationGroup {
   name: string;
@@ -69,6 +69,8 @@ export interface ProgressPhaseOperationGroup {
 }
 
 export interface ProgressPhaseAggregate {
+  summaryOnly?: boolean;
+  itemCountReliable?: boolean;
   // Protocol identities only; tool arguments remain transient. Absent on legacy rows.
   items?: Array<{ id: string; completed: boolean }>;
   activities?: ProgressActivity[];
@@ -128,7 +130,7 @@ export interface ProgressPhaseMessageRecord {
   phaseSeq: number;
   phaseKind: ProgressPhaseKind;
   sourceId: string;
-  platformMessageId: string;
+  platformMessageId: string | null;
   directory: string;
   text: string;
   aggregate: ProgressPhaseAggregate;

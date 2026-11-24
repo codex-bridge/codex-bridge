@@ -52,7 +52,7 @@ export type ProgressServiceDependencies = {
     turnId: string;
     phaseKind: ProgressPhaseMessageRecord["phaseKind"];
     sourceId: string;
-    platformMessageId: string;
+    platformMessageId: string | null;
     directory: string;
     text: string;
     aggregate: ProgressPhaseAggregate;
@@ -79,6 +79,7 @@ export type ProgressServiceDependencies = {
     id: string;
     deliveryState: ProgressPhaseDeliveryState;
     correctionMessageId?: string | null;
+    platformMessageId?: string;
   }) => ProgressPhaseMessageRecord | null;
   editMessageSpec: (chatId: string, messageId: string, messageSpec: import("../messages/types.js").MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<boolean>;
   sendTemporaryMessageSpec: (chatId: string, messageSpec: import("../messages/types.js").MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<{ messageId: string; text: string } | null>;
@@ -171,7 +172,9 @@ export class ProgressService {
         active = null;
       }
 
-      const aggregate = appendPhaseEvent(active?.aggregate ?? emptyPhaseAggregate(), normalized);
+      const summaryOnly = this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressMode === "summary";
+      const aggregate = appendPhaseEvent(active?.aggregate ?? { ...emptyPhaseAggregate(),
+        ...(summaryOnly ? { summaryOnly: true, itemCountReliable: true } : {}) }, normalized);
       if (active && aggregate === active.aggregate) {
         if (!delivery.suppressPreview) await this.flushPendingPreview(key, active);
         return;
@@ -185,7 +188,9 @@ export class ProgressService {
           aggregate
         });
         record = updated ?? active;
-        if (this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressIntervalMs) {
+        if (summaryOnly) {
+          this.pendingPreviewByTurn.delete(key);
+        } else if (this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressIntervalMs) {
           if (!duplicatePreview && !event.failed) {
             this.pendingPreviewByTurn.set(key, { phaseId: record.id, preview: { spec: preview, text, failed: event.failed } });
             this.schedulePreview(key, record);
@@ -202,16 +207,16 @@ export class ProgressService {
         }
       } else {
         // Creation is never coalesced: later edits need the platform message ID.
-        const sent = await this.delivery.send(session.telegramChatId, preview);
-        if (!sent) return;
-        this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: Date.now() });
+        const sent = summaryOnly ? null : await this.delivery.send(session.telegramChatId, preview);
+        if (!summaryOnly && !sent) return;
+        if (sent) this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: Date.now() });
         record = this.deps.createProgressPhaseMessage({
           sessionId: session.id,
           codexThreadId: event.threadId,
           turnId: resolvedTurnId,
           phaseKind: normalized.kind,
           sourceId: session.telegramChatId,
-          platformMessageId: sent.messageId,
+          platformMessageId: sent?.messageId ?? null,
           directory,
           text: "",
           aggregate
@@ -313,11 +318,13 @@ export class ProgressService {
       deliveryState: "pending_finalization"
     });
     if (!finalized) return;
-    this.finalDelivery.defer(finalized.id);
+    if (finalized.platformMessageId === null) await this.finalDelivery.deliver(finalized.id);
+    else this.finalDelivery.defer(finalized.id);
   }
 
   private async editPreview(key: string, record: ProgressPhaseMessageRecord, preview: ProgressPreview,
     options?: Pick<BridgeMessageOptions, "canSend" | "deliverySignal" | "onRateDeferred">): Promise<void> {
+    if (record.platformMessageId === null) return;
     if (await this.delivery.editResult(record.sourceId, record.platformMessageId, preview.spec, options) === "synced") {
       this.lastProgressByTurn.set(key, { text: preview.text, failed: preview.failed, sentAt: Date.now() });
       if (record.phaseKind === "run") this.deps.recordSuccessfulRunContentUpdate(record.id);

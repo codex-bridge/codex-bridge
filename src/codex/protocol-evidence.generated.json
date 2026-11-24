@@ -551,6 +551,7 @@
       "src/codex/extractors/progress.ts",
       "src/codex/notification-events.ts",
       "src/logging/logger.ts",
+      "src/telegram/attachments.ts",
       "src/web/bridge-api.ts",
       "src/web/server.ts"
     ],

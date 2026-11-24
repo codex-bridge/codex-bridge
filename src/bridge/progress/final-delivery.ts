@@ -9,7 +9,7 @@ import { KeyedQueue } from "../../shared/keyed-queue.js";
 type FinalDeliveryDependencies = {
   getRecord: (id: string) => ProgressPhaseMessageRecord | null;
   listPending: () => ProgressPhaseMessageRecord[];
-  mark: (input: { id: string; deliveryState: ProgressPhaseDeliveryState; correctionMessageId?: string | null }) => unknown;
+  mark: (input: { id: string; deliveryState: ProgressPhaseDeliveryState; correctionMessageId?: string | null; platformMessageId?: string }) => unknown;
   enqueue: (key: string, operation: () => Promise<void>) => Promise<void>;
   waitForThreadIdle?: (threadId: string, signal: AbortSignal) => Promise<boolean>;
   isThreadBusy?: (threadId: string) => boolean;
@@ -18,7 +18,9 @@ type FinalDeliveryDependencies = {
 
 const RETRY_DELAYS_MS = [5_000, 20_000, 60_000];
 
-/** Only edits known message IDs. Never sends messages or controls Codex work. */
+/** Closed phases create their first summary or edit their known message ID.
+ * Ambiguous first sends are never automatically replayed. Does not control Codex.
+ */
 export class FinalProgressDelivery {
   private readonly retries = new Map<string, { attempts: number; dueAt: number }>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -88,11 +90,26 @@ export class FinalProgressDelivery {
   async deliver(id: string): Promise<void> {
     const record = this.deps.getRecord(id);
     if (!record || record.state === "active" || (record.deliveryState === "synced" && !record.correctionMessageId)
-      || record.deliveryState === "unavailable") {
+      || ["unavailable", "sending", "send_unknown"].includes(record.deliveryState)) {
       this.retries.delete(id);
       return;
     }
     const summary = truncateTemporaryMessageSpec(createProgressPhaseSummarySpec({ directory: record.directory, record }));
+    if (record.platformMessageId === null) {
+      if (this.closed) return;
+      // A first send can have an unknown outcome. Claim before I/O and never
+      // automatically duplicate a send after a crash or ambiguous failure.
+      this.deps.mark({ id, deliveryState: "sending" });
+      try {
+        const sent = await this.delivery.send(record.sourceId, summary, { deliverySignal: this.idleCancellation.signal });
+        this.deps.mark(sent ? { id, deliveryState: "synced", platformMessageId: sent.messageId }
+          : { id, deliveryState: "send_unknown" });
+      } catch {
+        this.deps.mark({ id, deliveryState: "send_unknown" });
+        logger.warn("bridge.progress.summary_send_unknown", { phaseId: id });
+      }
+      return;
+    }
     let postponed = false;
     const options = { deliverySignal: this.idleCancellation.signal, onRateDeferred: () => { postponed = true; }, canSend: async () => {
       if (this.closed) { postponed = true; return false; }

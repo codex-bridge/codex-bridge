@@ -19,7 +19,7 @@ type ProgressPhaseMessageRow = {
   phase_seq: number;
   phase_kind: ProgressPhaseKind;
   source_id: string;
-  platform_message_id: string;
+  platform_message_id: string | null;
   directory: string;
   text: string;
   aggregate_json: string;
@@ -45,6 +45,7 @@ function parseAggregate(value: string): ProgressPhaseAggregate {
   try {
     const parsed = JSON.parse(value) as Partial<ProgressPhaseAggregate>;
     return {
+      ...(parsed.summaryOnly ? { summaryOnly: true, itemCountReliable: parsed.itemCountReliable !== false } : {}),
       eventCount: typeof parsed.eventCount === "number" ? parsed.eventCount : 0,
       operations: parseOperations(parsed.operations),
       ...(Array.isArray(parsed.items) ? { items: parsed.items } : {}),
@@ -116,7 +117,7 @@ export class ProgressPhaseMessageRepository {
     return (this.sqlite.prepare(`
       SELECT * FROM progress_phase_messages
       WHERE state = 'active'
-      ORDER BY updated_at ASC, phase_seq ASC
+      ORDER BY started_at ASC, phase_seq ASC
     `).all() as ProgressPhaseMessageRow[]).map(asRecord);
   }
 
@@ -147,7 +148,7 @@ export class ProgressPhaseMessageRepository {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
       SET aggregate_json = ?,
-        delivery_state = CASE WHEN delivery_state = 'unavailable' THEN delivery_state ELSE 'pending_finalization' END,
+        delivery_state = CASE WHEN delivery_state IN ('unavailable', 'sending', 'send_unknown') THEN delivery_state ELSE 'pending_finalization' END,
         updated_at = ?
       WHERE id = ? AND state != 'active'
     `).run(JSON.stringify(aggregate), now(), id);
@@ -170,7 +171,7 @@ export class ProgressPhaseMessageRepository {
     turnId: string;
     phaseKind: ProgressPhaseKind;
     sourceId: string;
-    platformMessageId: string;
+    platformMessageId: string | null;
     directory: string;
     text: string;
     aggregate?: ProgressPhaseAggregate;
@@ -194,7 +195,7 @@ export class ProgressPhaseMessageRepository {
           source_id, platform_message_id, directory, text, aggregate_json, update_count, state,
           failure_reason, delivery_state, correction_message_id,
           started_at, finished_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, 'synced', NULL, ?, NULL, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, NULL, ?, NULL, ?)
       `).run(
         id,
         input.sessionId,
@@ -207,7 +208,8 @@ export class ProgressPhaseMessageRepository {
         input.directory,
         input.text,
         JSON.stringify(input.aggregate ?? emptyAggregate()),
-        1,
+        input.platformMessageId ? 1 : 0,
+        input.platformMessageId ? "synced" : "unsent",
         createdAt,
         createdAt
       );
@@ -291,14 +293,16 @@ export class ProgressPhaseMessageRepository {
     id: string;
     deliveryState: ProgressPhaseDeliveryState;
     correctionMessageId?: string | null;
+    platformMessageId?: string;
   }): ProgressPhaseMessageRecord | null {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
       SET delivery_state = ?,
+        platform_message_id = COALESCE(?, platform_message_id),
         correction_message_id = CASE WHEN ? THEN ? ELSE correction_message_id END,
         updated_at = ?
       WHERE id = ?
-    `).run(input.deliveryState, input.correctionMessageId !== undefined ? 1 : 0,
+    `).run(input.deliveryState, input.platformMessageId ?? null, input.correctionMessageId !== undefined ? 1 : 0,
       input.correctionMessageId ?? null, now(), input.id);
     return this.get(input.id);
   }
@@ -311,7 +315,7 @@ export class ProgressPhaseMessageRepository {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
       SET state = ?, failure_reason = COALESCE(?, failure_reason),
-        delivery_state = CASE WHEN delivery_state = 'unavailable' THEN delivery_state ELSE 'pending_finalization' END,
+        delivery_state = CASE WHEN delivery_state IN ('unavailable', 'sending', 'send_unknown') THEN delivery_state ELSE 'pending_finalization' END,
         updated_at = ?
       WHERE id = ? AND state != 'active'
     `).run(input.state, input.failureReason ?? null, now(), input.id);
@@ -325,7 +329,7 @@ export class ProgressPhaseMessageRepository {
         delivery_state IN ('pending_finalization', 'correction_sent')
         OR (delivery_state = 'synced' AND correction_message_id IS NOT NULL)
       )
-      ORDER BY updated_at ASC, phase_seq ASC
+      ORDER BY started_at ASC, phase_seq ASC
     `).all() as ProgressPhaseMessageRow[]).map(asRecord);
   }
 

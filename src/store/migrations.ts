@@ -1,3 +1,4 @@
+import { migrateGenerated as migrate019 } from "./migration-019_progress_summary_delivery.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -24,7 +25,8 @@ export type SchemaMigrationVersion =
   | "015_progress_phase_lifecycle"
   | "016_web_directories"
   | "017_slack_continuations"
-  | "018_decision_approval_constraints";
+  | "018_decision_approval_constraints"
+  | "019_progress_summary_delivery";
 
 export const SCHEMA_MIGRATIONS: readonly SchemaMigrationVersion[] = [
   "001_current_schema",
@@ -44,7 +46,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigrationVersion[] = [
   "015_progress_phase_lifecycle",
   "016_web_directories",
   "017_slack_continuations",
-  "018_decision_approval_constraints"
+  "018_decision_approval_constraints",
+  "019_progress_summary_delivery"
 ];
 
 export interface DatabaseMigrationPlan {
@@ -101,7 +104,8 @@ export function getMigrationPlan(sqlite: SqliteDatabase): DatabaseMigrationPlan 
       legacySessionConfigColumns.some((column) => sessionColumns.has(column))) ||
     (version === "008_remove_runtime_state" && tableNames.has("runtime_state")) ||
     (version === "009_remove_sections" && (tableNames.has("sections") || sessionColumns.has("section_id"))) ||
-    (version === "010_shared_session_bindings" && tableNames.has("sessions"))
+    (version === "010_shared_session_bindings" && tableNames.has("sessions")) ||
+    (version === "019_progress_summary_delivery" && tableNames.has("progress_phase_messages"))
   );
   return {
     appliedMigrations,
@@ -286,7 +290,8 @@ export function migrate(sqlite: SqliteDatabase): void {
         ALTER TABLE decisions ADD COLUMN command_approval_kind TEXT;
         ALTER TABLE decisions ADD COLUMN available_decisions_json TEXT;
       `);
-    } }
+    } },
+    { version: "019_progress_summary_delivery", run: () => migrate019(sqlite) }
   ];
 
   for (const migration of migrations) {

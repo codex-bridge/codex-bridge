@@ -81,6 +81,7 @@ export class StatusLifecycleService {
     admissionSignal?: AbortSignal
   ): Promise<void> {
     if (this.stopped) return;
+    if (this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressMode === "summary") return;
     const generation = this.generations.get(session.id) ?? {};
     this.generations.set(session.id, generation);
     const eligible = () => !admissionSignal?.aborted && this.generations.get(session.id) === generation && canRefresh?.() !== false;

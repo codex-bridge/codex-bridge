@@ -22,8 +22,8 @@ export type PhaseEditResult = "synced" | "retryable" | "unavailable";
 export class PhaseDeliveryAdapter {
   constructor(private readonly deps: PhaseDeliveryDependencies) {}
 
-  send(chatId: string, messageSpec: MessageSpec): Promise<{ messageId: string; text: string } | null> {
-    return this.deps.sendTemporaryMessageSpec(chatId, messageSpec, { disable_notification: true });
+  send(chatId: string, messageSpec: MessageSpec, options?: Pick<BridgeMessageOptions, "canSend" | "deliverySignal">): Promise<{ messageId: string; text: string } | null> {
+    return this.deps.sendTemporaryMessageSpec(chatId, messageSpec, { disable_notification: true, ...options });
   }
 
   async edit(chatId: string, messageId: string, messageSpec: MessageSpec): Promise<boolean> {

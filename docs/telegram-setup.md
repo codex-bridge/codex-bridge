@@ -168,3 +168,11 @@ Cleanup runs at startup and every six hours. Shutdown flushes accepted albums.
 Downloads never log token-bearing Telegram file URLs. Normal session ownership and
 Codex input/queue rules apply; changing the selection during a download cancels
 that delivery rather than sending the file into another session.
+
+## Workflow summaries
+
+Telegram shows a Run, Called, Edited or other workflow phase once it ends, in its
+original sequence. Live previews and Working/typing panels are omitted. Failures
+remain in their phase summary. Replies, approvals, questions and Actions remain.
+Run counts distinct upstream execution items; missing identity is not guessed.
+Slack and Web keep their own live-display policy.
