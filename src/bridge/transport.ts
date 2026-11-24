@@ -1,4 +1,5 @@
 import type { MessageSpec } from "./messages/types.js";
+import type { ProgressPhaseKind } from "../shared/types.js";
 
 /** Only separately authored, minimal notices may escape an unavailable thread. */
 export type UnavailableThreadNotice =
@@ -24,7 +25,7 @@ export type BridgeSentMessage = {
 };
 
 export type MessageRefreshPolicy = { typingEnabled: boolean; workingIntervalMs: number } & (
-  | { progressMode: "summary" }
+  | { progressMode: "summary"; hiddenPhaseKinds?: readonly ProgressPhaseKind[] }
   | { progressMode?: "live"; progressIntervalMs: number }
 );
 

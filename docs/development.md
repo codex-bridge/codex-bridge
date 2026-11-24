@@ -187,8 +187,15 @@ available. Queue-count changes use the same interval and duplicate observations
 do not refresh the clock. Completion cancels pending refreshes and finalizes the
 existing panel without waiting for its change interval; write budgets still apply.
 
-TG Run counts use distinct upstream execution item IDs, not displayed preview
-versions. Missing item identity makes the count unavailable rather than guessed.
+Telegram hides Run phases, including their success and failure summaries. Events,
+counts and phase boundaries remain stored; Called, Edited and Working retain
+their own display rules. The summary policy declares hidden phase kinds; final
+delivery marks them `suppressed` without writing to the platform. Late results
+and restart recovery do not resend suppressed records. Existing messages are
+not deleted. Slack/Web Run output is unchanged.
+
+Stored TG Run counts use distinct upstream execution item IDs, not displayed
+preview versions. Missing item identity makes the count unavailable rather than guessed.
 Other transports retain the existing displayed-content counting rule. Events and
 explicit failures continue to aggregate even when nothing is shown during a phase.
 

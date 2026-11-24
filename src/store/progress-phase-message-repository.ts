@@ -148,7 +148,7 @@ export class ProgressPhaseMessageRepository {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
       SET aggregate_json = ?,
-        delivery_state = CASE WHEN delivery_state IN ('unavailable', 'sending', 'send_unknown') THEN delivery_state ELSE 'pending_finalization' END,
+        delivery_state = CASE WHEN delivery_state IN ('unavailable', 'sending', 'send_unknown', 'suppressed') THEN delivery_state ELSE 'pending_finalization' END,
         updated_at = ?
       WHERE id = ? AND state != 'active'
     `).run(JSON.stringify(aggregate), now(), id);
@@ -315,7 +315,7 @@ export class ProgressPhaseMessageRepository {
     this.sqlite.prepare(`
       UPDATE progress_phase_messages
       SET state = ?, failure_reason = COALESCE(?, failure_reason),
-        delivery_state = CASE WHEN delivery_state IN ('unavailable', 'sending', 'send_unknown') THEN delivery_state ELSE 'pending_finalization' END,
+        delivery_state = CASE WHEN delivery_state IN ('unavailable', 'sending', 'send_unknown', 'suppressed') THEN delivery_state ELSE 'pending_finalization' END,
         updated_at = ?
       WHERE id = ? AND state != 'active'
     `).run(input.state, input.failureReason ?? null, now(), input.id);

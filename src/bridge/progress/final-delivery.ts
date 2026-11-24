@@ -5,8 +5,10 @@ import { truncateTemporaryMessageSpec } from "../messages/temporary.js";
 import { createProgressPhaseSummarySpec } from "../renderers/progress.js";
 import type { PhaseDeliveryAdapter } from "./delivery.js";
 import { KeyedQueue } from "../../shared/keyed-queue.js";
+import type { MessageRefreshPolicy } from "../transport.js";
 
 type FinalDeliveryDependencies = {
+  getRefreshPolicy?: (sourceId: string) => MessageRefreshPolicy | undefined;
   getRecord: (id: string) => ProgressPhaseMessageRecord | null;
   listPending: () => ProgressPhaseMessageRecord[];
   mark: (input: { id: string; deliveryState: ProgressPhaseDeliveryState; correctionMessageId?: string | null; platformMessageId?: string }) => unknown;
@@ -62,7 +64,7 @@ export class FinalProgressDelivery {
     const signal = this.idleCancellation.signal;
     entry.task = Promise.resolve().then(async () => {
       const record = this.deps.getRecord(id);
-      if (!record) return;
+      if (!record || this.suppress(record)) return;
       // Old turns of the same thread must not flood the physical transport queue.
       await this.deferredQueue.run(record.codexThreadId, async () => {
         while (!this.closed) {
@@ -94,6 +96,7 @@ export class FinalProgressDelivery {
       this.retries.delete(id);
       return;
     }
+    if (this.suppress(record)) return;
     const summary = truncateTemporaryMessageSpec(createProgressPhaseSummarySpec({ directory: record.directory, record }));
     if (record.platformMessageId === null) {
       if (this.closed) return;
@@ -144,6 +147,15 @@ export class FinalProgressDelivery {
       }
     }
     this.schedule();
+  }
+
+  private suppress(record: ProgressPhaseMessageRecord): boolean {
+    const policy = this.deps.getRefreshPolicy?.(record.sourceId);
+    if (record.deliveryState !== "suppressed" &&
+      !(policy?.progressMode === "summary" && policy.hiddenPhaseKinds?.includes(record.phaseKind))) return false;
+    if (record.deliveryState !== "suppressed") this.deps.mark({ id: record.id, deliveryState: "suppressed" });
+    this.retries.delete(record.id);
+    return true;
   }
 
   private schedule(): void {

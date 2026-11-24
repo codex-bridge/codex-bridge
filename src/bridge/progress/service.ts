@@ -102,6 +102,7 @@ export class ProgressService {
       if (active) await this.finalizePhase(active, "phase_complete", null);
     });
     this.finalDelivery = new FinalProgressDelivery({
+      getRefreshPolicy: deps.getRefreshPolicy,
       getRecord: deps.getProgressPhaseMessage,
       listPending: deps.listPendingProgressPhaseFinalDelivery,
       mark: deps.markProgressPhaseMessageDeliveryState,
