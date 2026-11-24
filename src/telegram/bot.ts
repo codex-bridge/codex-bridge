@@ -16,6 +16,9 @@ import { telegramSourceForContext } from "../shared/telegram-address.js";
 import { TelegramMessageTransport } from "./transport.js";
 import { formatTelegramHtml } from "./text.js";
 import { configureTelegramApi, type TelegramApiOptions } from "./api-policy.js";
+import { downloadTelegramImages, telegramImageStorage } from "./attachments.js";
+import { TelegramMediaGroups, registerTelegramMediaGroups } from "./media-groups.js";
+import { markManagedAttachmentPathsStatus } from "../bridge/input/attachment-files.js";
 
 const knownCommands = new Set([
   "help",
@@ -93,6 +96,51 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     if (!ctx.msg) throw new Error("No Telegram message context is available.");
     return transport.editMessageSpec(telegramSourceForContext(ctx), String(ctx.msg.message_id), messageSpec);
   };
+
+  const mediaError = async (contexts: Context[], error: unknown): Promise<void> => {
+    const ctx = contexts[0]!;
+    logger.warn("telegram.attachment.failed", { chatId: telegramSourceForContext(ctx),
+      errorType: error instanceof Error ? error.name : "Unknown" });
+    await replyPrompt(ctx, error instanceof Error && error.name === "TelegramAttachmentError"
+      ? error.message : "Attachment processing failed. Check the Bridge logs before retrying.");
+  };
+  const deliverImages = async (contexts: Context[]): Promise<void> => {
+    const ctx = contexts[0]!, source = telegramSourceForContext(ctx);
+    const session = await service.getActiveSessionContext(source);
+    if (!session?.id) { await replyPrompt(ctx, "Choose a session first.", [sessionAction(), helpAction()]); return; }
+    const storage = telegramImageStorage();
+    const files = await downloadTelegramImages(bot, contexts);
+    const attachments = await storage.save(files, { requestId: String(ctx.message!.message_id), sessionId: session.id, status: "downloaded" });
+    const paths = attachments.map(attachment => attachment.localPath);
+    try {
+      if ((await service.getActiveSessionContext(source))?.id !== session.id) {
+        await markManagedAttachmentPathsStatus(paths, "failed");
+        await replyPrompt(ctx, "The selected session changed while downloading. Send the attachment again in the intended session.");
+        return;
+      }
+      const result = await service.handleIncomingUserPayload({
+        telegramChatId: source, telegramMessageId: String(ctx.message!.message_id), attachments,
+        text: [...new Set(contexts.map(item => item.message?.caption?.trim()).filter(Boolean))].join("\n\n")
+      });
+      await markManagedAttachmentPathsStatus(paths, result.routed ? "sent-to-codex" : "failed");
+      if (!result.routed) {
+        if (result.prompt) await replySpec(ctx, result.prompt);
+        else await replyPrompt(ctx, "Choose a session first.", [sessionAction(), helpAction()]);
+      }
+    } catch (error) { await markManagedAttachmentPathsStatus(paths, "failed"); throw error; }
+  };
+  const mediaGroups = new TelegramMediaGroups(deliverImages, mediaError);
+  registerTelegramMediaGroups(bot, mediaGroups);
+  bot.use(async (ctx, next) => {
+    if (!ctx.message) return next();
+    if (ctx.message.media_group_id && (ctx.message.photo || ctx.message.document)) { mediaGroups.add(ctx); return; }
+    await mediaGroups.flushSource(telegramSourceForContext(ctx));
+    if (ctx.message.photo || ctx.message.document) {
+      try { await deliverImages([ctx]); } catch (error) { await mediaError([ctx], error); }
+      return;
+    }
+    return next();
+  });
 
   void bot.api
     .setMyCommands([

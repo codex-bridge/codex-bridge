@@ -152,3 +152,19 @@ the latest five conversation messages appear automatically once. If external
 Codex still occupies the session, retry the same action after external work ends.
 Session occupancy prompts no longer require a separate Refresh action; old
 Refresh buttons show state only. Directory and session-list refreshes remain available.
+
+## Image input
+
+Send a photo or a JPEG, PNG, WebP or GIF image document in the bound private chat,
+group or topic. Captions accompany the image. A media album is collected for 600 ms
+and delivered as one input, before the following text or command. Up to 10 images,
+10 MiB per image and 25 MiB in total are accepted. Other document types receive a
+clear unsupported-file response. Actual image signatures are validated.
+
+Files use the shared managed-attachment lifecycle under
+`workspaces/telegram-attachments` (`TELEGRAM_ATTACHMENT_DIR` overrides it).
+Delivered files expire after 24 hours; pending/failed files after seven days.
+Cleanup runs at startup and every six hours. Shutdown flushes accepted albums.
+Downloads never log token-bearing Telegram file URLs. Normal session ownership and
+Codex input/queue rules apply; changing the selection during a download cancels
+that delivery rather than sending the file into another session.

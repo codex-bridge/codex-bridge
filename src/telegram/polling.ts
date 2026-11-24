@@ -2,6 +2,7 @@ import { run } from "@grammyjs/runner";
 import type { Bot, BotError, Context } from "grammy";
 import type { Update } from "grammy/types";
 import { logger } from "../logging/logger.js";
+import { drainTelegramMediaGroups } from "./media-groups.js";
 
 export type TelegramPolling = { task: Promise<void>; stop: () => Promise<void> };
 
@@ -35,6 +36,7 @@ export async function startTelegramPolling(bot: Bot): Promise<TelegramPolling> {
       // Stop fetching first, then drain accepted updates before closing the store.
       await runner.stop();
       await Promise.allSettled(pending);
+      await drainTelegramMediaGroups(bot);
     }
   };
 }

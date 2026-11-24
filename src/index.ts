@@ -10,6 +10,7 @@ import { TelegramMessageTransport } from "./telegram/transport.js";
 import { startTelegramPolling, type TelegramPolling } from "./telegram/polling.js";
 import { WebServer } from "./web/server.js";
 import { cleanupWebAttachments } from "./web/attachments.js";
+import { cleanupTelegramAttachments } from "./telegram/attachments.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   let slackAttachmentCleanupTimer: NodeJS.Timeout | null = null;
   let webAttachmentCleanupTimer: NodeJS.Timeout | null = null;
   let telegramPolling: TelegramPolling | null = null;
+  let telegramAttachmentCleanupTimer: NodeJS.Timeout | null = null;
 
   await service.bootstrap();
 
@@ -54,6 +56,11 @@ async function main(): Promise<void> {
   }
 
   if (bot) {
+    await cleanupTelegramAttachments();
+    telegramAttachmentCleanupTimer = setInterval(() => {
+      void cleanupTelegramAttachments().catch(() => logger.warn("telegram.attachments.cleanup.failed"));
+    }, 6 * 60 * 60 * 1_000);
+    telegramAttachmentCleanupTimer.unref();
     telegramPolling = await startTelegramPolling(bot);
     void telegramPolling.task.catch((error) => {
       logger.error("telegram.polling.failed", { error: error instanceof Error ? error.message : String(error) });
@@ -77,6 +84,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     logger.info("app.shutdown.start");
+    if (telegramAttachmentCleanupTimer) clearInterval(telegramAttachmentCleanupTimer);
     if (slackAttachmentCleanupTimer) {
       clearInterval(slackAttachmentCleanupTimer);
     }
