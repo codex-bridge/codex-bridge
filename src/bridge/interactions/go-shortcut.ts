@@ -15,6 +15,7 @@ export type GoShortcutServiceDependencies = {
   pendingByThread: Map<string, ReturnType<typeof setTimeout>>;
   lastAssistantMessageByThread: Pick<Map<string, LastAssistantMessage>, "delete">;
   getSessionDirectory: (session: SessionRecord) => string;
+  getMcpSummary?: (threadId: string) => string | null;
   beforeActions?: (session: SessionRecord, sourceId: string, canSend: () => Promise<boolean>) => Promise<unknown>;
   delayMs?: number;
 };
@@ -103,9 +104,11 @@ export class GoShortcutService {
     await this.deps.beforeActions?.(session, chatId, eligible);
     if (!await eligible()) return;
 
+    const mcpSummary = this.deps.getMcpSummary?.(session.codexThreadId);
     const messageSpec: MessageSpec = createMessage({
       kind: "actions",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
+      ...(mcpSummary ? { body: [{ type: "text" as const, text: mcpSummary }] } : {}),
       actions: actionRow(
         userTextAction("go", "Go", "quick:go", "go"),
         userTextAction("next", "Next", "quick:next", "next"),

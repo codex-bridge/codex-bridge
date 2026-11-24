@@ -328,3 +328,16 @@ default. Core interactions include:
 WebSocket transport is optional and follows the Codex App Server's current
 experimental status. Keep non-loopback transport behind the authentication and
 TLS controls documented by OpenAI.
+
+## Quiet MCP connection state
+
+MCP startup/auth observations update the existing scoped tracker and logs without
+sending standalone failure/recovery notices. They are metadata, not workflow
+boundaries. Actions includes `MCP unavailable ×N · name1, name2` only when the
+current session has known unavailable servers. Repeated observations and global /
+thread copies count each server once. Explicit local readiness overrides global
+fallback; intermediate startup or OAuth receipts do not erase a known incident.
+Names are sorted and the line is truncated to 800 visible characters while the
+count stays complete. Existing Actions is the only automatic carrier; history is
+not rewritten. Detailed reasons remain available in Codex status. Actual tool
+failures, approvals and questions keep their normal presentation.

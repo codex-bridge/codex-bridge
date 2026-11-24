@@ -410,6 +410,7 @@ export class BridgeService {
       ).then((message) => message !== null)
     });
     this.goShortcutService = new GoShortcutService({
+      getMcpSummary: thread => state.mcpStartupStatus.summaryForThread(thread),
       store,
       messageOperations: this.messageOperations,
       pendingByThread: state.pendingGoShortcutByThread,

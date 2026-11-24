@@ -7,7 +7,7 @@ import { logger } from "../../logging/logger.js";
 import { createMessage } from "../messages/factory.js";
 import type { MessageBodyPart, MessageSpec } from "../messages/types.js";
 import { messageBodyPartText } from "../messages/content.js";
-import { McpStartupTracker, mcpStartupKey, isMcpFailure } from "../status/mcp-startup.js";
+import { McpStartupTracker } from "../status/mcp-startup.js";
 import { SessionAccessService } from "../sessions/access.js";
 import { canDeliverSession } from "./delivery-target.js";
 import type { WorkflowAppend } from "../progress/workflow-sequence.js";
@@ -16,10 +16,8 @@ const labels: Record<AppServerWarningEvent["kind"], string> = {
   warning: "Codex warning", guardianWarning: "Guardian warning", configWarning: "Configuration warning", deprecationNotice: "Deprecation notice"
 };
 
-type NoticeIdentity = { type: "warning"; key: string; global: boolean }
-  | { type: "mcp"; name: string; origin: string; outcome: "failure" | "recovery"; recoveryFor?: Set<string> };
+type NoticeIdentity = { type: "warning"; key: string; global: boolean };
 type PendingNotice = { spec: MessageSpec; identity: NoticeIdentity };
-type McpReceipt = { sessionId: string; name: string; origins: Set<string> };
 
 function bodyKey(body: MessageBodyPart[]): string {
   return createHash("sha256").update(body.map(messageBodyPartText).join("\n")).digest("hex");
@@ -29,7 +27,6 @@ function bodyKey(body: MessageBodyPart[]): string {
 export class NotificationNoticeService {
   private readonly globalWarnings = new Set<string>();
   private readonly seenWarnings = new Map<string, Set<string>>();
-  private readonly mcpReceipts = new Map<string, McpReceipt>();
   private readonly globalNotices = new Map<string, MessageSpec>();
   private readonly pendingNotices = new Map<string, PendingNotice>();
   private flushing = false;
@@ -44,7 +41,7 @@ export class NotificationNoticeService {
 
   snapshot(): MessageSpec[] { return structuredClone([...this.globalNotices.values()]); }
   clear(): void {
-    this.globalWarnings.clear(); this.seenWarnings.clear(); this.mcpReceipts.clear();
+    this.globalWarnings.clear(); this.seenWarnings.clear();
     this.globalNotices.clear(); this.pendingNotices.clear();
   }
 
@@ -89,26 +86,9 @@ export class NotificationNoticeService {
 
   async handleMcpStartup(event: AppServerMcpStartupStatusEvent): Promise<void> {
     const transition = this.deps.mcpStartup.remember(event);
-    const key = `mcp:${mcpStartupKey(event)}`;
     logger.info("bridge.notice.mcp_observed", { threadId: event.threadId, name: event.name, status: event.status,
       source: event.source, failureReason: event.failureReason, newFailure: transition.failed, recovered: transition.recovered });
-    if (transition.recovered) {
-      const recoveryFor = this.releaseMcpFailure(key, event.name);
-      if (event.threadId === null) {
-        this.globalNotices.delete(key);
-        // Nothing was pushed about this incident, so there is nothing to announce as recovered.
-        if (this.pendingNotices.delete(key)) return;
-      }
-      if (!recoveryFor.size) return;
-      await this.deliver(event.threadId, key, "MCP recovered", [`${event.name} is ready.`], { active: false,
-        identity: { type: "mcp", name: event.name, origin: key, outcome: "recovery", ...(event.threadId === null ? {} : { recoveryFor }) } });
-    } else if (isMcpFailure(event)) {
-      const attempted = [...this.mcpReceipts.values()].some(receipt => receipt.origins.has(key));
-      await this.deliver(event.threadId, key, "MCP connection failed", [event.name,
-        event.error ? `Error: ${event.error}` : null, event.failureReason ? `Reason: ${event.failureReason}` : null,
-        event.failureReason === "reauthenticationRequired" ? "Sign in again with Codex to reconnect this MCP server." : null],
-        { notify: transition.failed || !attempted, identity: { type: "mcp", name: event.name, origin: key, outcome: "failure" } });
-    }
+    // State is shown in Actions/status, never as a chronological notice.
   }
 
   private body(lines: Array<string | null>): MessageBodyPart[] {
@@ -124,33 +104,10 @@ export class NotificationNoticeService {
       if (seen.size > 512) seen.delete(seen.values().next().value!);
       this.seenWarnings.set(identity.key, seen);
       if (this.seenWarnings.size > 512) this.seenWarnings.delete(this.seenWarnings.keys().next().value!);
-    } else if (identity.recoveryFor) {
-      if (!identity.recoveryFor.has(session.id)) return;
-    } else if (identity.outcome === "failure") {
-      const key = JSON.stringify([session.id, identity.name, bodyKey(spec.body)]);
-      const receipt = this.mcpReceipts.get(key);
-      if (receipt) {
-        receipt.origins.add(identity.origin);
-        if (receipt.origins.size > 2048) receipt.origins.delete(receipt.origins.values().next().value!);
-        logger.info("bridge.notice.mcp_duplicate_suppressed", { sessionId: session.id, name: identity.name, origin: identity.origin });
-        return;
-      }
-      this.mcpReceipts.set(key, { sessionId: session.id, name: identity.name, origins: new Set([identity.origin]) });
-      if (this.mcpReceipts.size > 512) this.mcpReceipts.delete(this.mcpReceipts.keys().next().value!);
     }
     await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(sourceId, createMessage({ kind: spec.kind, titleLabel: spec.title,
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       presentation: "activity", body: spec.body })), { sourceId });
-  }
-
-  private releaseMcpFailure(origin: string, name: string): Set<string> {
-    const cleared = new Set<string>();
-    for (const [key, receipt] of this.mcpReceipts) {
-      if (receipt.name !== name || !receipt.origins.delete(origin) || receipt.origins.size) continue;
-      this.mcpReceipts.delete(key); cleared.add(receipt.sessionId);
-    }
-    for (const receipt of this.mcpReceipts.values()) if (receipt.name === name) cleared.delete(receipt.sessionId);
-    return cleared;
   }
 
   private async deliver(threadId: string | null, key: string, title: string, lines: Array<string | null>, options: { identity: NoticeIdentity; notify?: boolean; active?: boolean }): Promise<void> {

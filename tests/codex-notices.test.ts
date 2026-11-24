@@ -57,6 +57,36 @@ test("MCP incidents are scoped; only actual ready status rearms failure notices"
   tracker.clear(); assert.equal(tracker.forThread("a").size, 0);
 });
 
+test("MCP summaries count unique scoped unavailable servers, retain names, and clear only on readiness", () => {
+  const tracker = new McpStartupTracker();
+  for (let index = 0; index < 5; index++) tracker.remember(failure);
+  tracker.remember({ ...failure, threadId: "a" });
+  tracker.remember({ ...failure, threadId: "b", name: "other" });
+  tracker.remember({ ...failure, threadId: "a", name: "figma" });
+  assert.equal(tracker.summaryForThread("a"), "MCP unavailable ×2 · figma, tools");
+  assert.equal(tracker.summaryForThread("b"), "MCP unavailable ×2 · other, tools");
+  tracker.remember({ ...ready, threadId: "a", status: "starting" });
+  tracker.remember({ ...ready, threadId: "a", source: "oauth", status: "authenticated" });
+  assert.equal(tracker.unavailableForThread("a").length, 2);
+  tracker.remember({ ...ready, threadId: "a" });
+  assert.deepEqual(tracker.unavailableForThread("a"), ["figma"]);
+  tracker.remember({ ...ready, threadId: "a", name: "figma" });
+  assert.equal(tracker.summaryForThread("a"), null);
+  tracker.clear(); assert.equal(tracker.summaryForThread("b"), null);
+});
+
+test("MCP failures and recoveries update cached details without sending or queuing standalone notices", async t => {
+  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
+  for (const event of [failure, { ...failure, threadId: "a" }, { ...failure, error: "New detail" }]) await f.service.handleMcpStartup(event);
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 0); assert.deepEqual(f.service.snapshot(), []);
+  assert.deepEqual(f.tracker.unavailableForThread("a"), ["tools"]);
+  await f.service.handleMcpStartup(ready);
+  await f.service.handleMcpStartup({ ...ready, threadId: "a" });
+  await f.service.flushPending(session, "web:local");
+  assert.equal(f.sent.length, 0); assert.equal(f.tracker.summaryForThread("a"), null);
+});
+
 async function fixture(t: TestContext) {
   const store = new BridgeStore(":memory:"); t.after(() => store.close());
   for (const thread of ["a", "b"]) {
@@ -120,88 +150,10 @@ test("failed authorization does not consume warning deduplication; concurrent al
   assert.equal(f.sent.length, 1);
 });
 
-test("MCP global and session copies notify once per receiving session in either delivery order", async t => {
-  for (const globalFirst of [true, false]) {
-    const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
-    await f.service.handleMcpStartup(failure);
-    if (globalFirst) await f.service.flushPending(session, "web:local");
-    await f.service.handleMcpStartup({ ...failure, threadId: "a" });
-    await f.service.flushPending(session, "web:local");
-    assert.equal(f.sent.length, 1);
-    assert.equal(f.service.snapshot().length, 1);
-    await f.service.handleMcpStartup({ ...failure, threadId: "b" });
-    assert.equal(f.sent.length, 2, "an independent session still receives its own failure");
-    assert.equal(f.tracker.forThread("b").get("tools")!.failureActive, true);
-    await f.service.handleMcpStartup(ready);
-    await f.service.flushPending(session, "web:local");
-    assert.equal(f.sent.length, 2, "global recovery does not clear an ongoing session failure");
-    await f.service.handleMcpStartup({ ...ready, threadId: "a" });
-    assert.equal(f.sent.length, 3);
-    assert.match(f.sent.at(-1)!.spec.title, /^MCP recovered/);
-    await f.service.handleMcpStartup({ ...failure, threadId: "a" });
-    assert.equal(f.sent.length, 4, "a new incident after recovery can notify again");
-    assert.equal(f.tracker.forThread("b").get("tools")!.failureActive, true);
-  }
-});
 
-test("different MCP errors or servers are retained and recovery waits for remaining matching scopes", async t => {
-  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
-  await f.service.handleMcpStartup(failure); await f.service.flushPending(session, "web:local");
-  await f.service.handleMcpStartup({ ...failure, threadId: "a", error: "Different error" });
-  await f.service.handleMcpStartup({ ...failure, threadId: "a", name: "other-tools" });
-  assert.equal(f.sent.length, 3);
-  await f.service.handleMcpStartup(ready); await f.service.flushPending(session, "web:local");
-  assert.equal(f.sent.length, 3);
-  await f.service.handleMcpStartup({ ...ready, threadId: "a" });
-  assert.equal(f.sent.length, 4);
-  assert.equal(f.tracker.forThread("a").get("other-tools")!.failureActive, true);
-});
 
-test("direct-child copies deduplicate in their actual parent and recover only after all observed copies recover", async t => {
-  const f = await fixture(t), parent = (await f.store.getSessionByThreadId("a"))!;
-  const service = new NotificationNoticeService({
-    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
-    resolveNotificationSession: async () => parent, getSessionDirectory: s => s.pathKey,
-    sendLongSpec: async (sourceId, spec) => { f.sent.push({ sourceId, spec }); } });
-  const warning = extractWarningEvent({ method: "warning", params: { threadId: "child-1", message: "Same parent warning" } })!;
-  await service.handleWarning(warning); await service.handleWarning({ ...warning, threadId: "child-2" });
-  assert.equal(f.sent.length, 1);
-  for (const threadId of ["child-1", "child-2"]) await service.handleMcpStartup({ ...failure, threadId });
-  assert.equal(f.sent.length, 2);
-  await service.handleMcpStartup({ ...ready, threadId: "child-1" });
-  assert.equal(f.sent.length, 2);
-  await service.handleMcpStartup({ ...ready, threadId: "child-2" });
-  assert.equal(f.sent.length, 3);
-  assert.match(f.sent.at(-1)!.spec.title, /^MCP recovered/);
-  service.clear(); f.tracker.clear();
-  await service.handleWarning(warning); await service.handleMcpStartup({ ...failure, threadId: "child-1" });
-  assert.equal(f.sent.length, 5, "runtime cleanup resets both delivery histories");
-});
 
-test("unknown MCP write outcomes do not retry through a global alias", async t => {
-  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
-  let writes = 0;
-  const service = new NotificationNoticeService({
-    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
-    resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
-    sendLongSpec: async () => { writes++; throw new Error("outcome unknown"); } });
-  await assert.rejects(service.handleMcpStartup({ ...failure, threadId: "a" }), /unknown/);
-  await service.handleMcpStartup(failure); await service.flushPending(session, "web:local");
-  assert.equal(writes, 1);
-});
 
-test("MCP failure observed without ownership can notify on a later authorized observation", async t => {
-  const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
-  f.store.markSessionExternalUnknown(session.id);
-  await f.service.handleMcpStartup({ ...failure, threadId: "a" });
-  assert.equal(f.sent.length, 0);
-  f.store.clearSessionExternalUnknown(session.id); f.store.claimSession(session.id, "web:local");
-  await f.service.handleMcpStartup({ ...failure, threadId: "a", error: "Latest detail" });
-  assert.equal(f.sent.length, 1);
-  assert.match(JSON.stringify(f.sent[0]!.spec.body), /Latest detail/);
-  await f.service.handleMcpStartup({ ...failure, threadId: "a", error: "Later detail in the same incident" });
-  assert.equal(f.sent.length, 1, "a continuing incident does not resend changing detail");
-});
 
 test("global notices wait for a conversation, deduplicate service-wide and keep their read-only snapshot", async t => {
   const f = await fixture(t);
@@ -217,10 +169,9 @@ test("global notices wait for a conversation, deduplicate service-wide and keep 
   await f.service.handleMcpStartup(failure);
   await f.service.handleMcpStartup({ ...failure, error: "Latest connection detail" });
   await Promise.all([f.service.flushPending(session, "web:local"), f.service.flushPending(other, "web:local")]);
-  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent.length, 1);
   assert.equal(f.sent.every(s => s.spec.session!.id === session.id), true);
   assert.match(f.sent[0]!.spec.title, /^Deprecation notice · /);
-  assert.match(f.sent[1]!.spec.body.map(p => "text" in p ? p.text : "").join("\n"), /Latest connection detail/);
   assert.equal(f.sent.every(s => s.spec.presentation === "activity"), true);
   const slack = renderSlackMessageSpec("slack:T:C:1", f.sent[0]!.spec, null);
   assert.equal(slack.every(b => b.type === "context"), true);
@@ -230,33 +181,22 @@ test("global notices wait for a conversation, deduplicate service-wide and keep 
   assert.equal(telegram.html.includes("<b>"), false);
   await f.service.handleWarning(event);
   await f.service.flushPending(other, "web:local");
-  assert.equal(f.sent.length, 2);
-  assert.equal(f.service.snapshot().length, 2, "pushing does not clear the status snapshot");
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.service.snapshot().length, 1, "pushing does not clear the status snapshot");
   await f.service.handleMcpStartup(ready);
   assert.equal(f.service.snapshot().length, 1);
   await f.service.flushPending(other, "web:local");
-  assert.match(f.sent.at(-1)!.spec.title, /^MCP recovered · /);
+  assert.equal(f.sent.length, 1);
   await f.service.handleMcpStartup(failure);
   await f.service.flushPending(session, "web:local");
-  assert.equal(f.sent.length, 4);
+  assert.equal(f.sent.length, 1);
   f.service.clear(); f.tracker.clear();
   assert.deepEqual(f.service.snapshot(), []);
   await f.service.handleWarning(event);
   await f.service.flushPending(other, "web:local");
-  assert.equal(f.sent.length, 5, "runtime cleanup allows the warning to notify again");
+  assert.equal(f.sent.length, 2, "runtime cleanup allows the warning to notify again");
 });
 
-test("an MCP incident resolved before the next conversation does not push an obsolete failure or recovery", async t => {
-  const f = await fixture(t);
-  const session = (await f.store.getSessionByThreadId("a"))!;
-  await f.service.handleMcpStartup(failure);
-  await f.service.handleMcpStartup(ready);
-  await f.service.flushPending(session, "web:local");
-  assert.equal(f.sent.length, 0); assert.deepEqual(f.service.snapshot(), []);
-  await f.service.handleMcpStartup(failure);
-  await f.service.flushPending(session, "web:local");
-  assert.equal(f.sent.length, 1);
-});
 
 test("unauthorized or revoked inputs do not consume pending warnings; only one transport receives each batch", async t => {
   const f = await fixture(t);
@@ -282,26 +222,20 @@ test("scoped warnings and MCP failures follow their owned session and never fall
   await f.service.handleWarning({ ...warning, threadId: "b" });
   await f.service.handleWarning({ ...warning, threadId: "unmapped" });
   await f.service.handleMcpStartup({ ...failure, threadId: "a" });
-  assert.deepEqual(f.sent.map(s => s.spec.session!.directory), ["/work/a", "/work/b", "/work/a"]);
+  assert.deepEqual(f.sent.map(s => s.spec.session!.directory), ["/work/a", "/work/b"]);
   assert.deepEqual(f.service.snapshot(), []);
   const session = (await f.store.getSessionByThreadId("a"))!;
   f.store.markSessionExternalUnknown(session.id);
   await f.service.handleWarning({ ...warning, message: "After ownership loss" });
-  assert.equal(f.sent.length, 3);
+  assert.equal(f.sent.length, 2);
   const chat = await f.store.upsertDiscoveredSession({ telegramChatId: "123", codexThreadId: "chat", pathKey: "/work/chat" });
   f.store.claimSession(chat.id, "123");
   await f.store.setActiveSession("123", chat.id);
   f.store.markSessionExternalUnknown(chat.id);
   await f.service.handleWarning({ ...warning, threadId: "chat", message: "Selected but no longer owned" });
-  assert.equal(f.sent.length, 3, "chat selection alone does not authorize notice delivery");
-  const spec = f.sent[2]!.spec;
-  for (const rendering of [renderSlackMessageSpec("slack:T:C:1", spec, null), renderTelegramMessageSpec(spec)]) {
-    assert.match(JSON.stringify(rendering), /reauthenticationRequired/);
-    assert.match(JSON.stringify(rendering), /Could not connect/);
-    assert.equal(JSON.stringify(rendering).includes("Step failed"), false);
-  }
+  assert.equal(f.sent.length, 2, "chat selection alone does not authorize notice delivery");
+  assert.deepEqual(f.tracker.unavailableForThread("a"), ["tools"]);
 });
-
 test("warning write failures do not block conversation or retry unknown outcomes; new warnings remain pending", async t => {
   const f = await fixture(t); let writes = 0;
   const session = (await f.store.getSessionByThreadId("a"))!;
@@ -347,7 +281,7 @@ test("notification dispatcher reaches notice handling without changing the task 
   await dispatcher.handle({ method: "warning", params: { threadId: null, message: "Low-level warning" } });
   await dispatcher.handle({ method: "mcpServer/startupStatus/updated", params: failure });
   assert.equal(f.sent.length, 0);
-  assert.equal(f.service.snapshot().length, 2);
+  assert.equal(f.service.snapshot().length, 1);
   assert.equal(dispatcher.getQueueKey({ method: "guardianWarning", params: { threadId: "a", message: "Review issue" } }), "a");
 });
 
@@ -436,7 +370,7 @@ test("direct-child notices reach their parent session instead of being swallowed
   notify({ method: "guardianWarning", params: { threadId: "child", message: "Child review unavailable" } });
   notify({ method: "mcpServer/startupStatus/updated", params: { ...failure, threadId: "child" } });
   await queue.run("child", async () => {});
-  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent.length, 1);
   assert.equal(f.sent.every(s => s.spec.session!.id === parent.id), true);
   assert.equal(f.tracker.forThread("child").get("tools")!.status, "failed");
   assert.equal(f.tracker.forThread("a").size, 0);

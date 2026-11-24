@@ -8,7 +8,8 @@ export type NotificationDeliveryOptions = ProgressDeliveryOptions & { canRefresh
 const METADATA = new Set([
   "thread/tokenUsage/updated", "account/rateLimits/updated", "turn/diff/updated",
   "turn/moderationMetadata", "thread/readState/changed", "thread/status/changed",
-  "thread/name/updated", "thread/settings/updated", "thread/section/changed", "thread/queue/changed"
+  "thread/name/updated", "thread/settings/updated", "thread/section/changed", "thread/queue/changed",
+  "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed"
 ]);
 
 export function isMetadataNotification(notification: AppServerNotification): boolean {

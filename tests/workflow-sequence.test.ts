@@ -62,7 +62,7 @@ async function harness(t: test.TestContext) {
     setCompactRpc: (rpc: () => Promise<void>) => { compactRpc = rpc; } };
 }
 
-for (const boundary of ["compact-started", "compact-completed-only", "assistant", "warning", "mcp-failure", "approval", "input"] as const) {
+for (const boundary of ["compact-started", "compact-completed-only", "assistant", "warning", "approval", "input"] as const) {
   test(`${boundary} closes Called before another identical tool action`, async t => {
     const f = await harness(t);
     await f.called("first");
@@ -73,8 +73,6 @@ for (const boundary of ["compact-started", "compact-completed-only", "assistant"
     if (boundary === "compact-completed-only") await f.internal.compactService.notifyCompactCompleted(f.session);
     if (boundary === "assistant") await f.assistant();
     if (boundary === "warning") await f.send({ method: "warning", params: { threadId: "thread", message: "Public warning" } });
-    if (boundary === "mcp-failure") await f.send({ method: "mcpServer/startupStatus/updated", params: {
-      threadId: "thread", name: "demo", status: "failed", error: "Unavailable" } });
     if (boundary === "approval") await f.approval();
     if (boundary === "input") await f.internal.notificationApprovalService.handleApprovalRequest({
       requestId: "input", threadId: "thread", turnId: "turn", itemId: "input-item", method: "item/tool/requestUserInput",
@@ -313,4 +311,15 @@ test("unsuccessful interaction delivery never runs follow-up and preserves throw
   await runInteractionDelivery(delivery, async () => false);
   await assert.rejects(runInteractionDelivery(delivery, async () => { throw new Error("Unknown outcome"); }), /Unknown outcome/);
   assert.equal(after, 0);
+});
+
+test("silent MCP status observations do not split consecutive Called actions", async t => {
+  const f = await harness(t);
+  await f.called("one");
+  const first = f.latest(), before = f.sent.length;
+  await f.send({ method: "mcpServer/startupStatus/updated", params: { threadId: "thread", name: "tools", status: "failed", error: "Unavailable" } });
+  assert.equal(f.sent.length, before);
+  await f.called("two");
+  assert.equal(f.latest().id, first.id);
+  assert.deepEqual(f.latest().aggregate.operations, [{ name: "demo.lookup", count: 2 }]);
 });
