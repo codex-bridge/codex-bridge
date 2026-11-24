@@ -376,7 +376,8 @@ TLS controls documented by OpenAI.
 
 MCP startup/auth observations update the scoped tracker and logs as metadata,
 without sending an immediate message or creating workflow boundaries. At the next
-eligible Actions, a separate `MCP status` activity message precedes its controls.
+eligible Actions, the order is MCP status, an available Codex release reminder,
+then Actions. The separate `MCP status` activity message precedes those controls.
 It uses Slack context, Telegram footer and the existing Web activity styling,
 keeps the session directory, and has no buttons. Actions itself has no MCP body.
 

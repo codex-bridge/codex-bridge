@@ -422,8 +422,8 @@ export class BridgeService {
       getActiveTurnId: thread => state.inFlightTurnIdByThread.get(thread),
       lastAssistantMessageByThread: state.lastAssistantTelegramByThread,
       beforeActions: async (session, sourceId, canSend, signal) => {
-        await this.versionUpdateNotifier.deliverBeforeActions(session, sourceId, canSend);
         await this.mcpStatusNotifier.deliverBeforeActions(session, sourceId, canSend, signal);
+        await this.versionUpdateNotifier.deliverBeforeActions(session, sourceId, canSend);
       },
       getSessionDirectory: (session) => this.getSessionDirectory(session)
     });
