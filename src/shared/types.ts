@@ -69,6 +69,8 @@ export interface ProgressPhaseOperationGroup {
 }
 
 export interface ProgressPhaseAggregate {
+  // Protocol identities only; tool arguments remain transient. Absent on legacy rows.
+  items?: Array<{ id: string; completed: boolean }>;
   activities?: ProgressActivity[];
   eventCount: number;
   operations: ProgressPhaseOperationGroup[];

@@ -6,6 +6,7 @@ import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 import type { BridgeMessageOptions } from "../transport.js";
 import type { SessionOwnershipService } from "./ownership.js";
+import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 
 export type CompactEventSource = "manual" | "bridge-auto" | "runtime";
 
@@ -22,10 +23,11 @@ type RecoveryState = {
   phase: "compacting" | "retrying";
 };
 
-type CompactStore = Pick<BridgeStore, "getActiveSession">;
+type CompactStore = Pick<BridgeStore, "getActiveSession" | "getSessionById">;
 type CompactClient = Pick<CodexAppServerClient, "sendTurn" | "startCompactThread" | "resumeThread">;
 
 export type CompactServiceDependencies = {
+  appendWorkflowMessage: WorkflowAppend;
   store: CompactStore;
   codexClient: CompactClient;
   isRuntimeConnected: () => boolean;
@@ -80,8 +82,10 @@ export class CompactService {
     }
 
     try {
-      await this.deps.codexClient.startCompactThread(threadId);
+      // Reserve the start before the RPC: its runtime notification can arrive before
+      // the RPC reply. The returned manual result owns this start message.
       this.markCompactStarted(session, "manual");
+      await this.deps.codexClient.startCompactThread(threadId);
       return this.startedResult(session, "manual");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -99,6 +103,12 @@ export class CompactService {
     }
   }
 
+  async deliverResult<T>(sourceId: string, message: MessageSpec, operation: () => Promise<T>): Promise<T> {
+    if (message.kind !== "compact-started" || !message.session?.id) return operation();
+    const session = await this.deps.store.getSessionById(message.session.id);
+    return session ? this.deps.appendWorkflowMessage(session, operation, { sourceId }) : operation();
+  }
+
   markCompactStarted(session: SessionRecord, source: CompactEventSource): boolean {
     const existing = this.compactEventsByThread.get(session.codexThreadId);
     if (existing?.startedNotified && !existing.completedAt) return false;
@@ -114,13 +124,13 @@ export class CompactService {
 
   async notifyCompactStarted(session: SessionRecord, source: CompactEventSource, options?: { reason?: string; next?: string }): Promise<void> {
     if (!this.markCompactStarted(session, source)) return;
-    await this.deps.sendLongSpec(
+    await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(
       session.telegramChatId,
       this.startedSpec(session, source, options),
       {
         disable_notification: true
       }
-    );
+    ));
   }
 
   renderCompactStartedMessage(session: SessionRecord, source: CompactEventSource, options?: { reason?: string; next?: string }): string {
@@ -143,9 +153,9 @@ export class CompactService {
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       body: options?.next ? [{ type: "field", label: "Next", value: options.next }] : []
     });
-    await this.deps.sendLongSpec(session.telegramChatId, messageSpec, {
+    await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(session.telegramChatId, messageSpec, {
       disable_notification: true
-    });
+    }));
   }
 
   isCompactStatusUpdate(update: AppServerStatusUpdate): boolean {

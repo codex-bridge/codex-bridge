@@ -112,6 +112,7 @@ test("explicit-session stop and compact replies use their target without resolvi
       setSessionStatus: unexpected
     });
     const compact = new CompactService({
+      appendWorkflowMessage: (_session, operation) => operation(),
       store: { getActiveSession: unexpected },
       codexClient: client,
       isRuntimeConnected: () => false,

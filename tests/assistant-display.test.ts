@@ -82,9 +82,10 @@ test("restricted live messages are sanitized before logging, storage, delivery a
   logger.info = (...args) => { logs.push(args); };
   try {
     const session = await store.upsertDiscoveredSession({ telegramChatId: "chat", codexThreadId: "t", pathKey: "/work", currentCwd: "/work" });
-    const service = new NotificationMessageService({ store, assistantOutputByThread: new Map(), recentResolvedMcpBySession: new Map(),
+    const service = new NotificationMessageService({
+      appendWorkflowMessage: (_session, operation) => operation(), store, assistantOutputByThread: new Map(), recentResolvedMcpBySession: new Map(),
       resolveNotificationSession: async () => session, resetTypingStatus: () => {}, clearRetryingRecovery: () => {},
-      getSessionDirectory: () => "/work", clearProgressMessageForThread: async () => {}, sendLongSpec: async () => {},
+      getSessionDirectory: () => "/work", sendLongSpec: async () => {},
       sendTranscriptMessage: async (_session, message) => {
         const spec = createTranscriptMessageSpec({ directory: "/work", ...message });
         for (const rendered of [renderSlackMessageSpec("slack:T:C", spec, null), renderTelegramMessageSpec(spec)]) {

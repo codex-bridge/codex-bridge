@@ -112,6 +112,7 @@ export interface BridgeRuntimePort {
 export interface BridgeTurnControlPort {
   stopActiveSessionMessage(chatId: string): Promise<MessageSpec>;
   compactActiveSessionMessage(chatId: string): Promise<MessageSpec>;
+  deliverCompactResult(chatId: string, message: MessageSpec, operation: () => Promise<void>): Promise<void>;
   statusActiveSessionMessage(chatId: string, full?: boolean): Promise<MessageSpec>;
   cancelQueuedSubmission(chatId: string, submissionId: string): Promise<MessageSpec>;
 }

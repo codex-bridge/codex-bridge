@@ -12,4 +12,4 @@ export type InteractionContext = {
 export type InteractionDelivery = (
   | { mode: "send"; target: "conversation"; message: MessageSpec }
   | { mode: "edit"; target: "surface"; message: MessageSpec }
-) & { afterDelivery?: () => Promise<void> };
+) & { aroundDelivery?: (operation: () => Promise<void>) => Promise<void>; afterDelivery?: () => Promise<void> };

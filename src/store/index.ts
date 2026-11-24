@@ -447,6 +447,10 @@ export class BridgeStore {
     return this.progressPhaseMessageRepository.getLatestByTurn(codexThreadId, turnId);
   }
 
+  getProgressPhaseMessageForItem(codexThreadId: string, turnId: string, itemId: string): ProgressPhaseMessageRecord | null {
+    return this.progressPhaseMessageRepository.getByItem(codexThreadId, turnId, itemId);
+  }
+
   getProgressPhaseMessageForFileEdit(codexThreadId: string, turnId: string, itemId: string): ProgressPhaseMessageRecord | null {
     return this.progressPhaseMessageRepository.getByFileEdit(codexThreadId, turnId, itemId);
   }

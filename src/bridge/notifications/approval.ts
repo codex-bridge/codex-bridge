@@ -7,6 +7,7 @@ import { createMessage } from "../messages/factory.js";
 import { actionRow, helpAction, sessionAction } from "../messages/actions.js";
 import { SubagentTracker } from "./subagent-tracker.js";
 import { canDeliverSession } from "./delivery-target.js";
+import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 
 const SUPPORTED_MCP_ELICITATION_MODES = new Set([
   "form",
@@ -21,6 +22,7 @@ export type EarlyApproval = {
 };
 
 export type NotificationApprovalDependencies = {
+  appendWorkflowMessage: WorkflowAppend;
   store: BridgeStore;
   codexClient: CodexAppServerClient;
   subagents: SubagentTracker;
@@ -87,7 +89,7 @@ export class NotificationApprovalService {
         threadId: request.threadId,
         mode: request.elicitationMode ?? "missing"
       });
-      await this.deps.sendLongSpec(session.telegramChatId, createMessage({
+      await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(session.telegramChatId, createMessage({
         kind: "system",
         session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
         body: [{
@@ -96,7 +98,7 @@ export class NotificationApprovalService {
             ? "Verification must be completed in Codex App."
             : "This MCP request cannot be completed in Bridge. Continue in Codex App."
         }]
-      }));
+      })), { turnId: child?.parentTurnId ?? request.turnId ?? undefined });
       return;
     }
 
@@ -139,8 +141,13 @@ export class NotificationApprovalService {
 
     if (await canDeliverSession(this.deps.store, session)) {
       await this.deps.setSessionStatus(session, request.method === USER_INPUT_METHOD ? "Waiting for answers" : "Waiting for approval");
-      await this.deps.sendDecisionMessage(session, decision);
-      await this.deps.syncBatchDecisionMessage(session);
+      const deliver = async () => {
+        await this.deps.sendDecisionMessage(session, decision);
+        await this.deps.syncBatchDecisionMessage(session);
+      };
+      if (!decision.telegramMessageId || decision.telegramChatId !== session.telegramChatId) {
+        await this.deps.appendWorkflowMessage(session, deliver, { turnId: child?.parentTurnId ?? request.turnId ?? undefined });
+      } else await deliver();
     } else {
       const messageSpec = createMessage({
         kind: "decision",
@@ -151,7 +158,8 @@ export class NotificationApprovalService {
         ],
         actions: actionRow(sessionAction(), helpAction())
       });
-      await this.deps.sendLongSpec(session.telegramChatId, messageSpec);
+      await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(session.telegramChatId, messageSpec),
+        { turnId: child?.parentTurnId ?? request.turnId ?? undefined });
     }
   }
 }

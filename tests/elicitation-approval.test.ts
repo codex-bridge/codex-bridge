@@ -16,6 +16,7 @@ function approvalServiceFixture() {
   const resolutions: Array<{ requestId: string; action: string; method: string | null }> = [];
   const messages: MessageSpec[] = [];
   const service = new NotificationApprovalService({
+    appendWorkflowMessage: (_session, operation) => operation(),
     store: {} as never,
     codexClient: {
       isApprovalPending: () => true,

@@ -554,6 +554,7 @@ export class BridgeService {
       clearSessionStatus: (session) => this.statusLifecycleService.clearSessionStatus(session)
     });
     this.notificationMessageService = new NotificationMessageService({
+      appendWorkflowMessage: (session, operation, context) => this.progressService.appendWorkflowMessage(session, operation, context),
       store,
       assistantOutputByThread: state.assistantOutputByThread,
       recentResolvedMcpBySession: state.recentResolvedMcpBySession,
@@ -563,9 +564,9 @@ export class BridgeService {
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec),
       sendTranscriptMessage: (session, message, threadId) => this.messageOperations.sendTranscriptMessage(session, message, threadId),
-      clearProgressMessageForThread: (threadId) => this.clearProgressMessageForThread(threadId)
     });
     this.notificationNoticeService = new NotificationNoticeService({
+      appendWorkflowMessage: (session, operation, context) => this.progressService.appendWorkflowMessage(session, operation, context),
       store, mcpStartup: state.mcpStartupStatus,
       resolveNotificationSession: (threadId) => {
         const child = this.subagents.route(threadId);
@@ -575,6 +576,7 @@ export class BridgeService {
       sendLongSpec: (sourceId, spec) => this.messageOperations.sendLongSpec(sourceId, spec)
     });
     this.notificationAuxiliaryService = new NotificationAuxiliaryService({
+      appendWorkflowMessage: (session, operation, context) => this.progressService.appendWorkflowMessage(session, operation, context),
       store,
       clearDecisionMessageActions: (decision) => this.decisionDelivery.clearDecisionMessageActions(decision),
       syncBatchDecisionMessageForSessionId: (sessionId) => this.decisionDelivery.syncBatchDecisionMessageForSessionId(sessionId),
@@ -604,6 +606,7 @@ export class BridgeService {
       onRuntimeStopped: (session, turnId) => this.webAttention?.runtimeStopped(session, turnId)
     });
     this.notificationApprovalService = new NotificationApprovalService({
+      appendWorkflowMessage: (session, operation, context) => this.progressService.appendWorkflowMessage(session, operation, context),
       store,
       codexClient,
       subagents: this.subagents,
@@ -711,6 +714,7 @@ export class BridgeService {
       sendLongSpec: (chatId, messageSpec, options) => this.messageOperations.sendLongSpec(chatId, messageSpec, options)
     });
     this.compactService = new CompactService({
+      appendWorkflowMessage: (session, operation, context) => this.progressService.appendWorkflowMessage(session, operation, context),
       store,
       codexClient,
       isRuntimeConnected: () => this.isRuntimeConnected(),
@@ -732,6 +736,8 @@ export class BridgeService {
       requireMessageTransport: (chatId) => this.messageSender.requireTransport(chatId),
     });
     this.progressService = new ProgressService({
+      getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),
+      getProgressPhaseMessageForItem: (thread, turn, id) => store.getProgressPhaseMessageForItem(thread, turn, id),
       getProgressPhaseMessage: (id) => store.getProgressPhaseMessage(id),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       getInFlightTurnId: (threadId) => state.inFlightTurnIdByThread.get(threadId) ?? null,
@@ -961,6 +967,10 @@ export class BridgeService {
 
   async compactActiveSessionMessage(telegramChatId: string): Promise<MessageSpec> {
     return this.sessionCompactService.compact(telegramChatId);
+  }
+
+  async deliverCompactResult(chatId: string, message: MessageSpec, operation: () => Promise<void>): Promise<void> {
+    return this.compactService.deliverResult(chatId, message, operation);
   }
 
   async statusActiveSessionMessage(telegramChatId: string, full = false): Promise<MessageSpec> {
@@ -1437,7 +1447,8 @@ export class BridgeService {
     message: string
   ): Promise<boolean> {
     const messageSpec = this.runtimePromptFactory.createSystemError(session, stage, message);
-    return Boolean(await this.messageOperations.sendSpecAndGetLastMessage(session.telegramChatId, messageSpec));
+    return this.progressService.appendWorkflowMessage(session, async () =>
+      Boolean(await this.messageOperations.sendSpecAndGetLastMessage(session.telegramChatId, messageSpec)));
   }
 
   // COMPATIBILITY(TEST): integration tests inject lifecycle status updates through the Bridge facade.

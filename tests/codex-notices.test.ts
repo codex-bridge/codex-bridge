@@ -65,7 +65,8 @@ async function fixture(t: TestContext) {
   }
   const sent: Array<{ sourceId: string; spec: MessageSpec }> = [];
   const tracker = new McpStartupTracker();
-  const service = new NotificationNoticeService({ store, mcpStartup: tracker,
+  const service = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store, mcpStartup: tracker,
     resolveNotificationSession: id => store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
     sendLongSpec: async (sourceId, spec) => { sent.push({ sourceId, spec }); } });
   return { store, sent, tracker, service };
@@ -158,7 +159,8 @@ test("different MCP errors or servers are retained and recovery waits for remain
 
 test("direct-child copies deduplicate in their actual parent and recover only after all observed copies recover", async t => {
   const f = await fixture(t), parent = (await f.store.getSessionByThreadId("a"))!;
-  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+  const service = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: async () => parent, getSessionDirectory: s => s.pathKey,
     sendLongSpec: async (sourceId, spec) => { f.sent.push({ sourceId, spec }); } });
   const warning = extractWarningEvent({ method: "warning", params: { threadId: "child-1", message: "Same parent warning" } })!;
@@ -179,7 +181,8 @@ test("direct-child copies deduplicate in their actual parent and recover only af
 test("unknown MCP write outcomes do not retry through a global alias", async t => {
   const f = await fixture(t), session = (await f.store.getSessionByThreadId("a"))!;
   let writes = 0;
-  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+  const service = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
     sendLongSpec: async () => { writes++; throw new Error("outcome unknown"); } });
   await assert.rejects(service.handleMcpStartup({ ...failure, threadId: "a" }), /unknown/);
@@ -303,7 +306,8 @@ test("warning write failures do not block conversation or retry unknown outcomes
   const f = await fixture(t); let writes = 0;
   const session = (await f.store.getSessionByThreadId("a"))!;
   const event = extractWarningEvent({ method: "warning", params: { threadId: null, message: "Public warning" } })!;
-  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+  const service = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
     sendLongSpec: async () => {
       writes++;
@@ -323,7 +327,8 @@ test("ownership loss during a batch preserves unsent notices for a later valid c
   const f = await fixture(t);
   const session = (await f.store.getSessionByThreadId("a"))!;
   const writes: MessageSpec[] = [];
-  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+  const service = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
     sendLongSpec: async (_source, spec) => { writes.push(spec); f.store.markSessionExternalUnknown(session.id); } });
   for (const message of ["First warning", "Second warning"]) await service.handleWarning({ kind: "warning", threadId: null, message, details: null, path: null });
@@ -398,7 +403,8 @@ test("pending global warnings carry a usable Web delivery identity", async t => 
   const transport = new WebMessageTransport(f.store);
   const delivered: string[] = [];
   transport.subscribe(({ event }) => { delivered.push(event.threadId); });
-  const service = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+  const service = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: id => f.store.getSessionByThreadId(id), getSessionDirectory: s => s.pathKey,
     sendLongSpec: async (source, spec) => { assert.ok(await transport.sendMessageSpec(source, spec)); } });
   await service.handleWarning(extractWarningEvent({ method: "configWarning", params: { summary: "Check config" } })!);
@@ -413,7 +419,8 @@ test("direct-child notices reach their parent session instead of being swallowed
   subagents.observe({ method: "turn/started", params: { threadId: "a", turn: { id: "p1" } } }, parent.id);
   subagents.observe({ method: "item/completed", params: { threadId: "a", turnId: "p1",
     item: { id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child", agentPath: "/root/check" } } });
-  const notices = new NotificationNoticeService({ store: f.store, mcpStartup: f.tracker,
+  const notices = new NotificationNoticeService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store, mcpStartup: f.tracker,
     resolveNotificationSession: async id => subagents.route(id) ? parent : null, getSessionDirectory: s => s.pathKey,
     sendLongSpec: async (sourceId, spec) => { f.sent.push({ sourceId, spec }); } });
   const dispatcher = new NotificationDispatcher({ notices } as ConstructorParameters<typeof NotificationDispatcher>[0]);

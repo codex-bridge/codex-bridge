@@ -1,3 +1,4 @@
+import { runInteractionDelivery } from "../../bridge/interactions/delivery.js";
 import type { InteractionContext, InteractionDelivery } from "../../bridge/interactions/types.js";
 import type { MessageSpec } from "../../bridge/messages/types.js";
 
@@ -12,11 +13,9 @@ export async function deliverTelegramInteraction(
   delivery: InteractionDelivery,
   responder: TelegramInteractionResponder
 ): Promise<void> {
-  if (delivery.mode === "edit" && context.sourceMessageId) {
-    await responder.edit(delivery.message);
-    await delivery.afterDelivery?.();
-    return;
-  }
-  await responder.send(delivery.message);
-  await delivery.afterDelivery?.();
+  await runInteractionDelivery(delivery, async () => {
+    if (delivery.mode === "edit" && context.sourceMessageId) await responder.edit(delivery.message);
+    else await responder.send(delivery.message);
+    return true;
+  });
 }

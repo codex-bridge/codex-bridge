@@ -39,7 +39,8 @@ async function fixture(t: TestContext, source = "slack:T:C:1") {
   const commands = new DecisionCommandService({ store, decisionDelivery: delivery, codexClient: codex,
     sessionOwnershipService: { getSessionOwnershipPrompt: async () => null },
     createMcpInputPromptSpec: () => assert.fail("not an input request"), sendLongSpec: async () => {} });
-  const notifications = new NotificationApprovalService({ store, codexClient: codex as never,
+  const notifications = new NotificationApprovalService({
+    appendWorkflowMessage: (_session, operation) => operation(), store, codexClient: codex as never,
     subagents: { route: () => null } as never, earlyApprovals: new Map(),
     resolveNotificationSession: async () => session, getSessionDirectory: () => "/work", cancelGoShortcut: () => {},
     setSessionStatus: async () => {}, sendDecisionMessage: (s, d) => delivery.sendDecisionMessage(s, d),
@@ -125,7 +126,8 @@ test("ordinary approvals preserve session/command permissions and legacy summary
 test("upstream resolution expires the card without inventing an approval or execution result", async (t) => {
   const f = await fixture(t);
   const d = await f.receive();
-  const auxiliary = new NotificationAuxiliaryService({ store: f.store,
+  const auxiliary = new NotificationAuxiliaryService({
+    appendWorkflowMessage: (_session, operation) => operation(), store: f.store,
     clearDecisionMessageActions: (decision) => f.delivery.clearDecisionMessageActions(decision),
     syncBatchDecisionMessageForSessionId: (id) => f.delivery.syncBatchDecisionMessageForSessionId(id)
   } as ConstructorParameters<typeof NotificationAuxiliaryService>[0]);

@@ -1,4 +1,4 @@
-import type { SessionRecord } from "../../shared/types.js";
+import type { SessionRecord, TurnRouteRecord } from "../../shared/types.js";
 import type {
   ProgressFailureReason,
   ProgressPhaseAggregate,
@@ -19,11 +19,15 @@ import {
   type ProgressNotificationEvent
 } from "./normalizer.js";
 
+import { WorkflowSequence, type WorkflowAppend } from "./workflow-sequence.js";
+
 export type { ProgressNotificationEvent } from "./normalizer.js";
 
 type ProgressTerminal = "completed" | "failed" | "interrupted";
 
 export type ProgressServiceDependencies = {
+  getActiveTurnRoute: (threadId: string) => TurnRouteRecord | null;
+  getProgressPhaseMessageForItem: (threadId: string, turnId: string, itemId: string) => ProgressPhaseMessageRecord | null;
   getSessionDirectory: (session: SessionRecord) => string;
   getInFlightTurnId: (threadId: string) => string | null;
   shouldSkipCalledProgress: (session: SessionRecord, now: number) => boolean;
@@ -76,11 +80,16 @@ export type ProgressServiceDependencies = {
 export class ProgressService {
   private readonly delivery: PhaseDeliveryAdapter;
   private readonly finalDelivery: FinalProgressDelivery;
-  private readonly queueByTurn = new Map<string, Promise<void>>();
+  private readonly sequence: WorkflowSequence;
   private readonly lastProgressByTurn = new Map<string, { text: string; failed: boolean; sentAt: number }>();
 
   constructor(private readonly deps: ProgressServiceDependencies) {
     this.delivery = new PhaseDeliveryAdapter(deps);
+    this.sequence = new WorkflowSequence(deps.getActiveTurnRoute, async (threadId, turnId) => {
+      this.lastProgressByTurn.delete(this.turnKey(threadId, turnId));
+      const active = deps.getActiveProgressPhaseMessage(threadId, turnId);
+      if (active) await this.finalizePhase(active, "phase_complete", null);
+    });
     this.finalDelivery = new FinalProgressDelivery({
       getRecord: deps.getProgressPhaseMessage,
       listPending: deps.listPendingProgressPhaseFinalDelivery,
@@ -92,8 +101,10 @@ export class ProgressService {
   start(): void { this.finalDelivery.start(); }
   async stop(): Promise<void> {
     await this.finalDelivery.stop();
-    await Promise.allSettled(this.queueByTurn.values());
+    await this.sequence.drain();
   }
+
+  readonly appendWorkflowMessage: WorkflowAppend = (session, operation, context) => this.sequence.append(session, operation, context);
 
   async sendProgressMessage(session: SessionRecord, event: ProgressNotificationEvent, turnId?: string): Promise<void> {
     const resolvedTurnId = turnId ?? this.deps.getInFlightTurnId(event.threadId);
@@ -111,10 +122,7 @@ export class ProgressService {
     await this.enqueue(key, async () => {
       const directory = this.deps.getSessionDirectory(session);
       let active = this.deps.getActiveProgressPhaseMessage(event.threadId, resolvedTurnId);
-      const owner = normalized.kind === "edited" && event.itemId
-        ? this.deps.getProgressPhaseMessageForFileEdit(event.threadId, resolvedTurnId, event.itemId)
-        : event.activity && event.activity.updateMode !== "snapshot" ? this.deps.getProgressPhaseMessageForActivity?.(event.threadId, resolvedTurnId, event.activity.key)
-        : null;
+      const owner = this.findOwner(event, resolvedTurnId, normalized.kind);
       if (owner && owner.state !== "active") {
         // A late completion updates its original summary, never opens another phase.
         const aggregate = appendPhaseEvent(owner.aggregate, normalized);
@@ -133,10 +141,12 @@ export class ProgressService {
       const duplicatePreview = previous?.text === text && previous.failed === event.failed && now - previous.sentAt < 30_000;
       const throttlePreview = normalized.kind === "thinking" && active?.phaseKind === "thinking" &&
         event.completed !== true && previous && now - previous.sentAt < 5_000;
-      // Edited completion/identity must reach the aggregate even when the preview is unchanged.
-      if (duplicatePreview && normalized.kind !== "edited" && !event.activity) return;
+      // New identities and completion metadata must reach the aggregate even if the preview matches.
+      if (active && duplicatePreview && normalized.kind !== "edited" && !event.activity &&
+        (!event.itemId || owner?.id === active.id && event.completed !== true)) return;
       if (normalized.kind === "called" && event.operationKind !== "dynamicTool" && !event.failed && this.deps.shouldSkipCalledProgress(session, now)) return;
       if (opensNewPhase(active, normalized) && active) {
+        this.lastProgressByTurn.delete(key);
         await this.finalizePhase(active, "phase_complete", null);
         active = null;
       }
@@ -204,6 +214,7 @@ export class ProgressService {
     if (!turnId) return;
     const terminal = options.terminal ?? "completed";
     await this.enqueue(this.turnKey(threadId, turnId), async () => {
+      this.lastProgressByTurn.delete(this.turnKey(threadId, turnId));
       const active = this.deps.getActiveProgressPhaseMessage(threadId, turnId);
       if (active) {
         await this.finalizePhase(active, terminalState(terminal), null);
@@ -236,6 +247,20 @@ export class ProgressService {
     await this.finalDelivery.retryPending();
   }
 
+  private findOwner(event: ProgressNotificationEvent, turnId: string, kind: ProgressPhaseMessageRecord["phaseKind"]): ProgressPhaseMessageRecord | null {
+    // Turn-wide snapshots are new observations after a boundary, not late item results.
+    if (event.activity?.updateMode === "snapshot") return null;
+    if (event.itemId) {
+      const owner = this.deps.getProgressPhaseMessageForItem(event.threadId, turnId, event.itemId);
+      if (owner?.phaseKind === kind) return owner;
+      // Old rows predate generic item ownership; their typed identities still apply.
+      if (kind === "edited") {
+        return this.deps.getProgressPhaseMessageForFileEdit(event.threadId, turnId, event.itemId);
+      }
+    }
+    return event.activity ? this.deps.getProgressPhaseMessageForActivity?.(event.threadId, turnId, event.activity.key) ?? null : null;
+  }
+
   private async finalizePhase(
     active: ProgressPhaseMessageRecord,
     state: Exclude<ProgressPhaseState, "active">,
@@ -252,13 +277,7 @@ export class ProgressService {
   }
 
   private enqueue(key: string, operation: () => Promise<void>): Promise<void> {
-    const previous = this.queueByTurn.get(key) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(operation);
-    this.queueByTurn.set(key, current);
-    void current.finally(() => {
-      if (this.queueByTurn.get(key) === current) this.queueByTurn.delete(key);
-    }).catch(() => undefined);
-    return current.catch((error) => {
+    return this.sequence.run(key, operation).catch((error) => {
       logger.warn("bridge.progress.lifecycle_failed", {
         key,
         error: error instanceof Error ? error.message : String(error)

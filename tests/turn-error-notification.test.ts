@@ -106,7 +106,8 @@ test("interrupted terminal reason is visible without converting Run into failed 
   await h.error("Too many approval denials");
   await h.finish("Too many approval denials");
   const closed = h.store.getProgressPhaseMessage(phase.id);
-  assert.equal(closed?.state, "interrupted");
+  // The error message ends the activity phase; task interruption remains on the route.
+  assert.equal(closed?.state, "phase_complete");
   assert.deepEqual(closed?.aggregate.run, phase.aggregate.run);
   assert.equal(h.sends.filter((text) => text.includes("Too many approval denials")).length, 1);
   assert.doesNotMatch(h.edits.at(-1) ?? "", /Recovering/);

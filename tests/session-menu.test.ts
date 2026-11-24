@@ -3159,6 +3159,12 @@ test("adjacent called progress becomes a retained completion summary", async () 
       }
     });
 
+    assert.equal(store.getActiveProgressPhaseMessage("thread-progress", "turn-progress")?.state, "active",
+      "a skipped duplicate assistant message is not a new chronological boundary");
+    await notificationService.handleAppServerNotification({
+      method: "turn/completed", params: { threadId: "thread-progress", turn: { id: "turn-progress", status: "completed" } }
+    });
+
     assert.ok(sends.length >= 1);
     assert.ok(edits.some((entry) =>
       entry.messageId === "2" &&

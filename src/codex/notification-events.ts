@@ -129,7 +129,7 @@ export function extractContextLeftPercent(
   return Math.max(0, Math.min(100, ((max - used) / max) * 100));
 }
 
-export function extractCompletedAgentMessage(notification: AppServerNotification): (PresentedAssistantMessage & { threadId: string }) | null {
+export function extractCompletedAgentMessage(notification: AppServerNotification): (PresentedAssistantMessage & { threadId: string; turnId?: string }) | null {
   if (notification.method !== "item/completed") {
     return null;
   }
@@ -149,7 +149,8 @@ export function extractCompletedAgentMessage(notification: AppServerNotification
   // `phase` is presentation metadata. Codex 0.162.1 can complete commentary,
   // partial_answer, and final_answer items independently; only turn/completed
   // is a terminal turn signal, so every completed agent message remains visible.
-  return { threadId, ...message };
+  const turnId = firstString(params?.turnId);
+  return { threadId, ...(turnId ? { turnId } : {}), ...message };
 }
 
 export function extractModelRuntimeEvent(notification: AppServerNotification): AppServerModelRuntimeEvent | null {

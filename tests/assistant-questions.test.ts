@@ -138,9 +138,10 @@ test("live notification delivery attaches choices once and keeps async questions
   } as never, formatCodexTelegramHtml: () => null, getSessionDirectory: () => "/work", rememberLastAssistantMessage: () => {},
     createAssistantReplyActions: (session, message) => replies.createActions(session, message) });
   const recent = new Map([[session.id, Date.now()]]);
-  const service = new NotificationMessageService({ store, assistantOutputByThread: new Map(), recentResolvedMcpBySession: recent,
+  const service = new NotificationMessageService({
+    appendWorkflowMessage: (_session, operation) => operation(), store, assistantOutputByThread: new Map(), recentResolvedMcpBySession: recent,
     resolveNotificationSession: async () => session, resetTypingStatus: () => {}, clearRetryingRecovery: () => {},
-    getSessionDirectory: () => "/work", clearProgressMessageForThread: async () => {},
+    getSessionDirectory: () => "/work",
     sendLongSpec: async (_chat, spec) => { sent.push(spec); },
     sendTranscriptMessage: (session, message, thread) => operations.sendTranscriptMessage(session, message, thread) });
   const live = extractCompletedAgentMessage({ method: "item/completed", params: { threadId: "t", item } })!;

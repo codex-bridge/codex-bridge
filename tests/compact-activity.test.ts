@@ -18,6 +18,7 @@ async function harness(t: test.TestContext, connected = true) {
   await store.setActiveSession("chat", session.id);
   const sent: Array<{ spec: MessageSpec; options: Omit<BridgeMessageOptions, "messageSpec"> | undefined }> = [];
   const service = new CompactService({
+    appendWorkflowMessage: (_session, operation) => operation(),
     store,
     codexClient: {
       startCompactThread: async () => {},

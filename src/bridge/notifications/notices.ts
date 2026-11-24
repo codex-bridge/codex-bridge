@@ -10,6 +10,7 @@ import { messageBodyPartText } from "../messages/content.js";
 import { McpStartupTracker, mcpStartupKey, isMcpFailure } from "../status/mcp-startup.js";
 import { SessionAccessService } from "../sessions/access.js";
 import { canDeliverSession } from "./delivery-target.js";
+import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 
 const labels: Record<AppServerWarningEvent["kind"], string> = {
   warning: "Codex warning", guardianWarning: "Guardian warning", configWarning: "Configuration warning", deprecationNotice: "Deprecation notice"
@@ -33,6 +34,7 @@ export class NotificationNoticeService {
   private readonly pendingNotices = new Map<string, PendingNotice>();
   private flushing = false;
   constructor(private readonly deps: {
+    appendWorkflowMessage: WorkflowAppend;
     store: BridgeStore;
     mcpStartup: McpStartupTracker;
     resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
@@ -136,9 +138,9 @@ export class NotificationNoticeService {
       this.mcpReceipts.set(key, { sessionId: session.id, name: identity.name, origins: new Set([identity.origin]) });
       if (this.mcpReceipts.size > 512) this.mcpReceipts.delete(this.mcpReceipts.keys().next().value!);
     }
-    await this.deps.sendLongSpec(sourceId, createMessage({ kind: spec.kind, titleLabel: spec.title,
+    await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(sourceId, createMessage({ kind: spec.kind, titleLabel: spec.title,
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-      presentation: "activity", body: spec.body }));
+      presentation: "activity", body: spec.body })), { sourceId });
   }
 
   private releaseMcpFailure(origin: string, name: string): Set<string> {

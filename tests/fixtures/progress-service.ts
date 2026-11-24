@@ -8,6 +8,8 @@ export function fixtureProgressService(store: BridgeStore, deliver: (id: string,
   shouldSkipCalledProgress = () => false) {
   let next = 0;
   return new ProgressService({
+    getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),
+    getProgressPhaseMessageForItem: (thread, turn, id) => store.getProgressPhaseMessageForItem(thread, turn, id),
     getSessionDirectory: s => s.pathKey, getInFlightTurnId: () => null, shouldSkipCalledProgress,
     getProgressPhaseMessage: id => store.getProgressPhaseMessage(id),
     getActiveProgressPhaseMessage: (thread, turn) => store.getActiveProgressPhaseMessage(thread, turn),

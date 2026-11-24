@@ -7,10 +7,12 @@ import type { PresentedAssistantMessage } from "../../shared/assistant-display.j
 import { protectPresentedAssistantText } from "../../shared/assistant-display.js";
 import { BridgeStore } from "../../store/index.js";
 import { logger } from "../../logging/logger.js";
+import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 
-export type CompletedAgentMessage = PresentedAssistantMessage & { threadId: string };
+export type CompletedAgentMessage = PresentedAssistantMessage & { threadId: string; turnId?: string };
 
 export type NotificationMessageDependencies = {
+  appendWorkflowMessage: WorkflowAppend;
   store: BridgeStore;
   assistantOutputByThread: Map<string, boolean>;
   recentResolvedMcpBySession: Map<string, number>;
@@ -20,7 +22,6 @@ export type NotificationMessageDependencies = {
   getSessionDirectory: (session: SessionRecord) => string;
   sendLongSpec: (chatId: string, messageSpec: MessageSpec) => Promise<void>;
   sendTranscriptMessage: (session: SessionRecord, message: MessageRecord & TranscriptMessage, threadId: string) => Promise<void>;
-  clearProgressMessageForThread: (threadId: string) => Promise<void>;
 };
 
 export class NotificationMessageService {
@@ -31,7 +32,7 @@ export class NotificationMessageService {
     const nativeKey = agentMessage.sourceItemId ? JSON.stringify([agentMessage.threadId, agentMessage.sourceItemId]) : null;
     const previous = nativeKey ? this.nativeMessages.get(nativeKey) : undefined;
     const displayed = protectPresentedAssistantText(agentMessage.text, agentMessage.assistantDisplay, previous?.assistantDisplay);
-    agentMessage = { threadId: agentMessage.threadId, sourceItemId: agentMessage.sourceItemId, ...displayed,
+    agentMessage = { threadId: agentMessage.threadId, turnId: agentMessage.turnId, sourceItemId: agentMessage.sourceItemId, ...displayed,
       ...assistantPresentation({ ...agentMessage, ...displayed }) };
     logger.info("bridge.notification.agent_message", {
       threadId: agentMessage.threadId,
@@ -54,7 +55,6 @@ export class NotificationMessageService {
         threadId: agentMessage.threadId,
         messageId: latestMessage?.id
       });
-      await this.deps.clearProgressMessageForThread(agentMessage.threadId);
       return;
     }
 
@@ -71,23 +71,23 @@ export class NotificationMessageService {
     }
     const resolvedAt = this.deps.recentResolvedMcpBySession.get(session.id);
     if (resolvedAt) this.deps.recentResolvedMcpBySession.delete(session.id);
-    if (resolvedAt && Date.now() - resolvedAt < 120_000 && agentMessage.delivery !== "async") {
-      const messageSpec = createMessage({
-        kind: "mcp",
-        session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-        body: [{ type: "text", text: agentMessage.text.trim() }],
-        ...(agentMessage.assistantDisplay ? { assistantDisplay: agentMessage.assistantDisplay } : {}),
-        ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {}),
-        actions: [helpAction()]
-      });
-      await this.deps.sendLongSpec(session.telegramChatId, messageSpec);
-      await this.deps.clearProgressMessageForThread(agentMessage.threadId);
-      return;
-    }
-    await this.deps.sendTranscriptMessage(session, {
-      ...message, ...assistantPresentation(agentMessage),
-      ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {})
-    }, agentMessage.threadId);
-    await this.deps.clearProgressMessageForThread(agentMessage.threadId);
+    await this.deps.appendWorkflowMessage(session, async () => {
+      if (resolvedAt && Date.now() - resolvedAt < 120_000 && agentMessage.delivery !== "async") {
+        const messageSpec = createMessage({
+          kind: "mcp",
+          session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
+          body: [{ type: "text", text: agentMessage.text.trim() }],
+          ...(agentMessage.assistantDisplay ? { assistantDisplay: agentMessage.assistantDisplay } : {}),
+          ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {}),
+          actions: [helpAction()]
+        });
+        await this.deps.sendLongSpec(session.telegramChatId, messageSpec);
+        return;
+      }
+      await this.deps.sendTranscriptMessage(session, {
+        ...message, ...assistantPresentation(agentMessage),
+        ...(agentMessage.sourceItemId ? { sourceItemId: agentMessage.sourceItemId } : {})
+      }, agentMessage.threadId);
+    }, { turnId: agentMessage.turnId });
   }
 }

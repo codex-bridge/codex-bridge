@@ -43,7 +43,8 @@ const activities = fixtureProgressService(store, (id, spec, edit) => {
   const session = sessions.find(s => s.id === spec.session?.id)!;
   publish(session.codexThreadId, id, spec, edit ? "edit" : "send");
 });
-const notices = new NotificationNoticeService({ store, mcpStartup: new McpStartupTracker(),
+const notices = new NotificationNoticeService({
+  appendWorkflowMessage: (_session, operation) => operation(), store, mcpStartup: new McpStartupTracker(),
   resolveNotificationSession: thread => store.getSessionByThreadId(thread), getSessionDirectory: s => s.pathKey,
   sendLongSpec: async (_source, spec) => {
     const session = sessions.find(s => s.id === spec.session?.id)!;

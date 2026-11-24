@@ -1,6 +1,8 @@
 export class KeyedQueue {
   private readonly tails = new Map<string, Promise<void>>();
 
+  async drain(): Promise<void> { await Promise.allSettled(this.tails.values()); }
+
   async run<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.tails.get(key) ?? Promise.resolve();
     let release: (() => void) | undefined;

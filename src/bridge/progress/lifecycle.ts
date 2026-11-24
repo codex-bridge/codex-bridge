@@ -20,7 +20,17 @@ export function appendPhaseEvent(
   current: ProgressPhaseAggregate,
   normalized: NormalizedPhaseEvent
 ): ProgressPhaseAggregate {
+  const { itemId, completed } = normalized.event;
+  const itemIndex = itemId ? (current.items ?? []).findIndex(item => item.id === itemId) : -1;
+  const previousItem = current.items?.[itemIndex];
+  if (previousItem?.completed) return current;
+  const items = current.items?.map(item => ({ ...item })) ?? [];
+  if (itemId) {
+    if (previousItem) items[itemIndex] = { id: itemId, completed: completed === true };
+    else items.push({ id: itemId, completed: completed === true });
+  }
   const aggregate: ProgressPhaseAggregate = {
+    ...(items.length ? { items } : {}),
     eventCount: current.eventCount + 1,
     operations: current.operations.map((operation) => ({ ...operation })),
     files: { ...current.files },
@@ -75,7 +85,9 @@ export function appendPhaseEvent(
     }
   }
 
-  if (normalized.kind === "called" && normalized.operation) {
+  // A protocol item can report both start and completion; a successful result is
+  // not another tool invocation. Identity-free legacy observations keep their counts.
+  if (normalized.kind === "called" && normalized.operation && (!previousItem || normalized.event.failed)) {
     appendAdjacentOperation(aggregate, normalized.operation, normalized.event.failed);
   }
 

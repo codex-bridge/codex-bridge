@@ -285,7 +285,7 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     logger.info("telegram.command.compact", { chatId });
     await service.ensureChatAllowed(chatId);
     const result = await service.compactActiveSessionMessage(chatId);
-    await replySpec(ctx, result);
+    await service.deliverCompactResult(chatId, result, async () => { await replySpec(ctx, result); });
   });
 
   bot.command("bot_restart", async (ctx) => {

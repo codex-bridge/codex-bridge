@@ -10,8 +10,10 @@ import { BridgeStore } from "../../store/index.js";
 import type { RateLimitNotifier } from "./rate-limit-notifier.js";
 import type { TokenUsageTracker } from "../status/token-usage.js";
 import type { StatusRuntimeState } from "../status/runtime-state.js";
+import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 
 export type NotificationAuxiliaryDependencies = {
+  appendWorkflowMessage: WorkflowAppend;
   store: BridgeStore;
   statusRuntimeState: Pick<StatusRuntimeState, "statusMessageBySession" | "resetEditThrottle" | "getLabel">;
   modelRuntimeEventByThread: Map<string, Omit<AppServerModelRuntimeEvent, "threadId"> & { updatedAt: number }>;
@@ -68,7 +70,8 @@ export class NotificationAuxiliaryService {
           body: [{ type: "text", text: "MCP request accepted by the server." }],
           actions: [helpAction()]
         });
-        await this.deps.sendLongSpec(decision.telegramChatId, messageSpec);
+        await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(decision.telegramChatId, messageSpec),
+          { sourceId: decision.telegramChatId });
       }
     }
     if (decision?.state === "pending" || decision?.state === "awaitingInput") {

@@ -89,7 +89,7 @@ type WebSessionOperations = {
   creation: Pick<SessionCreationService, "createSessionForDirectory">;
   interaction: Pick<SessionInteractionService, "renameSession">;
   mutation: Pick<SessionMutationService, "archiveSession" | "unarchiveSession" | "releaseBridgeSessionLock">;
-  compact: Pick<CompactService, "compactSession">;
+  compact: Pick<CompactService, "compactSession" | "deliverResult">;
   stop: Pick<SessionStopService, "stopSession">;
   status: Pick<StatusViewService, "renderSession">;
   queued: Pick<QueuedSubmissionService, "cancelWithOutcome">;
@@ -265,7 +265,12 @@ export class LocalWebBridgeApi implements WebBridgeApi {
       ? this.operations!.compact.compactSession(access.session)
       : this.operations!.stop.stopSession(access.session, WEB_SOURCE_ID));
     access.assertCurrent();
-    return this.operationResult(message);
+    return tool === "compact"
+      ? this.operations.compact.deliverResult(WEB_SOURCE_ID, message, async () => {
+        access.assertCurrent();
+        return this.operationResult(message);
+      })
+      : this.operationResult(message);
   }
 
   async readQueue(threadId: string, leaseVersion: number | undefined,

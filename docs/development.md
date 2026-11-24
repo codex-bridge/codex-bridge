@@ -85,6 +85,31 @@ Other text demonstrates Markdown and SSE behavior. Set `WEB_FIXTURE_HOST`,
 `WEB_FIXTURE_PORT` and `WEB_FIXTURE_STATIC_ROOT` to use an explicit test listener
 and built frontend; never reuse a production database for this fixture.
 
+## Workflow message ordering
+
+New chronological outputs use `ProgressService.appendWorkflowMessage` after producer
+deduplication and before the transport write. `WorkflowSequence` serializes that
+write with progress events and final-summary retries for the accepted turn route.
+It ends the previous continuous phase and resets its preview cache. The session,
+source and optional explicit turn must match the active route; missing context
+never selects an unrelated turn. Message titles and activity styling do not define
+these boundaries.
+
+Compact notifications and manual replies, assistant/MCP conversation output,
+approval/input cards, notices and errors use this path. Run RPCs outside the delivery
+queue: a Compact request can itself need an approval card. Slack and Telegram wrap
+only the actual interaction write; post-delivery follow-up runs outside the queue.
+Web Compact results close the phase before returning, but HTTP responses and SSE
+are separate channels and do not guarantee browser arrival order.
+
+Existing item results update the original phase by native item/key, including late
+results after a boundary. Turn-wide plan snapshots start a new occurrence after a
+boundary. Working, typing and the fixed subagent overview retain their independent
+update behavior. Deduplicated outputs and existing-card refreshes are not new
+boundaries. Optional aggregate item metadata supports old database rows without a
+migration; missing identities are never inferred from text or timing. Ending a
+message phase does not complete or fail the Codex task.
+
 ## Codex verification CLI
 
 `yarn verify:codex` starts an independent, read-only app-server process. It does

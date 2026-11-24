@@ -43,6 +43,8 @@ async function fixture(t: TestContext) {
   const sends: string[] = [];
   const makeService = () => {
     const service = new ProgressService({
+      getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),
+      getProgressPhaseMessageForItem: (thread, turn, id) => store.getProgressPhaseMessageForItem(thread, turn, id),
       getSessionDirectory: () => "/project",
       getInFlightTurnId: () => "live-turn",
       shouldSkipCalledProgress: () => false,

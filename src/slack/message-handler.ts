@@ -173,7 +173,8 @@ export function createSlackMessageHandler(input: {
       return;
     }
     if (command === "compact" || command === "/compact") {
-      await sendSpec(chatId, await service.compactActiveSessionMessage(chatId));
+      const message = await service.compactActiveSessionMessage(chatId);
+      await service.deliverCompactResult(chatId, message, () => sendSpec(chatId, message));
       return;
     }
     if (command === "bot_disconnect" || command === "/bot_disconnect") {
