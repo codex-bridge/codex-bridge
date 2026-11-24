@@ -157,9 +157,12 @@ Voice transcription is optional and requires:
 
 ```dotenv
 OPENAI_API_KEY=<api-key>
-SLACK_AUDIO_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+AUDIO_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 # SLACK_ATTACHMENT_DIR=./workspaces/slack-attachments
 ```
+
+`SLACK_AUDIO_TRANSCRIPTION_MODEL` remains a compatible fallback when the shared
+`AUDIO_TRANSCRIPTION_MODEL` is unset. Slack and Telegram use the same transcription service.
 
 Socket Mode reconnects automatically. The default heartbeat timeouts are 15
 seconds for the client and 45 seconds for the server. Override

@@ -4,6 +4,7 @@ import test from "node:test";
 import { loadConfig } from "../src/config/index.js";
 
 const envKeys = [
+  "AUDIO_TRANSCRIPTION_MODEL", "SLACK_AUDIO_TRANSCRIPTION_MODEL", "OPENAI_API_KEY",
   "WEB_ENABLED",
   "WEB_HOST",
   "WEB_PORT",
@@ -56,6 +57,16 @@ function withEnv<T>(values: Record<string, string | undefined>, run: () => T): T
     }
   }
 }
+
+test("audio transcription uses the shared model setting with a compatible Slack fallback", () => {
+  for (const [values, expected] of [
+    [{}, "gpt-4o-mini-transcribe"],
+    [{ SLACK_AUDIO_TRANSCRIPTION_MODEL: "legacy-model" }, "legacy-model"],
+    [{ AUDIO_TRANSCRIPTION_MODEL: "shared-model", SLACK_AUDIO_TRANSCRIPTION_MODEL: "legacy-model" }, "shared-model"]
+  ] as Array<[Record<string, string>, string]>) {
+    assert.equal(withEnv({ TELEGRAM_BOT_TOKEN: "test", ...values }, () => loadConfig()).audioTranscriptionModel, expected);
+  }
+});
 
 test("loads Slack-only chat adapter configuration", () => {
   const config = withEnv(

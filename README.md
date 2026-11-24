@@ -29,7 +29,7 @@ commits before its first public release.
 | Client | Main use | Current support |
 | --- | --- | --- |
 | Web | Primary workbench | Projects, sessions, messages, image uploads, approvals, and connection takeover. |
-| Telegram | Mobile access | Text and image input, session commands, progress messages, and approvals. |
+| Telegram | Mobile access | Text, images, optional voice transcription, phase summaries, and approvals. |
 | Slack | Team chat | Thread-aware routing, approvals, images, and optional voice transcription. |
 
 Web can run by itself. Telegram and Slack are optional adapters. All enabled

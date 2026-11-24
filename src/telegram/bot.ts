@@ -16,7 +16,7 @@ import { telegramSourceForContext } from "../shared/telegram-address.js";
 import { TelegramMessageTransport } from "./transport.js";
 import { formatTelegramHtml } from "./text.js";
 import { configureTelegramApi, type TelegramApiOptions } from "./api-policy.js";
-import { downloadTelegramImages, telegramImageStorage } from "./attachments.js";
+import { downloadTelegramMedia, telegramMediaStorage, telegramMediaKind, TelegramAttachmentError } from "./attachments.js";
 import { TelegramMediaGroups, registerTelegramMediaGroups } from "./media-groups.js";
 import { markManagedAttachmentPathsStatus } from "../bridge/input/attachment-files.js";
 
@@ -101,15 +101,17 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     const ctx = contexts[0]!;
     logger.warn("telegram.attachment.failed", { chatId: telegramSourceForContext(ctx),
       errorType: error instanceof Error ? error.name : "Unknown" });
-    await replyPrompt(ctx, error instanceof Error && error.name === "TelegramAttachmentError"
+    await replyPrompt(ctx, error instanceof TelegramAttachmentError
       ? error.message : "Attachment processing failed. Check the Bridge logs before retrying.");
   };
-  const deliverImages = async (contexts: Context[]): Promise<void> => {
+  const deliverMedia = async (contexts: Context[]): Promise<void> => {
     const ctx = contexts[0]!, source = telegramSourceForContext(ctx);
     const session = await service.getActiveSessionContext(source);
     if (!session?.id) { await replyPrompt(ctx, "Choose a session first.", [sessionAction(), helpAction()]); return; }
-    const storage = telegramImageStorage();
-    const files = await downloadTelegramImages(bot, contexts);
+    const kind = telegramMediaKind(ctx);
+    if (!kind) throw new TelegramAttachmentError("Only supported images and audio can be attached.");
+    const storage = telegramMediaStorage(kind);
+    const files = await downloadTelegramMedia(bot, contexts, kind);
     const attachments = await storage.save(files, { requestId: String(ctx.message!.message_id), sessionId: session.id, status: "downloaded" });
     const paths = attachments.map(attachment => attachment.localPath);
     try {
@@ -129,14 +131,14 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
       }
     } catch (error) { await markManagedAttachmentPathsStatus(paths, "failed"); throw error; }
   };
-  const mediaGroups = new TelegramMediaGroups(deliverImages, mediaError);
+  const mediaGroups = new TelegramMediaGroups(deliverMedia, mediaError);
   registerTelegramMediaGroups(bot, mediaGroups);
   bot.use(async (ctx, next) => {
     if (!ctx.message) return next();
-    if (ctx.message.media_group_id && (ctx.message.photo || ctx.message.document)) { mediaGroups.add(ctx); return; }
+    if (ctx.message.media_group_id) { mediaGroups.add(ctx); return; }
     await mediaGroups.flushSource(telegramSourceForContext(ctx));
-    if (ctx.message.photo || ctx.message.document) {
-      try { await deliverImages([ctx]); } catch (error) { await mediaError([ctx], error); }
+    if (ctx.message.photo || ctx.message.document || ctx.message.voice || ctx.message.audio) {
+      try { await deliverMedia([ctx]); } catch (error) { await mediaError([ctx], error); }
       return;
     }
     return next();

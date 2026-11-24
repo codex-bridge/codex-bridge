@@ -9,7 +9,7 @@ export async function transcribeAudioFile(input: {
 }): Promise<string> {
   const apiKey = input.apiKey?.trim();
   if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required for Slack audio transcription.");
+    throw new Error("OPENAI_API_KEY is required for audio transcription.");
   }
   const fileBytes = await readFile(input.filePath);
   const form = new FormData();
@@ -21,6 +21,7 @@ export async function transcribeAudioFile(input: {
   );
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     body: form,
+    signal: AbortSignal.timeout(120_000),
     headers: {
       Authorization: `Bearer ${apiKey}`
     },

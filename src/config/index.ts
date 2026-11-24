@@ -72,7 +72,7 @@ export interface AppConfig {
   slackSocketServerPingTimeoutMs: number;
   bridgeCallbackSecret: string | null;
   slackAllowedChannelIds: Set<string> | null;
-  slackAudioTranscriptionModel?: string;
+  audioTranscriptionModel?: string;
   openaiApiKey?: string | null;
   bridgeDbFile: string;
   codexTransport: "stdio" | "websocket";
@@ -198,7 +198,7 @@ export function loadConfig(): AppConfig {
     ),
     bridgeCallbackSecret,
     slackAllowedChannelIds: parseAllowedChatIds(process.env.SLACK_ALLOWED_CHANNEL_IDS),
-    slackAudioTranscriptionModel: optional("SLACK_AUDIO_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe"),
+    audioTranscriptionModel: optional("AUDIO_TRANSCRIPTION_MODEL", optional("SLACK_AUDIO_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")),
     openaiApiKey: process.env.OPENAI_API_KEY?.trim() || null,
     bridgeDbFile: optional("BRIDGE_DB_FILE", "./workspaces/bridge.sqlite"),
     ...codexRuntime

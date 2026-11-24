@@ -20,7 +20,7 @@ test("tables at the start, separated tables, pipe literals and fenced code remai
   }
 });
 test("multiple tables preserve order, Unicode, escaped pipes and CRLF line endings", () => {
-  const second = "| A | B |\n|---|---|\n| a\\|b | 中文 |";
+  const second = "| A | B |\n|---|---|\n| a\\|b | \u4e2d\u6587 |";
   const input = `First\n${table}\n\nSecond\n${second}`;
   const expected = `First\n\n${table}\n\nSecond\n\n${second}`;
   assert.equal(separateTelegramTables(input), expected);

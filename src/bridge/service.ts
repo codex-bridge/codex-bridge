@@ -649,8 +649,8 @@ export class BridgeService {
     });
     this.incomingPayloadService = new IncomingPayloadService({
       openaiApiKey: this.config.openaiApiKey,
-      transcriptionModel: this.config.slackAudioTranscriptionModel,
-      createPromptSpec: (kind, text) => this.runtimePromptFactory.createIncoming(kind, text, null),
+      transcriptionModel: this.config.audioTranscriptionModel,
+      createPromptSpec: async (kind, text, sourceId) => this.runtimePromptFactory.createIncoming(kind, text, await this.store.getActiveSession(sourceId)),
       handleIncomingUserText: (input) => this.handleIncomingUserText(input)
     });
     this.incomingPreflightService = new IncomingPreflightService({

@@ -21,7 +21,7 @@ export type IncomingPayloadInput = {
 export type IncomingPayloadDependencies = {
   openaiApiKey: string | null | undefined;
   transcriptionModel?: string | null;
-  createPromptSpec: (kind: "error", text: string) => MessageSpec;
+  createPromptSpec: (kind: "error", text: string, sourceId: string) => MessageSpec | Promise<MessageSpec>;
   handleIncomingUserText: (input: {
     inputParts?: CodexTurnInputPart[];
     queue?: boolean;
@@ -62,7 +62,7 @@ export class IncomingPayloadService {
         : "No supported attachment content was available.";
       return {
         routed: false,
-        prompt: this.deps.createPromptSpec("error", text)
+        prompt: await this.deps.createPromptSpec("error", text, input.telegramChatId)
       };
     }
 

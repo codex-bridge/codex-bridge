@@ -642,9 +642,11 @@
       "src/shared/approval-policy.ts"
     ],
     "mcpServer/oauthLogin/completed": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/codex/notification-events.ts"
     ],
     "mcpServer/startupStatus/updated": [
+      "src/bridge/notifications/delivery-effect.ts",
       "src/codex/notification-events.ts"
     ],
     "mcpServerStatus/list": [

@@ -176,3 +176,21 @@ original sequence. Live previews and Working/typing panels are omitted. Failures
 remain in their phase summary. Replies, approvals, questions and Actions remain.
 Run counts distinct upstream execution items; missing identity is not guessed.
 Slack and Web keep their own live-display policy.
+
+## Voice and audio input
+
+Voice notes and audio files use the same transcription service as Slack. Configure
+`OPENAI_API_KEY` and optionally `AUDIO_TRANSCRIPTION_MODEL` (default:
+`gpt-4o-mini-transcribe`). `SLACK_AUDIO_TRANSCRIPTION_MODEL` remains a fallback
+for existing installations. This is an OpenAI transcription API call, separate
+from the Codex CLI login. Without a key, Bridge reports a configuration error in
+the original topic and does not submit an empty turn.
+
+OGG/Opus voice notes and supported MP3, MP4/M4A, WAV, FLAC and WebM containers are
+validated and forwarded for transcription. No local transcoding dependency is
+required. The Telegram download limit is 20 MiB per audio file, three files per
+batch and 25 MiB in total. Captions accompany the transcript. The resulting text
+uses the existing Codex routing/steering/queue path; image input remains localImage.
+Transcription has a two-minute request deadline and no automatic retry of unknown
+outcomes. Failure details are shown in the current session context. No audio
+response-generation feature is implied.
