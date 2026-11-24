@@ -2,7 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Bot } from "grammy";
 import { parseTelegramAddress } from "../shared/telegram-address.js";
 
-export const telegramRefreshPolicy = { progressIntervalMs: 5_000, workingIntervalMs: 20_000, typingEnabled: false, progressMode: "summary" } as const;
+export const telegramRefreshPolicy = { typingEnabled: false, progressMode: "summary" } as const;
 
 type Clock = { now: () => number; sleep: (ms: number, signal?: AbortSignal) => Promise<void> };
 type Limits = { botPerSecond: number; groupPerMinute: number; chatIntervalMs: number; backgroundIntervalMs: number };
@@ -25,7 +25,7 @@ export class TelegramDeliveryBudget {
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly clock: Clock = { now: () => Date.now(), sleep: (ms, signal) => sleep(ms, undefined, { signal }) },
-    private readonly limits: Limits = { botPerSecond: 25, groupPerMinute: 18, chatIntervalMs: 1_000, backgroundIntervalMs: 10_000 }) {}
+    private readonly limits: Limits = { botPerSecond: 25, groupPerMinute: 18, chatIntervalMs: 1_000, backgroundIntervalMs: 1_000 }) {}
 
   /** Called at the raw API boundary, once per actual attempt. */
   async acquire(chatId: string, signal?: AbortSignal): Promise<void> {

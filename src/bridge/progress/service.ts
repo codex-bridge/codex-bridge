@@ -172,7 +172,8 @@ export class ProgressService {
         active = null;
       }
 
-      const summaryOnly = this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressMode === "summary";
+      const refreshPolicy = this.deps.getRefreshPolicy?.(session.telegramChatId);
+      const summaryOnly = refreshPolicy?.progressMode === "summary";
       const aggregate = appendPhaseEvent(active?.aggregate ?? { ...emptyPhaseAggregate(),
         ...(summaryOnly ? { summaryOnly: true, itemCountReliable: true } : {}) }, normalized);
       if (active && aggregate === active.aggregate) {
@@ -190,7 +191,7 @@ export class ProgressService {
         record = updated ?? active;
         if (summaryOnly) {
           this.pendingPreviewByTurn.delete(key);
-        } else if (this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressIntervalMs) {
+        } else if (refreshPolicy?.progressIntervalMs) {
           if (!duplicatePreview && !event.failed) {
             this.pendingPreviewByTurn.set(key, { phaseId: record.id, preview: { spec: preview, text, failed: event.failed } });
             this.schedulePreview(key, record);
@@ -333,7 +334,9 @@ export class ProgressService {
 
   private async flushPendingPreview(key: string, active: ProgressPhaseMessageRecord | null): Promise<void> {
     const pending = this.pendingPreviewByTurn.get(key);
-    if (active && pending?.phaseId === active.id && this.deps.getRefreshPolicy?.(active.sourceId)?.progressIntervalMs) {
+    const policy = active && this.deps.getRefreshPolicy?.(active.sourceId);
+    if (policy?.progressMode === "summary") { this.pendingPreviewByTurn.delete(key); return; }
+    if (active && pending?.phaseId === active.id && policy?.progressIntervalMs) {
       this.schedulePreview(key, active);
       return;
     }
@@ -349,7 +352,9 @@ export class ProgressService {
     const entry = { controller, task: Promise.resolve() };
     entry.task = Promise.resolve().then(async () => {
       while (!signal.aborted && this.pendingPreviewByTurn.get(key)?.phaseId === record.id) {
-        const interval = this.deps.getRefreshPolicy?.(record.sourceId)?.progressIntervalMs ?? 0;
+        const policy = this.deps.getRefreshPolicy?.(record.sourceId);
+        if (policy?.progressMode === "summary") { this.pendingPreviewByTurn.delete(key); return; }
+        const interval = policy?.progressIntervalMs ?? 0;
         const wait = Math.max(0, (this.lastProgressByTurn.get(key)?.sentAt ?? 0) + interval - Date.now());
         if (wait) {
           await this.waitForPreview(wait, signal);

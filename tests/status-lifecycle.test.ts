@@ -41,10 +41,10 @@ test("summary-only transports do not create or update a live Working panel", asy
   await f.lifecycle.stop();
 });
 
-test("Telegram Working keeps the latest status on a twenty-second interval and omits intermediate edits", async t => {
+test("live Working honors its configured interval and omits intermediate edits", async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
   const f = fixture(); t.after(() => f.lifecycle.stop());
-  f.deps.getRefreshPolicy = () => ({ ...telegramRefreshPolicy, progressMode: undefined });
+  f.deps.getRefreshPolicy = () => ({ typingEnabled: false, progressIntervalMs: 5_000, workingIntervalMs: 20_000 });
   f.deps.waitForBackgroundRefresh = async (_source, _session, signal) => !signal.aborted;
   await f.lifecycle.setSessionStatus(session, "Working");
   for (const label of ["Thinking", "Running command", "Waiting"]) await f.lifecycle.setSessionStatus(session, label);
@@ -60,7 +60,7 @@ test("Telegram Working keeps the latest status on a twenty-second interval and o
 test("deferred Working detail updates with an unchanged label survive and are not appended twice", async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
   const f = fixture(); t.after(() => f.lifecycle.stop());
-  f.deps.getRefreshPolicy = () => ({ ...telegramRefreshPolicy, progressMode: undefined });
+  f.deps.getRefreshPolicy = () => ({ typingEnabled: false, progressIntervalMs: 5_000, workingIntervalMs: 20_000 });
   f.deps.waitForBackgroundRefresh = async (_source, _session, signal) => !signal.aborted;
   await f.lifecycle.setSessionStatus(session, "Running", { detail: "first", detailMode: "replace" });
   t.mock.timers.tick(1_000);

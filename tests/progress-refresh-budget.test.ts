@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BridgeStore } from "../src/store/index.js";
 import { fixtureProgressService } from "./fixtures/progress-service.js";
-import { telegramRefreshPolicy } from "../src/telegram/delivery-budget.js";
 import { renderLegacyMessage } from "../src/bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../src/bridge/messages/types.js";
 
@@ -15,7 +14,7 @@ async function fixture(t: test.TestContext, limited = true) {
   const session = await store.upsertDiscoveredSession({ telegramChatId: "telegram:-1:10", codexThreadId: "thread", pathKey: "/project" });
   const writes: Array<{ id: string; spec: MessageSpec; edit: boolean }> = [];
   const service = fixtureProgressService(store, (id, spec, edit) => writes.push({ id, spec, edit }), () => false,
-    { getRefreshPolicy: () => limited ? { ...telegramRefreshPolicy, progressMode: undefined } : undefined });
+    { getRefreshPolicy: () => limited ? { typingEnabled: false, progressIntervalMs: 5_000, workingIntervalMs: 20_000 } : undefined });
   t.after(async () => { await service.stop(); store.close(); });
   return { store, session, service, writes };
 }

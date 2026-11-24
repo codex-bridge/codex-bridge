@@ -81,7 +81,8 @@ export class StatusLifecycleService {
     admissionSignal?: AbortSignal
   ): Promise<void> {
     if (this.stopped) return;
-    if (this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressMode === "summary") return;
+    const refreshPolicy = this.deps.getRefreshPolicy?.(session.telegramChatId);
+    if (refreshPolicy?.progressMode === "summary") return;
     const generation = this.generations.get(session.id) ?? {};
     this.generations.set(session.id, generation);
     const eligible = () => !admissionSignal?.aborted && this.generations.get(session.id) === generation && canRefresh?.() !== false;
@@ -109,7 +110,7 @@ export class StatusLifecycleService {
       const lastEditAt = this.deps.statusLastEditAtBySession.get(session.id) ?? 0;
       const existing = this.deps.statusMessageBySession.get(session.id);
       if (existing && (labelChanged || detailChanged)) this.pendingEdits.add(session.id);
-      const interval = this.deps.getRefreshPolicy?.(session.telegramChatId)?.workingIntervalMs ?? 5_000;
+      const interval = refreshPolicy?.workingIntervalMs ?? 5_000;
       if (existing && now - lastEditAt < interval) {
         this.cancelRefresh(session.id);
         if (labelChanged || detailChanged || this.pendingEdits.has(session.id)) {

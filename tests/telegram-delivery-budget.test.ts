@@ -76,9 +76,11 @@ test("background refreshes rotate between sessions and cancellation releases wai
   const order: string[] = [];
   const a = budget.waitForRefresh("telegram:-1:10", "A", controller.signal).then(ready => { if (ready) order.push("A"); });
   const b = budget.waitForRefresh("telegram:-1:20", "B", controller.signal).then(ready => { if (ready) order.push("B"); });
-  t.mock.timers.tick(10_000); await new Promise(setImmediate);
+  t.mock.timers.tick(999); await new Promise(setImmediate);
+  assert.deepEqual(order, [], "the shared one-second background interval still applies");
+  t.mock.timers.tick(1); await new Promise(setImmediate);
   assert.deepEqual(order, ["B"]);
-  t.mock.timers.tick(10_000); await Promise.all([a, b]);
+  t.mock.timers.tick(1_000); await Promise.all([a, b]);
   assert.deepEqual(order, ["B", "A"]);
   const waiting = budget.waitForRefresh("-1", "C", controller.signal);
   controller.abort(); assert.equal(await waiting, false);
@@ -91,9 +93,29 @@ test("three sessions get a turn before a session with many queued blocks gets an
   const order: string[] = [];
   const pending = ["A", "A", "B", "C"].map(session => budget.waitForRefresh("-1", session, controller.signal)
     .then(ready => { if (ready) order.push(session); }));
-  for (let index = 0; index < 3; index++) { t.mock.timers.tick(10_000); await new Promise(setImmediate); }
+  for (let index = 0; index < 3; index++) { t.mock.timers.tick(1_000); await new Promise(setImmediate); }
   assert.deepEqual(order, ["B", "C", "A"]);
   controller.abort(); await Promise.all(pending);
+});
+
+test("faster background admission still stops at the shared rolling-minute group ceiling", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const budget = new TelegramDeliveryBudget(), controller = new AbortController();
+  t.after(() => controller.abort());
+  for (let index = 0; index < 18; index++) {
+    const ready = budget.waitForRefresh("telegram:-1:10", "A", controller.signal);
+    if (index) t.mock.timers.tick(1_000);
+    assert.equal(await ready, true);
+    assert.equal(budget.tryAcquire("-1"), true);
+  }
+  let admitted = false;
+  const pending = budget.waitForRefresh("telegram:-1:20", "B", controller.signal).then(ready => { admitted = ready; });
+  t.mock.timers.tick(1_000); await new Promise(setImmediate);
+  assert.equal(admitted, false, "one second is not a separate quota for another topic");
+  t.mock.timers.tick(41_999); await new Promise(setImmediate);
+  assert.equal(admitted, false);
+  t.mock.timers.tick(1); await pending;
+  assert.equal(admitted, true); assert.equal(budget.tryAcquire("-1"), true);
 });
 
 test("waiting background refreshes do not take the transport queue or delay a foreground response", async t => {

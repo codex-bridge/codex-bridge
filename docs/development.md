@@ -111,8 +111,9 @@ limits; Telegram can still impose other limits. A 429 shares its cooldown across
 the Bot because the response does not identify the quota scope. Polling, reads
 and callback acknowledgements do not consume the message-write budget.
 
-Background progress and Working refreshes share one admission every ten seconds
-per physical chat, rotating between waiting sessions. Admission waits outside
+Background edits of existing summaries share one admission every second per
+physical chat, rotating between waiting sessions. This is not a separate request
+quota: the Bot, physical-chat and group-minute write budgets still apply. Admission waits outside
 notification, workflow and physical-chat queues. An admission overtaken by a
 foreground write yields instead of waiting for quota while holding a workflow
 lock. An already-started write completes its format fallback, with each attempt
@@ -193,6 +194,12 @@ in-place final-delivery retries. Unsent closed phases remain recoverable after
 restart. Old cards created before this policy are finalized in place. New summary
 creation uses the chronological queue; old-card edits continue to wait outside it
 for idle/background admission. Shared Telegram write budgets apply to both.
+
+The Telegram summary policy contains no live-preview or Working intervals. Those
+fields belong only to the optional live-display policy used by shared services;
+summary and live policies are separate TypeScript variants. Slack/Web keep their
+existing display behavior. First summary creation does not wait for the separate
+background-edit admission.
 
 Migration 019 makes the phase's platform message ID nullable, preserving existing
 records and indexes. Existing on-disk databases get an automatic verified backup
