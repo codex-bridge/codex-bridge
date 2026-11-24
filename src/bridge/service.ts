@@ -805,7 +805,7 @@ export class BridgeService {
       notices: this.notificationNoticeService,
       modelRuntimeEvents: state.modelRuntimeEventByThread,
       lastAssistantMessages: state.lastAssistantTelegramByThread,
-      pendingGoShortcuts: state.pendingGoShortcutByThread,
+      cancelGoShortcuts: () => this.goShortcutService.cancelAll(),
       typing: this.typingService,
       clearProgressMessages: () => this.progressService.clearAllProgressMessages(),
       clearSessionStatusMessages: () => this.statusLifecycleService.clearAllSessionStatusMessages()
@@ -1060,6 +1060,7 @@ export class BridgeService {
   }
 
   async shutdown(): Promise<void> {
+    this.goShortcutService.cancelAll();
     this.versionUpdateNotifier.stop();
     await this.progressService.stop();
   }

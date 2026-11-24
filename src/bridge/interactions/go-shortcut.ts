@@ -21,24 +21,30 @@ export type GoShortcutServiceDependencies = {
 
 export class GoShortcutService {
   private readonly delayMs: number;
+  private readonly completions = new Map<ReturnType<typeof setTimeout>, () => void>();
 
   constructor(private readonly deps: GoShortcutServiceDependencies) {
     // Yield once for lifecycle/approval cancellation, without a debounce wait.
     this.delayMs = deps.delayMs ?? 0;
   }
 
-  schedule(session: SessionRecord): void {
+  schedule(session: SessionRecord): Promise<void> {
     this.cancel(session.codexThreadId);
-    const timeout = setTimeout(() => {
-      void this.flush(session).catch((error) => {
-        logger.warn("bridge.go_shortcut.failed", {
-          sessionId: session.id,
-          threadId: session.codexThreadId,
-          error: error instanceof Error ? error.message : String(error)
-        });
+    return new Promise(resolve => {
+      const timeout = setTimeout(() => {
+        void this.flush(session).catch((error) => {
+          logger.warn("bridge.go_shortcut.failed", {
+            sessionId: session.id, threadId: session.codexThreadId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }).finally(() => this.settle(timeout));
+      }, this.delayMs);
+      this.completions.set(timeout, resolve);
+      this.deps.pendingByThread.set(session.codexThreadId, timeout);
+      logger.info("bridge.go_shortcut.scheduled", {
+        sessionId: session.id, threadId: session.codexThreadId, sourceId: session.telegramChatId, delayMs: this.delayMs
       });
-    }, this.delayMs);
-    this.deps.pendingByThread.set(session.codexThreadId, timeout);
+    });
   }
 
   cancel(threadId: string): void {
@@ -48,6 +54,17 @@ export class GoShortcutService {
     }
     clearTimeout(timeout);
     this.deps.pendingByThread.delete(threadId);
+    this.settle(timeout);
+  }
+
+  cancelAll(): void {
+    for (const threadId of this.deps.pendingByThread.keys()) this.cancel(threadId);
+  }
+
+  private settle(timeout: ReturnType<typeof setTimeout>): void {
+    const resolve = this.completions.get(timeout);
+    this.completions.delete(timeout);
+    resolve?.();
   }
 
   async flush(session: SessionRecord): Promise<void> {
@@ -74,6 +91,10 @@ export class GoShortcutService {
     const eligible = async () => {
       if (canSend && !await canSend()) return false;
       if (!await canDeliverSession(this.deps.store, session, chatId)) return false;
+      const lease = this.deps.store.getSessionLease(session.id);
+      // Keep existing unbound/external recovery controls, but do not announce
+      // Actions to an old entry after a confirmed Bridge ownership transfer.
+      if (lease?.ownerBindingId && this.deps.store.getSessionBindingById(lease.ownerBindingId)?.sourceId !== chatId) return false;
       const pendingDecisions = await this.deps.store.listPendingDecisions(session.id);
       const awaitingInput = await this.deps.store.getAwaitingInputDecisionForSession(session.id);
       return pendingDecisions.length === 0 && !awaitingInput;

@@ -44,7 +44,6 @@ export class NotificationRecoveryService {
     const context = this.rememberTurn(event.threadId, event.turnId);
     context.closed = true;
     if (event.error && (event.terminalState === "failed" || event.terminalState === "interrupted")) {
-      this.deps.errorSeenByThread.set(event.threadId, true);
       await this.handleError({
         threadId: event.threadId, turnId: event.turnId, stage: "error", message: event.error
       });
@@ -77,6 +76,9 @@ export class NotificationRecoveryService {
     });
     const session = await this.deps.resolveNotificationSession(errorEvent.threadId);
     if (!session) return;
+    // Only a new, routed observation can request recovery Actions. Repeated
+    // terminal notifications must not restore the flag after it was consumed.
+    if (!errorEvent.retrying) this.deps.errorSeenByThread.set(errorEvent.threadId, true);
 
     if (context?.closed) {
       if (errorEvent.stage === "error") {
@@ -86,9 +88,6 @@ export class NotificationRecoveryService {
     }
 
     this.deps.cancelGoShortcut(errorEvent.threadId);
-    if (!errorEvent.retrying) {
-      this.deps.errorSeenByThread.set(errorEvent.threadId, true);
-    }
     this.deps.clearTypingState(session.id);
     await this.deps.setSessionStatus(session, "Recovering", {
       detail: this.deps.formatRecoveryIssue(errorEvent),

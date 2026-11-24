@@ -136,3 +136,25 @@ test("new work cancels Actions even while a preceding reminder is being delivere
   assert.deepEqual(sent, []);
   assert.equal(lastAssistant.get(session.codexThreadId)?.messageId, "new-turn");
 });
+
+
+test("Actions are suppressed after ownership moves while a reminder is pending", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let owner = session.telegramChatId;
+  let release!: () => void, ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let sends = 0;
+  const service = new GoShortcutService({
+    store: { getActiveSession: async () => session,
+      getSessionLease: () => ({ state: "active", ownerBindingId: "binding" }) as never,
+      getSessionBindingById: () => ({ sourceId: owner }) as never,
+      listPendingDecisions: async () => [], getAwaitingInputDecisionForSession: async () => null },
+    messageOperations: { sendMessageSpec: async () => { sends++; return null; } }, pendingByThread: new Map(),
+    lastAssistantMessageByThread: new Map(), getSessionDirectory: () => "/work",
+    beforeActions: async () => { ready(); await blocked; }
+  });
+  const completion = service.schedule(session); t.mock.timers.tick(1); await started;
+  owner = "other-topic"; release(); await completion;
+  assert.equal(sends, 0);
+});

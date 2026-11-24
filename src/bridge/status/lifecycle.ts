@@ -82,7 +82,7 @@ export class StatusLifecycleService {
             ? "synced" : "unavailable";
         } catch (error) {
           result = classifyMessageEditError(error);
-          logger.warn("bridge.status.edit_failed", {
+          if (result !== "synced") logger.warn("bridge.status.edit_failed", {
             sessionId: session.id,
             messageId: existing.messageId,
             result,
@@ -123,7 +123,7 @@ export class StatusLifecycleService {
           this.createSessionStatusMessageSpec(session, "Done", startedAt, now, "", 0)
         );
       } catch (error) {
-        logger.warn("bridge.status.finalize_failed", {
+        if (classifyMessageEditError(error) !== "synced") logger.warn("bridge.status.finalize_failed", {
           sessionId: session.id,
           messageId: existing.messageId,
           error: error instanceof Error ? error.message : String(error)
@@ -151,7 +151,7 @@ export class StatusLifecycleService {
           this.createSessionStatusMessageSpec(session, "Interrupted", startedAt, now, "Runtime connection closed before this status finished.", 0)
         );
       } catch (error) {
-        logger.warn("bridge.status.interrupt_finalize_failed", {
+        if (classifyMessageEditError(error) !== "synced") logger.warn("bridge.status.interrupt_finalize_failed", {
           sessionId,
           messageId: status.messageId,
           error: error instanceof Error ? error.message : String(error)

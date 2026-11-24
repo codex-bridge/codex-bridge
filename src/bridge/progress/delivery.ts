@@ -35,12 +35,13 @@ export class PhaseDeliveryAdapter {
       return await this.deps.editMessageSpec(chatId, messageId, messageSpec, { disable_notification: true })
         ? "synced" : "unavailable";
     } catch (error) {
+      const result = classifyMessageEditError(error);
+      if (result === "synced") return result;
       logger.warn("bridge.progress.delivery_edit_failed", {
         chatId,
         messageId,
         error: error instanceof Error ? error.message : String(error)
       });
-      const result = classifyMessageEditError(error);
       // Progress finalization never replaces a missing message.
       return result === "missing" ? "unavailable" : result;
     }

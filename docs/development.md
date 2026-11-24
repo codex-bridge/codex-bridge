@@ -110,6 +110,24 @@ boundaries. Optional aggregate item metadata supports old database rows without 
 migration; missing identities are never inferred from text or timing. Ending a
 message phase does not complete or fail the Codex task.
 
+### Actions and delivery timing
+
+Completed turns settle their internal route and lease before interactive Actions.
+After status cleanup and recovery handling, Actions are attempted before the final
+progress-summary edit. The schedule still yields one timer tick with a zero default
+delay; new work, pending decisions and ownership changes can cancel it. Cancellation
+also releases lifecycle cleanup waiting on the attempt. Physical transport queues
+and server-directed rate backoff still apply; in-flight requests are not preempted.
+
+`bridge.go_shortcut.scheduled` records the scheduling point. Both adapters use the
+shared timing collector: `slack.delivery.timing` and `telegram.delivery.timing`.
+Telegram records the logical entry, physical chat and topic, message kind, physical
+queue wait, operation/total wall time, individual SDK-call time and retry wait.
+These transport measurements start at the transport entry, excluding earlier
+business orchestration and the shared message sender's logical-entry queue. They
+record no message bodies or API credentials. Logging failures preserve the actual
+delivery result; a skipped write is unconfirmed, not a successful send.
+
 ## Codex verification CLI
 
 `yarn verify:codex` starts an independent, read-only app-server process. It does

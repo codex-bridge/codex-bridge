@@ -22,7 +22,7 @@ export type RuntimeStateCleanupDependencies = {
   notices?: Clearable;
   modelRuntimeEvents: Clearable;
   lastAssistantMessages: Clearable;
-  pendingGoShortcuts: Map<string, ReturnType<typeof setTimeout>>;
+  cancelGoShortcuts: () => void;
   typing: TypingClearable;
   clearProgressMessages: () => Promise<void>;
   clearSessionStatusMessages: () => Promise<void>;
@@ -43,10 +43,7 @@ export class RuntimeStateCleanupService {
     this.deps.notices?.clear();
     this.deps.modelRuntimeEvents.clear();
     this.deps.lastAssistantMessages.clear();
-    for (const timeout of this.deps.pendingGoShortcuts.values()) {
-      clearTimeout(timeout);
-    }
-    this.deps.pendingGoShortcuts.clear();
+    this.deps.cancelGoShortcuts();
     this.deps.typing.clearAll();
     await this.deps.clearProgressMessages();
     await this.deps.clearSessionStatusMessages();

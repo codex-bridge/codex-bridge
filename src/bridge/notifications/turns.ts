@@ -20,7 +20,7 @@ export type NotificationTurnDependencies = {
   applyStatusUpdate: (session: SessionRecord, update: AppServerStatusUpdate) => Promise<void>;
   handleRecoveryTaskComplete: (session: SessionRecord) => Promise<boolean>;
   clearProgressMessageForThread: (threadId: string, options?: { terminal?: "completed" | "failed" | "interrupted"; turnId?: string }) => Promise<void>;
-  scheduleGoShortcut: (session: SessionRecord) => void;
+  scheduleGoShortcut: (session: SessionRecord) => Promise<void> | void;
   cancelGoShortcut: (threadId: string) => void;
   rememberRateLimitSession: (threadId: string, sessionId: string) => void;
   onTurnSettled?: (session: SessionRecord, event: AppServerTurnLifecycleEvent) => void;
@@ -61,14 +61,20 @@ export class NotificationTurnService {
     this.deps.assistantOutputByThread.delete(statusUpdate.threadId);
     this.deps.errorSeenByThread.delete(statusUpdate.threadId);
     if (!recoveryContinues) {
-      await this.deps.clearProgressMessageForThread(statusUpdate.threadId, {
-        terminal: terminalState ?? (hadError ? "failed" : "completed"),
-        ...(terminalTurnId ? { turnId: terminalTurnId } : {})
-      });
-      if (terminalTurnId) this.deps.onTurnSettled?.(session, { threadId: statusUpdate.threadId,
-        turnId: terminalTurnId, kind: "completed", terminalState, ...(terminalError ? { error: terminalError } : {}) });
-      if (hadAssistantOutput || hadError) {
-        this.deps.scheduleGoShortcut(session);
+      // Capture the actual ending turn before Actions can accept a new user turn.
+      const progressTurnId = terminalTurnId ?? this.deps.store.getActiveTurnRoute(statusUpdate.threadId)?.turnId
+        ?? this.deps.inFlightTurnIdByThread.get(statusUpdate.threadId);
+      try {
+        // Actions get the send slot before the final summary edit. Their own
+        // cancellation/decision/ownership checks still run at the write boundary.
+        if (hadAssistantOutput || hadError) await this.deps.scheduleGoShortcut(session);
+      } finally {
+        await this.deps.clearProgressMessageForThread(statusUpdate.threadId, {
+          terminal: terminalState ?? (hadError ? "failed" : "completed"),
+          ...(progressTurnId ? { turnId: progressTurnId } : {})
+        });
+        if (terminalTurnId) this.deps.onTurnSettled?.(session, { threadId: statusUpdate.threadId,
+          turnId: terminalTurnId, kind: "completed", terminalState, ...(terminalError ? { error: terminalError } : {}) });
       }
     } else {
       this.deps.cancelGoShortcut(statusUpdate.threadId);
@@ -123,12 +129,7 @@ export class NotificationTurnService {
       else clear();
       await this.deps.promoteSessionHandoff(session);
     }
-    const activeRoute = this.deps.store.getActiveTurnRoute(turnLifecycle.threadId);
-    if (!activeRoute || activeRoute.turnId === turnLifecycle.turnId) {
-      await this.deps.clearProgressMessageForThread(turnLifecycle.threadId, {
-        terminal: turnLifecycle.terminalState ?? "interrupted",
-        turnId: turnLifecycle.turnId
-      });
-    }
+    // Completed notifications also carry a clear status update. That path owns
+    // visible cleanup, after Actions; lifecycle bookkeeping performs no summary edit.
   }
 }

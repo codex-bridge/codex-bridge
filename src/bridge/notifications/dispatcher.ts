@@ -99,6 +99,9 @@ export class NotificationDispatcher {
         });
       });
     }
+    if (turnLifecycle?.kind === "completed") {
+      await this.deps.notificationTurnService.handleTurnLifecycle(turnLifecycle);
+    }
     const statusUpdate = extractStatusUpdate(notification);
     if (statusUpdate) {
       await this.deps.notificationTurnService.handleStatusUpdate(
@@ -109,7 +112,7 @@ export class NotificationDispatcher {
       );
     }
 
-    if (turnLifecycle) {
+    if (turnLifecycle?.kind === "started") {
       await this.deps.notificationTurnService.handleTurnLifecycle(turnLifecycle);
     }
 

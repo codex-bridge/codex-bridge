@@ -1,5 +1,8 @@
 import { GrammyError, type Bot } from "grammy";
 import { setTimeout as delay } from "node:timers/promises";
+import { performance } from "node:perf_hooks";
+import { timeTelegramDelivery, timeTelegramRetryWait } from "./delivery-timing.js";
+import type { DeliveryTimingInput } from "../shared/delivery-timing.js";
 import { KeyedQueue } from "../shared/keyed-queue.js";
 
 /** All topics and immediate/background writes share the physical chat's queue.
@@ -11,11 +14,15 @@ export class TelegramApiScheduler {
 
   constructor(private readonly clock = { now: () => Date.now(), sleep: (ms: number): Promise<void> => delay(ms) }) {}
 
-  run<T>(chatId: string, operation: () => Promise<T>): Promise<T> {
-    return this.queue.run(chatId, async () => {
+  run<T>(chatId: string, operation: () => Promise<T>,
+    context?: Omit<DeliveryTimingInput, "queuedAt" | "queued" | "physicalChatId">): Promise<T> {
+    const queuedAt = performance.now();
+    return this.queue.run(chatId, () => timeTelegramDelivery({
+      chatId, operation: "write", ...context, physicalChatId: chatId, queued: true, queuedAt
+    }, async () => {
       for (let attempt = 0; ; attempt++) {
         const wait = (this.retryAfter.get(chatId) ?? 0) - this.clock.now();
-        if (wait > 0) await this.clock.sleep(wait);
+        if (wait > 0) await timeTelegramRetryWait(() => this.clock.sleep(wait));
         this.retryAfter.delete(chatId);
         try { return await operation(); }
         catch (error) {
@@ -25,7 +32,7 @@ export class TelegramApiScheduler {
           if (attempt > 0) throw error;
         }
       }
-    });
+    }));
   }
 }
 

@@ -8,6 +8,7 @@ import type { SessionRecord } from "../src/shared/types.js";
 import { renderSlackMessageSpec } from "../src/slack/message-renderer.js";
 import { SlackMessageTransport } from "../src/slack/transport.js";
 import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
+import { logger } from "../src/logging/logger.js";
 import { presentWebMessage } from "../src/web/message-presentation.js";
 
 const session = { id: "session", codexThreadId: "thread", telegramChatId: "slack:T:C:1" } as SessionRecord;
@@ -169,4 +170,19 @@ test("the Slack transport keeps one Working through an update timeout and comple
   assert.equal(updates.length, 3);
   assert.ok(updates.every(payload => payload.ts === "2"));
   assert.match(String(updates.at(-1)?.text), /Working · Done · 22s$/);
+});
+
+
+test("synchronized unchanged Working edits and cleanup do not produce warning logs", async t => {
+  const warnings: unknown[] = [];
+  t.mock.method(logger, "warn", (...args: unknown[]) => { warnings.push(args); });
+  const f = fixture();
+  await f.lifecycle.setSessionStatus(session, "Working");
+  f.setEdit(async () => { throw { error_code: 400, description: "Bad Request: message is not modified" }; });
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  await f.lifecycle.clearSessionStatus(session);
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.clearAllSessionStatusMessages();
+  assert.deepEqual(warnings, []);
+  assert.equal(f.deps.statusMessageBySession.size, 0);
 });
