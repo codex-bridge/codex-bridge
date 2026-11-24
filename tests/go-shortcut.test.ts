@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { setTimeout as sleep } from "node:timers/promises";
+import { setImmediate as nextEventLoop } from "node:timers/promises";
 import test from "node:test";
 
 import { GoShortcutService } from "../src/bridge/interactions/go-shortcut.js";
@@ -23,7 +23,8 @@ const session: SessionRecord = {
   lastDiscoveredAt: 0
 };
 
-test("go shortcut sends delayed actions and clears the assistant marker", async () => {
+test("go shortcut sends actions on the next timer tick and clears the assistant marker", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const sent: Array<{ chatId: string; message: MessageSpec; disableNotification?: boolean }> = [];
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const lastAssistant = new Map<string, LastAssistantMessage>([
@@ -43,15 +44,14 @@ test("go shortcut sends delayed actions and clears the assistant marker", async 
     },
     pendingByThread: pending,
     lastAssistantMessageByThread: lastAssistant,
-    getSessionDirectory: (value) => value.currentCwd ?? value.pathKey,
-    delayMs: 20
+    getSessionDirectory: (value) => value.currentCwd ?? value.pathKey
   });
 
   service.schedule(session);
   assert.equal(pending.has(session.codexThreadId), true);
-  await sleep(5);
   assert.equal(sent.length, 0);
-  await sleep(30);
+  t.mock.timers.tick(1);
+  await nextEventLoop();
 
   assert.equal(pending.has(session.codexThreadId), false);
   assert.equal(lastAssistant.has(session.codexThreadId), false);
@@ -75,7 +75,8 @@ test("go shortcut sends delayed actions and clears the assistant marker", async 
   ]);
 });
 
-test("go shortcut cancels and suppresses actions while a decision is pending", async () => {
+test("go shortcut cancels and suppresses actions while a decision is pending", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const sent: MessageSpec[] = [];
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
   const lastAssistant = new Map<string, LastAssistantMessage>([
@@ -95,13 +96,13 @@ test("go shortcut cancels and suppresses actions while a decision is pending", a
     },
     pendingByThread: pending,
     lastAssistantMessageByThread: lastAssistant,
-    getSessionDirectory: (value) => value.pathKey,
-    delayMs: 20
+    getSessionDirectory: (value) => value.pathKey
   });
 
   service.schedule(session);
   service.cancel(session.codexThreadId);
-  await sleep(30);
+  t.mock.timers.tick(1);
+  await nextEventLoop();
   assert.equal(sent.length, 0);
   assert.equal(lastAssistant.has(session.codexThreadId), true);
 

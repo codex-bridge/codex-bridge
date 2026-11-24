@@ -20,7 +20,8 @@ export class GoShortcutService {
   private readonly delayMs: number;
 
   constructor(private readonly deps: GoShortcutServiceDependencies) {
-    this.delayMs = deps.delayMs ?? 500;
+    // Yield once for lifecycle/approval cancellation, without a debounce wait.
+    this.delayMs = deps.delayMs ?? 0;
   }
 
   schedule(session: SessionRecord): void {
