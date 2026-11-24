@@ -10,7 +10,7 @@ import { logger } from "../../logging/logger.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
 import type { MessageSpec } from "../messages/types.js";
 import { truncateTemporaryMessageSpec } from "../messages/temporary.js";
-import type { BridgeMessageOptions } from "../transport.js";
+import type { BridgeMessageOptions, MessageRefreshPolicy } from "../transport.js";
 import { createProgressMessageSpec } from "../renderers/progress.js";
 import { PhaseDeliveryAdapter } from "./delivery.js";
 import { FinalProgressDelivery } from "./final-delivery.js";
@@ -29,6 +29,8 @@ type ProgressTerminal = "completed" | "failed" | "interrupted";
 type ProgressPreview = { spec: MessageSpec; text: string; failed: boolean };
 
 export type ProgressServiceDependencies = {
+  getRefreshPolicy?: (sourceId: string) => MessageRefreshPolicy | undefined;
+  waitForBackgroundRefresh?: (sourceId: string, sessionId: string, signal: AbortSignal) => Promise<boolean>;
   waitForThreadIdle?: (threadId: string, signal: AbortSignal) => Promise<boolean>;
   isThreadBusy?: (threadId: string) => boolean;
   getActiveTurnRoute: (threadId: string) => TurnRouteRecord | null;
@@ -88,6 +90,8 @@ export class ProgressService {
   private readonly sequence: WorkflowSequence;
   private readonly lastProgressByTurn = new Map<string, { text: string; failed: boolean; sentAt: number }>();
   private readonly pendingPreviewByTurn = new Map<string, { phaseId: string; preview: ProgressPreview }>();
+  private readonly refreshes = new Map<string, { controller: AbortController; task: Promise<void> }>();
+  private stopped = false;
 
   constructor(private readonly deps: ProgressServiceDependencies) {
     this.delivery = new PhaseDeliveryAdapter(deps);
@@ -102,13 +106,17 @@ export class ProgressService {
       mark: deps.markProgressPhaseMessageDeliveryState,
       waitForThreadIdle: deps.waitForThreadIdle,
       isThreadBusy: deps.isThreadBusy,
+      waitForBackgroundRefresh: deps.waitForBackgroundRefresh,
       enqueue: (key, operation) => this.enqueue(key, operation)
     }, this.delivery);
   }
 
-  start(): void { this.finalDelivery.start(); }
+  start(): void { this.stopped = false; this.finalDelivery.start(); }
   async stop(): Promise<void> {
+    this.stopped = true;
+    for (const refresh of this.refreshes.values()) refresh.controller.abort();
     await this.finalDelivery.stop();
+    await Promise.allSettled([...this.refreshes.values()].map(refresh => refresh.task));
     await this.sequence.drain();
     this.pendingPreviewByTurn.clear();
   }
@@ -117,6 +125,7 @@ export class ProgressService {
 
   async sendProgressMessage(session: SessionRecord, event: ProgressNotificationEvent, turnId?: string,
     delivery: ProgressDeliveryOptions = {}): Promise<void> {
+    if (this.stopped) return;
     const resolvedTurnId = turnId ?? this.deps.getInFlightTurnId(event.threadId);
     if (!resolvedTurnId) return;
     const normalized = normalizeProgressEvent(event);
@@ -176,7 +185,12 @@ export class ProgressService {
           aggregate
         });
         record = updated ?? active;
-        if (delivery.suppressPreview && !event.failed) {
+        if (this.deps.getRefreshPolicy?.(session.telegramChatId)?.progressIntervalMs) {
+          if (!duplicatePreview && !event.failed) {
+            this.pendingPreviewByTurn.set(key, { phaseId: record.id, preview: { spec: preview, text, failed: event.failed } });
+            this.schedulePreview(key, record);
+          } else this.pendingPreviewByTurn.delete(key);
+        } else if (delivery.suppressPreview && !event.failed) {
           if (!duplicatePreview && !throttlePreview) {
             this.pendingPreviewByTurn.set(key, { phaseId: record.id, preview: { spec: preview, text, failed: event.failed } });
           } else this.pendingPreviewByTurn.delete(key);
@@ -190,7 +204,7 @@ export class ProgressService {
         // Creation is never coalesced: later edits need the platform message ID.
         const sent = await this.delivery.send(session.telegramChatId, preview);
         if (!sent) return;
-        this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: now });
+        this.lastProgressByTurn.set(key, { text, failed: event.failed, sentAt: Date.now() });
         record = this.deps.createProgressPhaseMessage({
           sessionId: session.id,
           codexThreadId: event.threadId,
@@ -289,7 +303,9 @@ export class ProgressService {
     state: Exclude<ProgressPhaseState, "active">,
     failureReason: ProgressFailureReason | null
   ): Promise<void> {
-    this.pendingPreviewByTurn.delete(this.turnKey(active.codexThreadId, active.turnId));
+    const key = this.turnKey(active.codexThreadId, active.turnId);
+    this.pendingPreviewByTurn.delete(key);
+    this.refreshes.get(key)?.controller.abort();
     const finalized = this.deps.finalizeProgressPhaseMessage({
       id: active.id,
       state,
@@ -300,8 +316,9 @@ export class ProgressService {
     this.finalDelivery.defer(finalized.id);
   }
 
-  private async editPreview(key: string, record: ProgressPhaseMessageRecord, preview: ProgressPreview): Promise<void> {
-    if (await this.delivery.edit(record.sourceId, record.platformMessageId, preview.spec)) {
+  private async editPreview(key: string, record: ProgressPhaseMessageRecord, preview: ProgressPreview,
+    options?: Pick<BridgeMessageOptions, "canSend" | "deliverySignal" | "onRateDeferred">): Promise<void> {
+    if (await this.delivery.editResult(record.sourceId, record.platformMessageId, preview.spec, options) === "synced") {
       this.lastProgressByTurn.set(key, { text: preview.text, failed: preview.failed, sentAt: Date.now() });
       if (record.phaseKind === "run") this.deps.recordSuccessfulRunContentUpdate(record.id);
     }
@@ -309,10 +326,71 @@ export class ProgressService {
 
   private async flushPendingPreview(key: string, active: ProgressPhaseMessageRecord | null): Promise<void> {
     const pending = this.pendingPreviewByTurn.get(key);
+    if (active && pending?.phaseId === active.id && this.deps.getRefreshPolicy?.(active.sourceId)?.progressIntervalMs) {
+      this.schedulePreview(key, active);
+      return;
+    }
     this.pendingPreviewByTurn.delete(key);
     // A duplicate/late result may be the last queued notification. It must not
     // swallow the latest meaningful preview of the current phase.
     if (active && pending?.phaseId === active.id) await this.editPreview(key, active, pending.preview);
+  }
+
+  private schedulePreview(key: string, record: ProgressPhaseMessageRecord): void {
+    if (this.stopped || this.refreshes.has(key)) return;
+    const controller = new AbortController(), signal = controller.signal;
+    const entry = { controller, task: Promise.resolve() };
+    entry.task = Promise.resolve().then(async () => {
+      while (!signal.aborted && this.pendingPreviewByTurn.get(key)?.phaseId === record.id) {
+        const interval = this.deps.getRefreshPolicy?.(record.sourceId)?.progressIntervalMs ?? 0;
+        const wait = Math.max(0, (this.lastProgressByTurn.get(key)?.sentAt ?? 0) + interval - Date.now());
+        if (wait) {
+          await this.waitForPreview(wait, signal);
+        }
+        if (this.deps.waitForThreadIdle && !await this.deps.waitForThreadIdle(record.codexThreadId, signal)) return;
+        if (this.deps.waitForBackgroundRefresh && !await this.deps.waitForBackgroundRefresh(record.sourceId, record.sessionId, signal)) return;
+        if (signal.aborted) return;
+        await this.enqueue(key, async () => {
+          const current = this.deps.getProgressPhaseMessage(record.id);
+          const pending = this.pendingPreviewByTurn.get(key);
+          if (signal.aborted || current?.state !== "active" || pending?.phaseId !== record.id) return;
+          if (this.deps.isThreadBusy?.(record.codexThreadId)) return;
+          this.pendingPreviewByTurn.delete(key);
+          await this.editPreview(key, current, pending.preview, {
+            deliverySignal: signal,
+            onRateDeferred: () => {
+              if (!this.pendingPreviewByTurn.has(key)) this.pendingPreviewByTurn.set(key, pending);
+            },
+            canSend: async () => {
+              if (signal.aborted) return false;
+              if (!this.deps.isThreadBusy?.(record.codexThreadId)) return true;
+              if (!this.pendingPreviewByTurn.has(key)) this.pendingPreviewByTurn.set(key, pending);
+              return false;
+            }
+          });
+        });
+      }
+    }).catch(error => {
+      if (!signal.aborted) logger.warn("bridge.progress.preview_refresh_failed", { phaseId: record.id, error: String(error) });
+    }).finally(() => {
+      if (this.refreshes.get(key) !== entry) return;
+      this.refreshes.delete(key);
+      const pending = this.pendingPreviewByTurn.get(key);
+      // A new phase may have arrived while the previous task was being cancelled.
+      const current = pending && this.deps.getProgressPhaseMessage(pending.phaseId);
+      if (current?.state === "active") this.schedulePreview(key, current);
+    });
+    this.refreshes.set(key, entry);
+  }
+
+  private waitForPreview(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise(resolve => {
+      const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+      const timer = setTimeout(finish, ms);
+      timer.unref();
+      signal.addEventListener("abort", finish, { once: true });
+    });
   }
 
   private enqueue(key: string, operation: () => Promise<void>): Promise<void> {

@@ -15,7 +15,7 @@ import { acknowledgeTelegramCallback } from "./interactions/acknowledge.js";
 import { telegramSourceForContext } from "../shared/telegram-address.js";
 import { TelegramMessageTransport } from "./transport.js";
 import { formatTelegramHtml } from "./text.js";
-import { configureTelegramApi } from "./api-policy.js";
+import { configureTelegramApi, type TelegramApiOptions } from "./api-policy.js";
 
 const knownCommands = new Set([
   "help",
@@ -55,8 +55,8 @@ function getCommandArgument(text: string): string {
   return trimmed.slice(match.index).trim();
 }
 
-export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPort, bot = new Bot(config.telegramBotToken)): Bot {
-  configureTelegramApi(bot);
+export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPort, bot = new Bot(config.telegramBotToken), apiOptions?: TelegramApiOptions): Bot {
+  configureTelegramApi(bot, 10_000, apiOptions);
   const transport = new TelegramMessageTransport(bot, formatTelegramHtml);
   const acknowledge = (ctx: Context, text?: string): Promise<void> => acknowledgeTelegramCallback(
     // grammY types signals through its legacy polyfill; Node's native signal is runtime-compatible.

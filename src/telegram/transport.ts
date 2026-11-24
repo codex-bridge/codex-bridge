@@ -1,4 +1,4 @@
-import type { Bot, InlineKeyboard } from "grammy";
+import { GrammyError, type Bot, type InlineKeyboard } from "grammy";
 import type { BridgeMessageOptions, BridgeMessageTransport, BridgeSentMessage } from "../bridge/transport.js";
 import { renderLegacyMessage } from "../bridge/messages/legacy-adapter.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
@@ -7,13 +7,19 @@ import { parseTelegramAddress, type TelegramAddress } from "../shared/telegram-a
 import { isTelegramRichMessageRejection } from "./errors.js";
 import { renderTelegramMessageSpec } from "./message-renderer.js";
 import { timeTelegramApi } from "./delivery-timing.js";
-import { TelegramApiScheduler, telegramSchedulerFor } from "./api-scheduler.js";
+import { TelegramApiScheduler, telegramSchedulerFor, telegramDeliveryContext, TelegramDeliveryCancelled } from "./api-scheduler.js";
 import { classifyMessageEditError } from "../bridge/messages/edit-result.js";
+import { telegramBudgetFor, telegramRefreshPolicy } from "./delivery-budget.js";
 
 type TelegramSendOptions = { disable_notification?: boolean; message_thread_id?: number };
 
 export class TelegramMessageTransport implements BridgeMessageTransport {
   readonly name = "telegram";
+  readonly refreshPolicy = telegramRefreshPolicy;
+
+  waitForBackgroundRefresh(sourceId: string, sessionId: string, signal: AbortSignal): Promise<boolean> {
+    return telegramBudgetFor(this.bot).waitForRefresh(sourceId, sessionId, signal);
+  }
 
   constructor(private readonly bot: Bot, private readonly formatHtml: (text: string) => string,
     private readonly scheduler: TelegramApiScheduler = telegramSchedulerFor(bot)) {}
@@ -97,6 +103,7 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
   }
 
   async sendTyping(sourceId: string, options?: Pick<BridgeMessageOptions, "canSend">): Promise<void> {
+    if (!this.refreshPolicy.typingEnabled) return;
     await this.write(sourceId, options, target => timeTelegramApi("sendChatAction", () => this.bot.api.sendChatAction(target.chatId, "typing", {
       ...(target.topicId === null ? {} : { message_thread_id: target.topicId })
     })), { operation: "typing" });
@@ -127,8 +134,19 @@ export class TelegramMessageTransport implements BridgeMessageTransport {
     if (!target) throw new Error("Invalid Telegram source address.");
     return this.scheduler.run(target.chatId, async () => {
       // Queuing and server-directed backoff may outlive a revocable delivery lease.
-      if (await options?.canSend?.() === false) return null;
-      return operation(target);
+      if (options?.deliverySignal?.aborted || await options?.canSend?.() === false) return null;
+      try {
+        return await telegramDeliveryContext.run({ canSend: options?.canSend, signal: options?.deliverySignal, onRateDeferred: options?.onRateDeferred }, () => operation(target));
+      } catch (error) {
+        if (error instanceof TelegramDeliveryCancelled || options?.deliverySignal?.aborted) return null;
+        if (options?.onRateDeferred && error instanceof GrammyError && error.error_code === 429 &&
+          error.parameters.retry_after && error.parameters.retry_after > 0) {
+          telegramBudgetFor(this.bot).observeRateLimit(target.chatId, error.parameters.retry_after);
+          options.onRateDeferred();
+          return null;
+        }
+        throw error;
+      }
     }, { ...context, chatId: sourceId, topicId: target.topicId });
   }
 

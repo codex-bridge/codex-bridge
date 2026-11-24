@@ -13,6 +13,7 @@ type FinalDeliveryDependencies = {
   enqueue: (key: string, operation: () => Promise<void>) => Promise<void>;
   waitForThreadIdle?: (threadId: string, signal: AbortSignal) => Promise<boolean>;
   isThreadBusy?: (threadId: string) => boolean;
+  waitForBackgroundRefresh?: (sourceId: string, sessionId: string, signal: AbortSignal) => Promise<boolean>;
 };
 
 const RETRY_DELAYS_MS = [5_000, 20_000, 60_000];
@@ -65,6 +66,7 @@ export class FinalProgressDelivery {
         while (!this.closed) {
           const revision = entry.revision;
           if (this.deps.waitForThreadIdle && !await this.deps.waitForThreadIdle(record.codexThreadId, signal)) return;
+          if (this.deps.waitForBackgroundRefresh && !await this.deps.waitForBackgroundRefresh(record.sourceId, record.sessionId, signal)) return;
           if (this.closed) return;
           await this.deps.enqueue(`${record.codexThreadId}:${record.turnId}`, () => this.deliver(id));
           if (revision === entry.revision) return;
@@ -92,7 +94,8 @@ export class FinalProgressDelivery {
     }
     const summary = truncateTemporaryMessageSpec(createProgressPhaseSummarySpec({ directory: record.directory, record }));
     let postponed = false;
-    const options = { canSend: async () => {
+    const options = { deliverySignal: this.idleCancellation.signal, onRateDeferred: () => { postponed = true; }, canSend: async () => {
+      if (this.closed) { postponed = true; return false; }
       if (this.deps.waitForThreadIdle && this.deps.isThreadBusy?.(record.codexThreadId)) { postponed = true; return false; }
       return true;
     } };

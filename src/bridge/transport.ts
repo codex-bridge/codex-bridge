@@ -8,6 +8,9 @@ export type UnavailableThreadNotice =
 export type BridgeMessageOptions = {
   /** Recheck revocable delivery authorization immediately before each send. */
   canSend?: () => Promise<boolean>;
+  deliverySignal?: AbortSignal;
+  /** Background writes yield instead of holding a chronological lock for quota. */
+  onRateDeferred?: () => void;
   disable_notification?: boolean;
   formattedText?: string;
   messageSpec?: MessageSpec;
@@ -20,10 +23,15 @@ export type BridgeSentMessage = {
   message_id: string;
 };
 
+export type MessageRefreshPolicy = { progressIntervalMs: number; workingIntervalMs: number; typingEnabled: boolean };
+
 export interface BridgeMessageTransport {
   readonly name: string;
   /** Native structured transports receive whole specs, without chat-platform splitting. */
   readonly wholeMessageSpecs?: boolean;
+  readonly refreshPolicy?: MessageRefreshPolicy;
+  /** Cancellable background admission, before taking chronological/transport locks. */
+  waitForBackgroundRefresh?(sourceId: string, sessionId: string, signal: AbortSignal): Promise<boolean>;
   canHandle(chatId: string): boolean;
   sendMessageSpec?(
     chatId: string,

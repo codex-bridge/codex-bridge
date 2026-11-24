@@ -20,6 +20,7 @@ import { acknowledgeTelegramCallback } from "../src/telegram/interactions/acknow
 import { createSessionActionCallback } from "../src/bridge/sessions/action-callbacks.js";
 import { logger } from "../src/logging/logger.js";
 import { testConfig } from "./bridge-test-config.js";
+import { unlimitedTelegramBudget } from "./fixtures/telegram-budget.js";
 
 logger.configureOutput({ console: "none", file: false });
 
@@ -72,7 +73,7 @@ function transportFixture() {
   return { calls, bot, transport: new TelegramMessageTransport(bot, text => text), setFailure: (fn: typeof failure) => { failure = fn; } };
 }
 
-test("new messages and typing target the topic; edits, deletes and keyboard updates use physical chat plus message ID", async () => {
+test("new messages target the topic, typing is omitted, edits and controls use physical chat plus message ID", async () => {
   const f = transportFixture();
   await f.transport.sendMessageSpec(a, spec, { disable_notification: true, purpose: "test", canSend: async () => true });
   await f.transport.sendMessage(a, "plain");
@@ -81,12 +82,13 @@ test("new messages and typing target the topic; edits, deletes and keyboard upda
   await f.transport.editMessageText(a, "7", "plain");
   await f.transport.deleteMessage(a, "7");
   await f.transport.clearMessageActions(a, "7");
-  assert.equal(f.calls.length, 7);
+  assert.equal(f.calls.length, 6);
+  assert.equal(f.calls.some(call => call.method === "sendChatAction"), false);
   for (const call of f.calls) assert.equal(call.args[0], chat);
-  for (const call of f.calls.slice(0, 3)) {
+  for (const call of f.calls.slice(0, 2)) {
     assert.equal((call.args.at(-1) as { message_thread_id: number }).message_thread_id, 101);
   }
-  for (const call of f.calls.slice(3)) {
+  for (const call of f.calls.slice(2)) {
     assert.equal(call.args[1], 7);
     assert.equal(JSON.stringify(call.args).includes("message_thread_id"), false);
   }
@@ -233,7 +235,7 @@ async function botFixture(overrides: Partial<BridgeTelegramBotPort> = {}, ackErr
     handleDecision: async (_id: string, _action: string, source: string) => { sources.push(`approval:${source}`); return { ok: true, message: "Done" }; },
     ...overrides
   } as unknown as BridgeTelegramBotPort;
-  buildTelegramBot(testConfig(":memory:"), service, bot);
+  buildTelegramBot(testConfig(":memory:"), service, bot, { budget: unlimitedTelegramBudget() });
   let id = 0;
   const receive = (text: string, topic?: number, callback?: string, accessible = true) => {
     const msg = { message_id: ++id, date: accessible ? 1 : 0, chat: { id: Number(chat), type: "supergroup", is_forum: true },

@@ -4,6 +4,13 @@ import { performance } from "node:perf_hooks";
 import { timeTelegramDelivery, timeTelegramRetryWait } from "./delivery-timing.js";
 import type { DeliveryTimingInput } from "../shared/delivery-timing.js";
 import { KeyedQueue } from "../shared/keyed-queue.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+export class TelegramDeliveryCancelled extends Error {}
+export const telegramDeliveryContext = new AsyncLocalStorage<{
+  canSend?: () => Promise<boolean>; signal?: AbortSignal; onRateDeferred?: () => void;
+  started?: boolean;
+}>();
 
 /** All topics and immediate/background writes share the physical chat's queue.
  * Only an explicit rate-limit rejection is retried, once. Unknown outcomes propagate.

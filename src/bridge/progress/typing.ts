@@ -39,6 +39,7 @@ export class TypingService {
 
   async sendOnce(session: SessionRecord, canRefresh?: () => boolean): Promise<void> {
     if (this.stopped || canRefresh?.() === false) return;
+    if (this.deps.requireMessageTransport(session.telegramChatId).refreshPolicy?.typingEnabled === false) return;
     const now = Date.now();
     const cooldownUntil = this.cooldownUntil.get(session.id) ?? 0;
     if (now < cooldownUntil || this.inFlight.has(session.id)) return;

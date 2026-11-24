@@ -424,6 +424,8 @@ export class BridgeService {
         this.messageOperations.sendTelegramTextChunksAndGetLastMessage(chatId, chunks, options)
     });
     this.statusLifecycleService = new StatusLifecycleService({
+      getRefreshPolicy: source => this.messageSender.requireTransport(source).refreshPolicy,
+      waitForBackgroundRefresh: (source, session, signal) => this.messageSender.requireTransport(source).waitForBackgroundRefresh?.(source, session, signal) ?? Promise.resolve(!signal.aborted),
       isThreadBusy: threadId => this.notificationQueue.hasPending(threadId),
       waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
       store,
@@ -742,6 +744,8 @@ export class BridgeService {
       requireMessageTransport: (chatId) => this.messageSender.requireTransport(chatId),
     });
     this.progressService = new ProgressService({
+      getRefreshPolicy: source => this.messageSender.requireTransport(source).refreshPolicy,
+      waitForBackgroundRefresh: (source, session, signal) => this.messageSender.requireTransport(source).waitForBackgroundRefresh?.(source, session, signal) ?? Promise.resolve(!signal.aborted),
       isThreadBusy: threadId => this.notificationQueue.hasPending(threadId),
       waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
       getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),

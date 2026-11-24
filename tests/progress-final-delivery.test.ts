@@ -23,9 +23,11 @@ async function fixture(t: TestContext) {
     sendTemporaryMessageSpec: async () => assert.fail("final delivery must never send a new message")
   });
   const queue = new KeyedQueue();
-  const makeWorker = (waitForThreadIdle?: (thread: string, signal: AbortSignal) => Promise<boolean>, isThreadBusy?: (thread: string) => boolean) => new FinalProgressDelivery({
+  const makeWorker = (waitForThreadIdle?: (thread: string, signal: AbortSignal) => Promise<boolean>, isThreadBusy?: (thread: string) => boolean,
+    waitForBackgroundRefresh?: (source: string, session: string, signal: AbortSignal) => Promise<boolean>) => new FinalProgressDelivery({
     waitForThreadIdle,
     isThreadBusy,
+    waitForBackgroundRefresh,
     getRecord: (id) => store.getProgressPhaseMessage(id),
     listPending: () => store.listPendingProgressPhaseFinalDelivery(),
     mark: (input) => store.markProgressPhaseMessageDeliveryState(input),
@@ -82,6 +84,25 @@ async function fixture(t: TestContext) {
 const liveEvent = (label: string, failed = false) => ({
   threadId: "thread", label, failed, toolName: "tool.test", action: null, target: null,
   input: null, changes: null, text: failed ? "timeout" : "observed", completed: true
+});
+
+test("final summary quota waiting holds no workflow lock and shutdown leaves it recoverable", async t => {
+  const f = await fixture(t);
+  let waiting = false;
+  const worker = f.makeWorker(undefined, undefined, async (_source, _session, signal) => {
+    waiting = true;
+    return new Promise(resolve => signal.addEventListener("abort", () => resolve(false), { once: true }));
+  });
+  t.after(() => worker.stop());
+  worker.defer(f.id); await setImmediate();
+  assert.equal(waiting, true);
+  let foregroundRan = false;
+  await f.queue.run("thread:turn", async () => { foregroundRan = true; });
+  assert.equal(foregroundRan, true); assert.equal(f.edits.length, 0);
+  await worker.stop();
+  assert.equal(f.store.getProgressPhaseMessage(f.id)!.deliveryState, "pending_finalization");
+  f.worker.start(); await f.tick(1);
+  assert.equal(f.store.getProgressPhaseMessage(f.id)!.deliveryState, "synced");
 });
 
 test("deferred summaries wait for appended foreground work and read the latest persisted aggregate", async t => {

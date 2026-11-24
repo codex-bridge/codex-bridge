@@ -11,6 +11,7 @@ import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
 import { logger } from "../src/logging/logger.js";
 import { presentWebMessage } from "../src/web/message-presentation.js";
 import { KeyedQueue } from "../src/shared/keyed-queue.js";
+import { telegramRefreshPolicy } from "../src/telegram/delivery-budget.js";
 
 const session = { id: "session", codexThreadId: "thread", telegramChatId: "slack:T:C:1" } as SessionRecord;
 
@@ -29,6 +30,36 @@ function fixture() {
   return { lifecycle: new StatusLifecycleService(deps), deps, sent, edits,
     setEdit: (implementation: typeof edit) => { edit = implementation; } };
 }
+
+test("Telegram Working keeps the latest status on a twenty-second interval and omits intermediate edits", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  f.deps.waitForBackgroundRefresh = async (_source, _session, signal) => !signal.aborted;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  for (const label of ["Thinking", "Running command", "Waiting"]) await f.lifecycle.setSessionStatus(session, label);
+  t.mock.timers.tick(19_999); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 0);
+  t.mock.timers.tick(1); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Waiting · 20s/);
+  await f.lifecycle.clearSessionStatus(session);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Done/);
+});
+
+test("deferred Working detail updates with an unchanged label survive and are not appended twice", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  f.deps.waitForBackgroundRefresh = async (_source, _session, signal) => !signal.aborted;
+  await f.lifecycle.setSessionStatus(session, "Running", { detail: "first", detailMode: "replace" });
+  t.mock.timers.tick(1_000);
+  await f.lifecycle.setSessionStatus(session, "Running", { detail: " second", detailMode: "append" });
+  t.mock.timers.tick(19_000); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /first second/);
+  assert.doesNotMatch(renderLegacyMessage(f.edits[0]!.spec), /second second/);
+});
 
 test("label changes share one throttle and refresh only the latest eligible status", async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });

@@ -1,11 +1,11 @@
-import { ProgressService } from "../../src/bridge/progress/service.js";
+import { ProgressService, type ProgressServiceDependencies } from "../../src/bridge/progress/service.js";
 import type { BridgeStore } from "../../src/store/index.js";
 import type { MessageSpec } from "../../src/bridge/messages/types.js";
 import { renderLegacyMessage } from "../../src/bridge/messages/legacy-adapter.js";
 
 /** Real progress aggregation and persistence, with only the transport replaced. */
 export function fixtureProgressService(store: BridgeStore, deliver: (id: string, spec: MessageSpec, edit: boolean) => void,
-  shouldSkipCalledProgress = () => false) {
+  shouldSkipCalledProgress = () => false, overrides: Partial<ProgressServiceDependencies> = {}) {
   let next = 0;
   return new ProgressService({
     getActiveTurnRoute: thread => store.getActiveTurnRoute(thread),
@@ -27,6 +27,7 @@ export function fixtureProgressService(store: BridgeStore, deliver: (id: string,
     markProgressPhaseMessageDeliveryState: input => store.markProgressPhaseMessageDeliveryState(input),
     editMessageSpec: async (_source, id, spec) => { deliver(id, spec, true); return true; },
     sendTemporaryMessageSpec: async (_source, spec) => { const id = `activity-${next++}`; deliver(id, spec, false);
-      return { messageId: id, text: renderLegacyMessage(spec) }; }
+      return { messageId: id, text: renderLegacyMessage(spec) }; },
+    ...overrides
   });
 }

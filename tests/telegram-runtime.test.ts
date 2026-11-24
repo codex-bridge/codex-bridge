@@ -12,6 +12,7 @@ import { createSessionActionCallback } from "../src/bridge/sessions/action-callb
 import type { BridgeTelegramBotPort } from "../src/bridge/contracts.js";
 import { logger } from "../src/logging/logger.js";
 import { testConfig } from "./bridge-test-config.js";
+import { unlimitedTelegramBudget } from "./fixtures/telegram-budget.js";
 
 logger.configureOutput({ console: "none", file: false });
 type ApiSignal = NonNullable<Parameters<Bot["api"]["getUpdates"]>[1]>;
@@ -50,7 +51,7 @@ function fixture(overrides: Partial<BridgeTelegramBotPort> = {},
     getHelpMenuActions: async () => [], handleIncomingUserText: async () => ({ routed: true }),
     ...overrides
   } as unknown as BridgeTelegramBotPort;
-  buildTelegramBot(testConfig(":memory:"), service, bot);
+  buildTelegramBot(testConfig(":memory:"), service, bot, { budget: unlimitedTelegramBudget() });
   return { bot, calls, receive: (event: Update) => bot.handleUpdate(event),
     writes: () => calls.filter(call => ["sendRichMessage", "sendMessage", "editMessageText", "editMessageReplyMarkup"].includes(call.method)) };
 }
@@ -235,9 +236,10 @@ test("write timeouts abort exactly one API request without retrying it", async t
     calls++;
     return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("Write aborted")), { once: true }));
   });
-  configureTelegramApi(bot);
+  configureTelegramApi(bot, 10_000, { budget: unlimitedTelegramBudget() });
   const sending = bot.api.sendMessage(123, "Hello");
   const rejected = assert.rejects(sending, /Write aborted/);
+  await new Promise(setImmediate);
   t.mock.timers.tick(10_000); await rejected;
   assert.equal(calls, 1);
 });
@@ -250,7 +252,7 @@ test("long polling retains the runner's cancellation signal and is not timed out
     observed = signal;
     return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("Polling cancelled")), { once: true }));
   });
-  configureTelegramApi(bot);
+  configureTelegramApi(bot, 10_000, { budget: unlimitedTelegramBudget() });
   const fetching = bot.api.getUpdates({ timeout: 30 }, controller.signal as unknown as ApiSignal);
   const rejected = assert.rejects(fetching, /Polling cancelled/);
   t.mock.timers.tick(20_000);
@@ -267,12 +269,13 @@ test("write policy forwards caller cancellation and cleans up its timeout after 
     if (signals.length === 1) return { ok: true, result: true } as never;
     return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("Caller cancelled")), { once: true }));
   });
-  configureTelegramApi(bot);
+  configureTelegramApi(bot, 10_000, { budget: unlimitedTelegramBudget() });
   await bot.api.sendMessage(123, "First");
   t.mock.timers.tick(10_000); assert.equal(signals[0]!.aborted, false);
   const controller = new AbortController();
   const sending = bot.api.sendMessage(123, "Second", {}, controller.signal as unknown as ApiSignal);
   const rejected = assert.rejects(sending, /Caller cancelled/);
+  await new Promise(setImmediate);
   controller.abort(); await rejected;
   assert.equal(signals[1]!.aborted, true);
 });

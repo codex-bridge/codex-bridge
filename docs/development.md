@@ -95,10 +95,28 @@ entry. The existing physical-chat output scheduler remains responsible for rate
 limits. Shutdown stops polling and drains accepted updates before closing Bridge
 and the database. No middleware timeout abandons a still-running business action.
 
-Non-polling API calls have a 10-second abort timeout and preserve caller
+Non-polling API calls have a 10-second abort timeout, starting after quota admission, and preserve caller
 cancellation. `getUpdates` retains the runner's long-poll timeout and cancellation
 signal. This does not introduce retries for unknown write outcomes. Explicit
-Telegram rate-limit rejection still follows the existing scheduler policy.
+Telegram foreground rate-limit rejection retries at most once after server-directed
+backoff. Background refreshes instead remain pending and yield before retrying.
+
+All transports using one Bot share an in-memory `TelegramDeliveryBudget`. Raw
+send, edit, control-update and delete attempts (including format fallback and
+retries) consume the same limits: 25 requests per rolling second per Bot, one
+request per second per physical chat, and 18 requests per rolling minute per
+group. Topics do not receive independent group quotas. These conservative
+ceilings leave room below the [official FAQ](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this)
+limits; Telegram can still impose other limits. A 429 shares its cooldown across
+the Bot because the response does not identify the quota scope. Polling, reads
+and callback acknowledgements do not consume the message-write budget.
+
+Background progress and Working refreshes share one admission every ten seconds
+per physical chat, rotating between waiting sessions. Admission waits outside
+notification, workflow and physical-chat queues. An admission overtaken by a
+foreground write yields instead of waiting for quota while holding a workflow
+lock. An already-started write completes its format fallback, with each attempt
+charged, and remains cancellable. Unknown outcomes are never automatically retried.
 
 Callback acknowledgement is disposable, starts independently, and keeps its
 2-second abort bound. It no longer blocks business dispatch. Known failed approval
@@ -158,13 +176,25 @@ waiting at the transport stays pending for the next idle period; this scheduling
 skip does not mark its destination unavailable.
 
 Working updates retain only the latest eligible state. Existing panels refresh
-after foreground work, with a five-second limit across label changes and one
+after foreground work, with a twenty-second limit on Telegram (five seconds on
+other transports) across label changes and one
 trailing refresh for the latest state. Completion cancels obsolete refreshes;
 late old-turn notifications cannot revive a completed panel. Queue-count updates
-reuse any pending latest-state refresh. Typing is best-effort, waits outside the
-notification queue, and rechecks eligibility at the transport. Shutdown cancels
+reuse any pending latest-state refresh. Telegram omits typing entirely; its
+Working panel supplies running feedback. Other transports keep best-effort typing,
+waiting outside the notification queue and rechecking eligibility at the transport. Shutdown cancels
 waiting refreshes and drains writes already started. These policies reduce API
-traffic without changing progress aggregates or displayed Run counts.
+traffic without changing event aggregation or the rule that Run counts successful
+content displays. Fewer intermediate displays can therefore produce a lower Run count.
+
+Telegram coalesces live edits of the same progress block on a five-second minimum
+interval and re-reads the latest pending snapshot after background admission.
+First block creation, type boundaries and final summaries remain; intermediate
+edits do not accumulate in a delayed-send backlog. Events still update durable
+aggregates, while Run counts continue to reflect successfully displayed content
+only. Final summaries read the latest aggregate and recover after restart. A
+synthetic burst test checks write reduction; a one-third total-call target is an
+operational goal requiring production measurement, not a guaranteed rate or ratio.
 
 `bridge.notification.timing` records application queue wait, handler processing
 and total time by method/key, without payload text. Processing includes nested
