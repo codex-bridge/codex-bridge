@@ -17,7 +17,7 @@ export function getCommandArgument(text: string): string {
 }
 
 export function isSlackRootEntryCommand(command: string): boolean {
-  return command === "help" || command === "/help" || command === "/codex" ||
+  return ["/search", "/provider", "/realtime"].includes(command) || command === "help" || command === "/help" || command === "/codex" ||
     command === "sessions" || command === "/sessions" || command === "session_new" ||
     command === "/session_new" || command === "goals" || command === "/goals";
 }

@@ -9,6 +9,7 @@ import {
 import { extractProgressEventFromItem, extractProgressInputPreview } from "./extractors/progress.js";
 import { extractAssistantMessage } from "./assistant-message.js";
 import { extractActivityEvent } from "./activity-events.js";
+import { publicErrorDetails } from "./public-error.js";
 import { classifyItemKind } from "./item-kind.js";
 import type { PresentedAssistantMessage } from "../shared/assistant-display.js";
 import { asRecord, firstString } from "./protocol-utils.js";
@@ -287,6 +288,7 @@ export function extractTurnLifecycleEvent(
 
   // Terminal errors carry a public message; never stringify the full error payload.
   const error = firstString(asRecord(turn?.error)?.message)?.trim();
+  const details = publicErrorDetails(turn?.error);
 
   return {
     threadId,
@@ -294,7 +296,7 @@ export function extractTurnLifecycleEvent(
     kind: notification.method === "turn/started" ? "started" : "completed",
     ...(notification.method === "turn/completed" ? {
       terminalState: normalizeTurnTerminalState(firstString(turn?.status) ?? null),
-      ...(error ? { error } : {})
+      ...(error ? { error, ...(details.length ? { errorDetails: details } : {}) } : {})
     } : {})
   };
 }
@@ -410,6 +412,7 @@ export function extractErrorEvent(notification: AppServerNotification): AppServe
     return null;
   }
 
+  const details = publicErrorDetails(params?.error ?? params);
   return {
     threadId,
     ...(firstString(params?.turnId) ? { turnId: firstString(params?.turnId) } : {}),
@@ -420,7 +423,8 @@ export function extractErrorEvent(notification: AppServerNotification): AppServe
       extractErrorMessage(params?.msg) ??
       extractErrorMessage(params) ??
       "Unknown error",
-    retrying: params?.willRetry === true
+    retrying: params?.willRetry === true,
+    ...(details.length ? { details } : {})
   };
 }
 

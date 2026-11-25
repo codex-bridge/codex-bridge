@@ -3,6 +3,7 @@ import type { AppServerErrorEvent, AppServerTurnLifecycleEvent } from "../../cod
 import { logger } from "../../logging/logger.js";
 import type { SessionRecord } from "../../shared/types.js";
 import type { WorkingUpdate } from "../status/working-window.js";
+import { renderPublicError } from "../../codex/public-error.js";
 
 export type NotificationRecoveryDependencies = {
   errorSeenByThread: Map<string, boolean>;
@@ -25,7 +26,7 @@ export type NotificationRecoveryDependencies = {
   clearSessionStatus: (session: SessionRecord) => Promise<void>;
 };
 
-type TurnErrorContext = { threadId: string; turnId: string; closed: boolean; delivered: Set<string> };
+type TurnErrorContext = { threadId: string; turnId: string; closed: boolean; delivered: Map<string, Set<string>> };
 const MAX_ERROR_CONTEXTS = 256;
 const MAX_ERROR_NOTICES_PER_TURN = 32;
 
@@ -46,7 +47,7 @@ export class NotificationRecoveryService {
     context.closed = true;
     if (event.error && (event.terminalState === "failed" || event.terminalState === "interrupted")) {
       await this.handleError({
-        threadId: event.threadId, turnId: event.turnId, stage: "error", message: event.error
+        threadId: event.threadId, turnId: event.turnId, stage: "error", message: event.error, details: event.errorDetails
       });
     }
   }
@@ -68,7 +69,8 @@ export class NotificationRecoveryService {
       ? this.rememberTurn(errorEvent.threadId, turnId)
       : this.latestTurnErrorsByThread.get(errorEvent.threadId);
     const fingerprint = createHash("sha256").update(errorEvent.message.trim()).digest("hex");
-    if (context?.delivered.has(fingerprint)) return;
+    const deliveredDetails = context?.delivered.get(fingerprint);
+    if (deliveredDetails && !(errorEvent.details ?? []).some(detail => !deliveredDetails.has(detail))) return;
     if (context?.closed && errorEvent.retrying) return;
     logger.warn("bridge.notification.error", {
       threadId: errorEvent.threadId,
@@ -116,7 +118,7 @@ export class NotificationRecoveryService {
   private rememberTurn(threadId: string, turnId: string): TurnErrorContext {
     const key = `${threadId}\u0000${turnId}`;
     const previous = this.turnErrors.get(key);
-    const context = previous ?? { threadId, turnId, closed: false, delivered: new Set<string>() };
+    const context = previous ?? { threadId, turnId, closed: false, delivered: new Map<string, Set<string>>() };
     if (!previous) this.latestTurnErrorsByThread.set(threadId, context);
     this.turnErrors.delete(key);
     this.turnErrors.set(key, context);
@@ -137,11 +139,14 @@ export class NotificationRecoveryService {
     context: TurnErrorContext | undefined,
     fingerprint: string
   ): Promise<void> {
-    const delivered = await this.deps.sendSystemErrorMessage(session, event.stage, event.message);
+    const previous = context?.delivered.get(fingerprint);
+    const details = (event.details ?? []).filter(detail => !previous?.has(detail));
+    const message = previous ? renderPublicError("Additional error information", details) : renderPublicError(event.message, details);
+    const delivered = await this.deps.sendSystemErrorMessage(session, event.stage, message);
     if (!delivered || !context) return;
-    context.delivered.add(fingerprint);
+    context.delivered.set(fingerprint, new Set([...(previous ?? []), ...details]));
     if (context.delivered.size > MAX_ERROR_NOTICES_PER_TURN) {
-      context.delivered.delete(context.delivered.values().next().value!);
+      context.delivered.delete(context.delivered.keys().next().value!);
     }
   }
 }

@@ -21,6 +21,7 @@ import { TelegramMediaGroups, registerTelegramMediaGroups } from "./media-groups
 import { markManagedAttachmentPathsStatus } from "../bridge/input/attachment-files.js";
 
 const knownCommands = new Set([
+  "search", "provider", "realtime",
   "help",
   "session_new",
   "sessions",
@@ -207,6 +208,13 @@ export function buildTelegramBot(config: AppConfig, service: BridgeTelegramBotPo
     const menu = await service.renderGoalsMenu(chatId);
     await replySpec(ctx, menu);
   });
+
+  for (const command of ["search", "provider", "realtime"] as const) {
+    bot.command(command, async ctx => {
+      if (!service.codexFeatureMessage) return;
+      await replySpec(ctx, await service.codexFeatureMessage(telegramSourceForContext(ctx), command, getCommandArgument(ctx.message?.text ?? "")));
+    });
+  }
 
   bot.command("section_rename", async (ctx) => {
     const chatId = telegramSourceForContext(ctx);

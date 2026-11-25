@@ -545,6 +545,7 @@
       "src/bridge/notifications/subagent-tracker.ts",
       "src/bridge/service.ts",
       "src/bridge/sessions/activation.ts",
+      "src/bridge/sessions/codex-features.ts",
       "src/bridge/sessions/compact-service.ts",
       "src/bridge/sessions/creation.ts",
       "src/bridge/sessions/external-recovery.ts",
@@ -678,6 +679,12 @@
     "modelProvider/capabilities/read": [
       "src/codex/runtime-capabilities.ts"
     ],
+    "modelProvider/default/set": [
+      "src/codex/provider-api.ts"
+    ],
+    "modelProvider/list": [
+      "src/codex/provider-api.ts"
+    ],
     "server/diagnostics": [
       "src/codex/runtime-capabilities.ts"
     ],
@@ -750,9 +757,27 @@
     "thread/readState/changed": [
       "src/bridge/notifications/delivery-effect.ts"
     ],
+    "thread/realtime/list": [
+      "src/codex/realtime-history-api.ts"
+    ],
     "thread/resume": [
       "src/codex/error-policy.ts",
       "src/codex/thread-api.ts"
+    ],
+    "thread/search": [
+      "src/codex/thread-search-api.ts"
+    ],
+    "thread/search/cancel": [
+      "src/codex/thread-search-api.ts"
+    ],
+    "thread/search/partial": [
+      "src/codex/thread-search-api.ts"
+    ],
+    "thread/search/stream": [
+      "src/codex/thread-search-api.ts"
+    ],
+    "thread/search/stream/cancel": [
+      "src/codex/thread-search-api.ts"
     ],
     "thread/section/changed": [
       "src/bridge/notifications/delivery-effect.ts"

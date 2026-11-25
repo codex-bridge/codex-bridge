@@ -367,6 +367,63 @@ export class WebServer {
         json(response, 200, { ...catalog, ...(this.bridge.readServiceNotices ? { serviceNotices: this.bridge.readServiceNotices() } : {}) });
         return;
       }
+      case "POST /api/web/search": {
+        const lease = this.requireLease(request);
+        const guard = () => { if (this.requireLease(request) !== lease) throw new HttpError(409, "Window connection changed."); };
+        const body = await readJson(request); guard();
+        if (typeof body.query !== "string" || !body.query.trim() || Buffer.byteLength(body.query, "utf8") > 65_536 ||
+          body.archived !== undefined && typeof body.archived !== "boolean" ||
+          body.cursor !== undefined && typeof body.cursor !== "string" ||
+          Object.keys(body).some(key => !["query", "archived", "cursor"].includes(key))) throw new HttpError(400, "Expected query, optional archived and cursor.");
+        if (!this.bridge?.searchSessions) throw new HttpError(503, "Session search is unavailable.");
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        response.once("close", abort);
+        lease.signal.addEventListener("abort", abort, { once: true });
+        response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" });
+        try {
+          const page = await this.bridge.searchSessions(body.query, { archived: body.archived as boolean | undefined,
+            cursor: body.cursor as string | undefined, signal: controller.signal, onPartial: data => {
+              try { guard(); if (!response.destroyed) response.write(`${JSON.stringify({ type: "partial", data })}\n`); }
+              catch { controller.abort(); }
+            } }, guard);
+          guard();
+          if (!response.destroyed) response.end(`${JSON.stringify({ type: "result", ...page })}\n`);
+        } catch (error) {
+          if (!response.destroyed) response.end(`${JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Search failed." })}\n`);
+        } finally { response.off("close", abort); lease.signal.removeEventListener("abort", abort); }
+        return;
+      }
+      case "GET /api/web/providers": {
+        const lease = this.requireLease(request);
+        if (!this.bridge?.listProviders) throw new HttpError(503, "Provider settings are unavailable.");
+        const guard = () => { if (this.requireLease(request) !== lease) throw new HttpError(409, "Window connection changed."); };
+        const catalog = await this.bridge.listProviders(guard); guard(); json(response, 200, catalog); return;
+      }
+      case "POST /api/web/providers/default": {
+        const lease = this.requireLease(request);
+        const body = await readJson(request);
+        const guard = () => { if (this.requireLease(request) !== lease) throw new HttpError(409, "Window connection changed."); };
+        guard();
+        if (typeof body.providerId !== "string" || !body.providerId.trim() || Object.keys(body).some(key => key !== "providerId")) throw new HttpError(400, "Expected providerId.");
+        if (!this.bridge?.setDefaultProvider) throw new HttpError(503, "Provider settings are unavailable.");
+        await this.bridge.setDefaultProvider(body.providerId, guard); guard(); json(response, 200, { ok: true }); return;
+      }
+      case "POST /api/web/session/realtime": {
+        const lease = this.requireLease(request);
+        const body = await readJson(request);
+        const guard = () => { if (this.requireLease(request) !== lease) throw new HttpError(409, "Window connection changed."); };
+        guard();
+        if (typeof body.threadId !== "string" || !body.threadId.trim() ||
+          body.leaseVersion !== undefined && (!Number.isSafeInteger(body.leaseVersion) || Number(body.leaseVersion) < 0) ||
+          body.cursor !== undefined && typeof body.cursor !== "string" ||
+          body.snapshotEnd !== undefined && (!Number.isSafeInteger(body.snapshotEnd) || Number(body.snapshotEnd) < 0) ||
+          Object.keys(body).some(key => !["threadId", "leaseVersion", "cursor", "snapshotEnd"].includes(key))) throw new HttpError(400, "Expected threadId and optional leaseVersion, cursor and snapshotEnd.");
+        if (!this.bridge?.readRealtimeHistory) throw new HttpError(503, "Realtime history is unavailable.");
+        const { assertCurrent, ...page } = await this.bridge.readRealtimeHistory(body.threadId, body.leaseVersion as number | undefined,
+          { cursor: body.cursor as string | undefined, snapshotEnd: body.snapshotEnd as number | undefined }, guard);
+        guard(); assertCurrent?.(); json(response, 200, page); return;
+      }
       case "POST /api/web/directories": {
         this.requireLease(request);
         const body = await readJson(request);

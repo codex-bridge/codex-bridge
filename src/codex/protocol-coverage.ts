@@ -27,7 +27,7 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
     ] }
   ],
   notification: [
-    { disposition: "ignored", reason: "Search partial batches belong to their connection-bound search request, not a conversation notification.", names: ["thread/search/partial"] },
+    { disposition: "handled", reason: "Connection-bound search correlates partial batches by request ID; authoritative final pages replace provisional results. They are not conversation notifications.", names: ["thread/search/partial"] },
     { disposition: "handled", reason: "Turn lifecycle, errors and pending-request resolution use the existing session route.", names: [
       "error", "turn/started", "turn/completed", "serverRequest/resolved", "thread/compacted"
     ] },

@@ -16,6 +16,7 @@ import { NotificationSessionContext } from "./notifications/session-context.js";
 import { SessionDiscoveryService } from "./sessions/discovery.js";
 import { SessionMutationService } from "./sessions/mutation.js";
 import { SessionCatalogService } from "./sessions/catalog.js";
+import { CodexFeatureCommands, type CodexFeatureCommand } from "./sessions/codex-features.js";
 import { WebDirectoryRegistry } from "./sessions/directory-registry.js";
 import { SessionAccessService } from "./sessions/access.js";
 import { LocalWebBridgeApi } from "../web/bridge-api.js";
@@ -1011,6 +1012,11 @@ export class BridgeService {
     return this.statusViewService.render(telegramChatId, full);
   }
 
+  codexFeatureMessage(sourceId: string, command: CodexFeatureCommand, argument: string): Promise<MessageSpec> {
+    return new CodexFeatureCommands({ store: this.store, client: this.codexClient,
+      directory: session => this.getSessionDirectory(session) }).run(sourceId, command, argument);
+  }
+
   async renderActiveGoal(telegramChatId: string): Promise<MessageSpec> {
     return this.goalCommandService.renderActive(telegramChatId);
   }
@@ -1264,7 +1270,7 @@ export class BridgeService {
           runtimeConnected: this.isRuntimeConnected()
         })
       })
-    }, new WebAttachmentStorage(), () => this.notificationNoticeService.snapshot());
+    }, new WebAttachmentStorage(), () => this.notificationNoticeService.snapshot(), this.codexClient);
   }
 
   async cancelSessionHandoff(sourceId: string, sessionId: string, expectedLeaseVersion?: number): Promise<MessageSpec> {

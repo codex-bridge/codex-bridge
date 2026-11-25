@@ -136,6 +136,11 @@ export function createSlackMessageHandler(input: {
     });
     await service.ensureChatAllowed(chatId);
 
+    if (["/search", "/provider", "/realtime"].includes(command) && service.codexFeatureMessage) {
+      await sendSpec(chatId, await service.codexFeatureMessage(chatId, command.slice(1) as "search" | "provider" | "realtime", getCommandArgument(text)));
+      return;
+    }
+
     if (command === "help" || command === "/help" || command === "/codex") {
       await sendHelp(chatId);
       return;

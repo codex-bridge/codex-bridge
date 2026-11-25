@@ -14,6 +14,36 @@ import { DirectoryRegistrationError } from "../src/bridge/sessions/directory-reg
 import { WEB_ATTACHMENT_MAX_FILE_BYTES, WEB_ATTACHMENT_MAX_TOTAL_BYTES } from "../src/web/protocol-limits.js";
 import { AssistantReplyError } from "../src/bridge/interactions/assistant-replies.js";
 
+test("a replaced Web connection cancels its search and cannot receive late results", async t => {
+  let entered!: () => void;
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  let aborted = false;
+  const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
+    searchSessions: async (_query, options) => {
+      options.onPartial?.([]); entered();
+      await new Promise<void>(resolve => options.signal!.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true }));
+      return { data: [{ threadId: "private-late-thread", directory: "/private", name: null, archived: false, modelProvider: null, snippet: "private-late-result" }], nextCursor: null };
+    } });
+  const old = await acquire(base, "old-search");
+  const response = post(base, "/api/web/search", { query: "match" }, old);
+  await ready;
+  await acquire(base, "new-search", true);
+  const text = await (await response).text();
+  assert.equal(aborted, true);
+  assert.doesNotMatch(text, /private-late/);
+  assert.match(text, /"type":"error"/);
+});
+
+test("realtime history rechecks session access immediately before HTTP delivery", async t => {
+  const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
+    readRealtimeHistory: async () => ({ data: [{ id: "private", position: 0, sessionId: "voice", type: "transcriptSegment", observedAtMs: null, role: "user", text: "private-late-result", turnId: null }],
+      coverage: "ready", snapshotEnd: 1, projectedThroughItemIndex: 1, nextCursor: null,
+      assertCurrent: () => { throw new SessionAccessError("not_owner"); } }) });
+  const grant = await acquire(base, "realtime");
+  const response = await post(base, "/api/web/session/realtime", { threadId: "thread" }, grant);
+  assert.equal(response.status, 403); assert.doesNotMatch(await response.text(), /private-late/);
+});
+
 test("question tokens are strictly parsed and stale choices return a clear conflict without retry ambiguity", async (t) => {
   const calls: unknown[] = [];
   const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
@@ -720,4 +750,33 @@ test("aborted request bodies neither crash the listener nor acquire a grant", { 
   pending.destroy();
   await closed;
   assert.deepEqual(await (await fetch(`${base}/api/web/connection`)).json(), { holderWindowId: null });
+});
+test("Codex feature endpoints validate window grants and native inputs, streaming search partials before the final page", async t => {
+  const calls: unknown[] = [];
+  const { base } = await fixture(t, { listCatalog: async () => ({ directories: [], sessions: [] }),
+    searchSessions: async (query, options, check) => {
+      check(); calls.push(query);
+      options.onPartial?.([{ threadId: "partial", name: "Partial", directory: "/project", archived: false, modelProvider: null, snippet: "First" }]);
+      return { data: [], nextCursor: null };
+    }, listProviders: async check => { check(); return { data: [{ id: "first", name: "First" }], defaultProviderId: "first", canChangeDefault: true }; },
+    setDefaultProvider: async (id, check) => { check(); calls.push(id); },
+    readRealtimeHistory: async (threadId, version, options, check) => { check(); calls.push({ threadId, version, options });
+      return { data: [], nextCursor: null, snapshotEnd: 0, projectedThroughItemIndex: 0, coverage: "ready" }; } });
+  assert.equal((await post(base, "/api/web/search", { query: "text" })).status, 403);
+  const grant = await acquire(base, "features");
+  for (const body of [{ query: "" }, { query: "text", sourceId: "other" }, { query: "text", cursor: 7 }]) {
+    assert.equal((await post(base, "/api/web/search", body, grant)).status, 400);
+  }
+  const response = await post(base, "/api/web/search", { query: "text" }, grant);
+  assert.equal(response.status, 200);
+  const batches = (await response.text()).trim().split("\n").map(line => JSON.parse(line));
+  assert.deepEqual(batches.map(batch => batch.type), ["partial", "result"]);
+  assert.deepEqual(batches[1].data, []);
+  const providers = await fetch(`${base}/api/web/providers`, { headers: headers(grant) });
+  assert.equal(providers.status, 200);
+  assert.equal((await post(base, "/api/web/providers/default", { providerId: "first", unknown: true }, grant)).status, 400);
+  assert.equal((await post(base, "/api/web/providers/default", { providerId: "first" }, grant)).status, 200);
+  assert.equal((await post(base, "/api/web/session/realtime", { threadId: "thread", snapshotEnd: -1 }, grant)).status, 400);
+  assert.equal((await post(base, "/api/web/session/realtime", { threadId: "thread", leaseVersion: 1, cursor: "next", snapshotEnd: 5 }, grant)).status, 200);
+  assert.deepEqual(calls, ["text", "first", { threadId: "thread", version: 1, options: { cursor: "next", snapshotEnd: 5 } }]);
 });

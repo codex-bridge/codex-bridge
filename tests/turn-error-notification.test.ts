@@ -94,6 +94,22 @@ test("terminal reasons extract only human-readable error messages and retain tur
   })?.turnId, "turn");
 });
 
+test("a richer terminal error sends only unseen public details and does not repeat the original error", async t => {
+  const h = await harness(t);
+  await h.start();
+  await h.error("Quota");
+  await h.send({ method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "failed",
+    error: { message: "Quota", codexErrorInfo: "projectSpendLimitExceeded", additionalDetails: "Ask owner" } } } });
+  const notices = h.sends.filter(text => text.startsWith("Codex error"));
+  assert.equal(notices.length, 2);
+  assert.match(notices[0]!, /Quota/);
+  assert.doesNotMatch(notices[1]!, /Quota/);
+  assert.match(notices[1]!, /Additional error information[\s\S]*Project spend limit reached[\s\S]*Ask owner/);
+  await h.send({ method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "failed",
+    error: { message: "Quota", codexErrorInfo: "projectSpendLimitExceeded", additionalDetails: "Ask owner" } } } });
+  assert.equal(h.sends.filter(text => text.startsWith("Codex error")).length, 2);
+});
+
 test("interrupted terminal reason is visible without converting Run into failed or changing reported counts", async (t) => {
   const h = await harness(t);
   await h.start();

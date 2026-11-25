@@ -33,6 +33,9 @@ import {
   extractRuntimeInfo as parseRuntimeInfo
 } from "./catalog-extractors.js";
 import { CodexCatalogApi } from "./catalog-api.js";
+import { CodexThreadSearchApi, type ThreadSearchOptions, type ThreadSearchPage } from "./thread-search-api.js";
+import { CodexRealtimeHistoryApi, type RealtimeHistoryOptions, type RealtimeHistoryPage } from "./realtime-history-api.js";
+import { CodexProviderApi, type ModelProviderCatalog } from "./provider-api.js";
 import { CodexThreadListApi, type ListedCodexThread, type ThreadListOptions } from "./thread-list-api.js";
 import {
   AppServerConnection,
@@ -114,6 +117,7 @@ export interface AppServerTurnLifecycleEvent {
   kind: "started" | "completed";
   terminalState?: "completed" | "failed" | "interrupted";
   error?: string;
+  errorDetails?: string[];
 }
 
 export type {
@@ -128,6 +132,7 @@ export interface AppServerErrorEvent {
   stage: "stream" | "error";
   message: string;
   retrying?: boolean;
+  details?: string[];
 }
 
 export type { CodexQueuedSubmission } from "./queue-api.js";
@@ -746,6 +751,26 @@ export class CodexAppServerClient {
       connect: () => this.connect(),
       request: (method, params, options) => this.requestKnownMethod(method, params, options)
     }).read();
+  }
+
+  searchThreads(query: string, options?: ThreadSearchOptions): Promise<ThreadSearchPage> {
+    return new CodexThreadSearchApi({ connect: () => this.connect(), onNotification: listener => this.onNotification(listener),
+      request: (method, params, settings) => this.connection.request(method, params, settings) }).search(query, options);
+  }
+
+  readRealtimeHistory(threadId: string, options?: RealtimeHistoryOptions): Promise<RealtimeHistoryPage> {
+    return new CodexRealtimeHistoryApi({ connect: () => this.connect(),
+      request: (method, params, settings) => this.requestKnownMethod(method as AppServerKnownMethod, params, settings) }).read(threadId, options);
+  }
+
+  listModelProviders(): Promise<ModelProviderCatalog> {
+    return new CodexProviderApi({ connect: () => this.connect(),
+      request: (method, params, settings) => this.requestKnownMethod(method as AppServerKnownMethod, params, settings) }).list();
+  }
+
+  setDefaultModelProvider(providerId: string, assertCurrent?: () => void): Promise<void> {
+    return new CodexProviderApi({ connect: () => this.connect(),
+      request: (method, params, settings) => this.requestKnownMethod(method as AppServerKnownMethod, params, settings) }).setDefault(providerId, assertCurrent);
   }
 
   async startCompactThread(threadId: string): Promise<void> {

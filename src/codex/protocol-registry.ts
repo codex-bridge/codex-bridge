@@ -302,7 +302,7 @@ export const APP_SERVER_METHOD_DEFINITIONS = [
     },
   { method: "account/read", kind: "request", group: "account" },
   { method: "account/securitySetup/read", kind: "request", group: "account", notes: "Reads account security setup notices; not integrated into Bridge UI." },
-  { method: "modelProvider/list", kind: "request", group: "models", notes: "Lists configured providers without changing the default; not integrated into Bridge UI." },
+  { method: "modelProvider/list", kind: "request", group: "models", notes: "Lists configured providers and whether the default may be changed." },
   { method: "modelProvider/config/write", kind: "request", group: "config", access: "restricted", notes: "Writes provider configuration; requires explicit user intent and is not a compatibility probe." },
   { method: "feedback/upload", kind: "request", group: "feedback" },
   { method: "feedback/save", kind: "request", group: "feedback", notes: "Writes a feedback ZIP to a previously unused host path; the caller owns cleanup even after RPC disconnect." },

@@ -33,9 +33,9 @@ test("Codex 0.172.0 inventory covers the generated protocol and independent runt
   }
 });
 
-test("new provider, account-security and plan-handoff methods do not claim production integration", () => {
+test("provider reads are integrated while unrelated configuration and plan-handoff writes remain restricted", () => {
   for (const [method, group, status] of [
-    ["modelProvider/list", "models", "available"],
+    ["modelProvider/list", "models", "used"],
     ["modelProvider/config/write", "config", "restricted"],
     ["account/securitySetup/read", "account", "available"],
     ["thread/prepareApprovedPlan", "thread", "restricted"]
@@ -46,7 +46,7 @@ test("new provider, account-security and plan-handoff methods do not claim produ
     assert.equal(capability.status, status);
     assert.equal(capability.evidence.generatedType, true);
     assert.equal(capability.evidence.runtime, "listed");
-    assert.deepEqual(capability.evidence.productionReferences, []);
+    assert.deepEqual(capability.evidence.productionReferences, method === "modelProvider/list" ? ["src/codex/provider-api.ts"] : []);
     assert.equal(capability.evidence.liveVerification, null);
   }
 });

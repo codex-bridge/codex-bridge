@@ -35,7 +35,7 @@ export class SessionCatalogService {
   }) {}
 
   async registration(threadId: string): Promise<{ threadId: string; directory: string; pathKey: string; name: string | null } | null> {
-    const thread = (await this.deps.codexClient.listThreadsForCwd()).find((entry) => entry.threadId === threadId);
+    const thread = (await this.deps.codexClient.listThreadsForCwd(undefined, { includedThreadIds: [threadId] })).find((entry) => entry.threadId === threadId);
     if (!thread || thread.archivedAt !== null) return null;
     const known = await this.deps.store.getSessionByThreadId(threadId);
     const directory = thread.currentCwd ?? (known ? this.deps.getSessionDirectory(known) : null);
@@ -46,7 +46,7 @@ export class SessionCatalogService {
   }
 
   async archivedRegistration(threadId: string): Promise<{ threadId: string; directory: string; pathKey: string; name: string | null } | null> {
-    const thread = (await this.deps.codexClient.listArchivedThreadsForCwd()).find((entry) => entry.threadId === threadId);
+    const thread = (await this.deps.codexClient.listArchivedThreadsForCwd(undefined, { includedThreadIds: [threadId] })).find((entry) => entry.threadId === threadId);
     if (!thread) return null;
     const known = await this.deps.store.getSessionByThreadId(threadId);
     const directory = thread.currentCwd ?? (known ? this.deps.getSessionDirectory(known) : null);

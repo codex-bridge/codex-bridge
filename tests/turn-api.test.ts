@@ -34,6 +34,22 @@ function turnFixture(overrides: Partial<TurnApiDependencies> = {}) {
   return { api, calls };
 }
 
+test("the same session rereads latest model and effective config at each new turn without changing its identity", async () => {
+  let current = { ...snapshot }, reads = 0;
+  const params: Array<Record<string, unknown>> = [];
+  const f = turnFixture({ readCodexConfigSnapshot: async () => { reads++; return current; },
+    readLoadedThreadsStatus: async () => ({ total: 1, activeLoaded: true }),
+    request: async (_method, input) => { params.push(input as Record<string, unknown>); return { turn: { id: `turn-${params.length}` } }; } });
+  await f.api.sendTurn("same-thread", "first", "/project");
+  current = { ...current, model: "gpt-6.2-sol", reasoningEffort: "low", approvalPolicy: "never", approvalsReviewer: "user" };
+  await f.api.sendTurn("same-thread", "second", "/project");
+  assert.equal(reads, 2);
+  assert.deepEqual(params.map(value => value.threadId), ["same-thread", "same-thread"]);
+  assert.deepEqual(params.map(value => value.model), ["gpt-5.6", "gpt-6.2-sol"]);
+  assert.equal(params[1]!.effort, "low"); assert.equal(params[1]!.approvalPolicy, "never");
+  assert.equal(params[1]!.approvalsReviewer, "user");
+});
+
 test("a loaded empty thread starts its first turn without trying to resume a nonexistent rollout", async () => {
   const f = turnFixture({ readLoadedThreadsStatus: async (id) => {
     assert.equal(id, "new-thread");

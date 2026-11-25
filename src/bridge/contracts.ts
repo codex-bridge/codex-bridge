@@ -26,6 +26,7 @@ type TurnRouteResult = { routed: boolean; prompt?: MessageSpec };
 type GoalStatus = "active" | "paused" | "complete";
 
 export interface BridgeChatPort {
+  codexFeatureMessage?(chatId: string, command: import("./sessions/codex-features.js").CodexFeatureCommand, argument: string): Promise<MessageSpec>;
   ensureChatAllowed(chatId: string): Promise<void>;
   getActiveSession(chatId: string): Promise<SessionRecord | null>;
   getActiveSessionContext(chatId: string): Promise<SessionContext | undefined>;

@@ -27,6 +27,7 @@ export type ThreadListApiDependencies = {
 export type ThreadListOptions = {
   archived?: boolean;
   modelProviders?: string[];
+  includedThreadIds?: string[];
 };
 
 function extractConversationPathKey(item: Record<string, unknown>): string | null {
@@ -78,6 +79,10 @@ export class CodexThreadListApi {
   ): Promise<ListedCodexThread[]> {
     await this.deps.connect();
     const archived = options.archived === true;
+    if (options.includedThreadIds && (options.includedThreadIds.length > 100 || options.includedThreadIds.some(id => !id.trim()))) {
+      throw new Error("Expected at most 100 nonempty thread IDs.");
+    }
+    const includedThreadIds = options.includedThreadIds ? [...options.includedThreadIds] : undefined;
     const modelProviders = options.modelProviders?.map((provider) => provider.trim()).filter(Boolean) ?? [];
     logger.info("codex.thread.list", { cwd: cwd ?? null, archived, modelProviders });
     const rows: unknown[] = [];
@@ -91,6 +96,7 @@ export class CodexThreadListApi {
         sortKey: "updated_at",
         ...(cwd ? { cwd } : {}),
         archived,
+        ...(includedThreadIds ? { includedThreadIds } : {}),
         ...(modelProviders.length > 0 ? { modelProviders } : {}),
         sourceKinds: ["appServer", "cli", "vscode"]
       }));

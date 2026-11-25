@@ -22,7 +22,10 @@ import type { SessionStopService } from "../bridge/sessions/stop.js";
 import type { StatusViewService } from "../bridge/status/view.js";
 import type { QueuedSubmissionService } from "../bridge/input/queued-submission.js";
 import type { MessageSpec } from "../bridge/messages/types.js";
-import type { CodexTurnInputPart } from "../codex/client.js";
+import type { CodexAppServerClient, CodexTurnInputPart } from "../codex/client.js";
+import type { ThreadSearchOptions, ThreadSearchPage } from "../codex/thread-search-api.js";
+import type { RealtimeHistoryOptions, RealtimeHistoryPage } from "../codex/realtime-history-api.js";
+import type { ModelProviderCatalog } from "../codex/provider-api.js";
 import type { IncomingAttachment } from "../bridge/input/payload.js";
 import { WebAttachmentStorage, type WebUploadFile } from "./attachments.js";
 import type { WebAttentionService, WebAttentionDelivery } from "./attention.js";
@@ -60,6 +63,11 @@ export class WebSendError extends Error {
 
 /** Web has one stable source; browser window credentials never become source IDs. */
 export interface WebBridgeApi {
+  searchSessions?: (query: string, options: ThreadSearchOptions, assertCurrent: () => void) => Promise<ThreadSearchPage>;
+  listProviders?: (assertCurrent: () => void) => Promise<ModelProviderCatalog>;
+  setDefaultProvider?: (providerId: string, assertCurrent: () => void) => Promise<void>;
+  readRealtimeHistory?: (threadId: string, leaseVersion: number | undefined, options: RealtimeHistoryOptions,
+    assertCurrent: () => void) => Promise<RealtimeHistoryPage & { assertCurrent?: () => void }>;
   listCatalog(): Promise<SessionCatalog>;
   readServiceNotices?: () => WebMessageSpec[];
   registerDirectory?: (path: string, assertCurrent: () => void) => Promise<WebDirectoryRegistration>;
@@ -111,7 +119,39 @@ export class LocalWebBridgeApi implements WebBridgeApi {
     private readonly directories?: WebDirectoryRegistry,
     private readonly operations?: WebSessionOperations,
     private readonly attachments?: WebAttachmentStorage,
-    private readonly serviceNotices?: () => MessageSpec[]) {}
+    private readonly serviceNotices?: () => MessageSpec[],
+    private readonly codexFeatures?: Pick<CodexAppServerClient, "searchThreads" | "listModelProviders" | "setDefaultModelProvider" | "readRealtimeHistory">) {}
+
+  async searchSessions(query: string, options: ThreadSearchOptions, assertCurrent: () => void): Promise<ThreadSearchPage> {
+    if (!this.codexFeatures) throw new Error("Session search is unavailable.");
+    assertCurrent();
+    const page = await this.codexFeatures.searchThreads(query, options);
+    assertCurrent();
+    return page;
+  }
+
+  async listProviders(assertCurrent: () => void): Promise<ModelProviderCatalog> {
+    if (!this.codexFeatures) throw new Error("Provider settings are unavailable.");
+    assertCurrent();
+    const catalog = await this.codexFeatures.listModelProviders();
+    assertCurrent();
+    return catalog;
+  }
+
+  async setDefaultProvider(providerId: string, assertCurrent: () => void): Promise<void> {
+    if (!this.codexFeatures) throw new Error("Provider settings are unavailable.");
+    assertCurrent();
+    await this.codexFeatures.setDefaultModelProvider(providerId, assertCurrent);
+  }
+
+  async readRealtimeHistory(threadId: string, leaseVersion: number | undefined, options: RealtimeHistoryOptions,
+    assertCurrent: () => void): Promise<RealtimeHistoryPage & { assertCurrent: () => void }> {
+    if (!this.codexFeatures || !this.conversation) throw new Error("Realtime history is unavailable.");
+    const access = await this.conversation.access.requireOwned(threadId, WEB_SOURCE_ID, leaseVersion, assertCurrent);
+    const page = await this.codexFeatures.readRealtimeHistory(threadId, options);
+    access.assertCurrent();
+    return { ...page, assertCurrent: access.assertCurrent };
+  }
 
   readServiceNotices(): WebMessageSpec[] { return (this.serviceNotices?.() ?? []).map(presentWebMessage); }
 

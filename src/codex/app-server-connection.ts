@@ -152,7 +152,7 @@ export class AppServerConnection {
   async request(
     method: string,
     params?: unknown,
-    options?: { timeoutMs?: number }
+    options?: { timeoutMs?: number; onRequestId?: (id: JsonRpcId) => void }
   ): Promise<unknown> {
     const id = this.nextId++;
     logger.info("codex.rpc.request", { id, method });
@@ -187,6 +187,7 @@ export class AppServerConnection {
       });
     });
     try {
+      options?.onRequestId?.(id);
       await this.send({ method, id, params });
     } catch (error) {
       const pending = this.pending.get(id);
