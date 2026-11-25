@@ -3,13 +3,13 @@ import test from "node:test";
 
 import type { MessageSpec } from "../src/bridge/messages/types.js";
 import { createThreadHistoryEntrySpec } from "../src/bridge/renderers/thread-history.js";
-import { CompactService } from "../src/bridge/sessions/compact-service.js";
+import { CompactService, type CompactServiceDependencies } from "../src/bridge/sessions/compact-service.js";
 import type { BridgeMessageOptions } from "../src/bridge/transport.js";
 import { renderSlackMessageSpec } from "../src/slack/message-renderer.js";
 import { BridgeStore } from "../src/store/index.js";
 import { renderTelegramMessageSpec } from "../src/telegram/message-renderer.js";
 
-async function harness(t: test.TestContext, connected = true) {
+async function harness(t: test.TestContext, connected = true, overrides: Partial<CompactServiceDependencies> = {}) {
   const store = new BridgeStore(":memory:");
   t.after(() => store.close());
   const session = await store.upsertDiscoveredSession({
@@ -34,7 +34,8 @@ async function harness(t: test.TestContext, connected = true) {
     rememberNotificationSession: () => {},
     setSessionStatus: async () => {},
     sendSystemErrorMessage: async () => {},
-    sendLongSpec: async (_chat, spec, options) => { sent.push({ spec, options }); }
+    sendLongSpec: async (_chat, spec, options) => { sent.push({ spec, options }); },
+    ...overrides
   });
   return { service, session, sent };
 }
@@ -56,6 +57,19 @@ test("manual compact replies use subdued activity without Help", async (t) => {
   const { service } = await harness(t);
   assertActivity(await service.compactActiveSession("chat"), [
     "Compact started · /workspace/project", "Triggered by you"
+  ]);
+});
+
+test("manual and auto-recovery Compact request immediate Working updates", async t => {
+  const statuses: Array<{ label: string; immediate: boolean | undefined }> = [];
+  const { service, session } = await harness(t, true, {
+    getLastUserInput: () => "Continue",
+    setSessionStatus: async (_session, label, update) => { statuses.push({ label, immediate: update?.immediate }); }
+  });
+  await service.compactSession(session);
+  await service.handleIncompatibleHistoryError(session, "Incompatible history");
+  assert.deepEqual(statuses, [
+    { label: "Compacting", immediate: true }, { label: "Compacting", immediate: true }
   ]);
 });
 

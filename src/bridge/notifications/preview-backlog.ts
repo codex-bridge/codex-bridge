@@ -14,6 +14,7 @@ export class NotificationPreviewBacklog {
   private readonly pending = new Map<string, PendingPreview>();
   private readonly statuses = new Map<string, object>();
   private readonly turns = new Map<string, { id: string; completed: boolean }>();
+  private generation = 0;
 
   track(key: string, notification: AppServerNotification): () => NotificationDeliveryOptions {
     const delivery: NotificationDeliveryOptions = {};
@@ -27,7 +28,13 @@ export class NotificationPreviewBacklog {
     const stale = currentTurn && (currentTurn.completed || turnId && turnId !== currentTurn.id);
     if (status?.kind === "running") {
       if (stale) delivery.canRefreshStatus = () => false;
-      else {
+      else if (status.activity === "contextCompaction") {
+        // Compact is a chronological boundary, not a replaceable Working preview.
+        // Validate its turn at arrival; later queued events must not erase it.
+        this.statuses.delete(key);
+        const generation = this.generation;
+        delivery.canRefreshStatus = () => this.generation === generation;
+      } else {
         const token = {};
         this.statuses.set(key, token);
         delivery.canRefreshStatus = () => this.statuses.get(key) === token;
@@ -63,5 +70,5 @@ export class NotificationPreviewBacklog {
     else { this.pending.delete(key); this.statuses.delete(key); }
   }
 
-  reset(): void { this.pending.clear(); this.statuses.clear(); this.turns.clear(); }
+  reset(): void { this.generation++; this.pending.clear(); this.statuses.clear(); this.turns.clear(); }
 }

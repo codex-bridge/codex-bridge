@@ -56,6 +56,31 @@ test("Telegram summary-only progress retains Working with a twenty-second change
   assert.equal(f.edits.length, 3, "completion cancels the pending status and bypasses its interval");
 });
 
+test("runtime Compact bypasses the Working interval and idle/background waits", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  f.deps.isCompactStatusUpdate = update => update.activity === "contextCompaction";
+  let starts = 0;
+  f.deps.notifyCompactStarted = async () => { starts++; };
+  f.deps.isThreadBusy = () => true;
+  f.deps.waitForThreadIdle = async () => assert.fail("Compact must not wait for thread idle");
+  f.deps.waitForBackgroundRefresh = async () => assert.fail("Compact must not use background admission");
+  await f.lifecycle.setSessionStatus(session, "Working");
+  t.mock.timers.tick(1_000);
+  await f.lifecycle.applyStatusUpdate(session, {
+    threadId: "thread", kind: "running", activity: "contextCompaction", label: "Compacting", detail: null, detailMode: null
+  });
+  assert.equal(starts, 1);
+  assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Compacting · 1s/);
+  f.deps.isThreadBusy = () => false;
+  await f.lifecycle.applyStatusUpdate(session, {
+    threadId: "thread", kind: "running", label: "Thinking", detail: null, detailMode: null
+  });
+  assert.equal(f.edits.length, 1, "ordinary states still wait after Compact delivery");
+});
+
 test("shared Working windows keep ordered changes, including a return to the displayed state", async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
   const f = fixture(); t.after(() => f.lifecycle.stop());

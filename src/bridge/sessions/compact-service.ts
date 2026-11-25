@@ -65,7 +65,7 @@ export class CompactService {
   async compactSession(session: SessionRecord): Promise<MessageSpec> {
     if (!this.deps.isRuntimeConnected()) return this.errorResult(session, "Codex runtime is disconnected.\nUse /bot_connect to reconnect.");
     this.deps.rememberNotificationSession(session);
-    await this.deps.setSessionStatus(session, "Compacting");
+    await this.deps.setSessionStatus(session, "Compacting", { immediate: true });
 
     const threadId = session.codexThreadId;
     const currentCwd = this.deps.getSessionDirectory(session);
@@ -178,7 +178,7 @@ export class CompactService {
       return;
     }
     this.sessionRecovery.set(session.id, { originalText, phase: "compacting" });
-    await this.deps.setSessionStatus(session, `Compacting${this.deps.formatCompactTokenCount(session.codexThreadId)}`);
+    await this.deps.setSessionStatus(session, `Compacting${this.deps.formatCompactTokenCount(session.codexThreadId)}`, { immediate: true });
     await this.notifyCompactStarted(session, "bridge-auto", {
       reason: "incompatible history",
       next: "retrying your last message once"

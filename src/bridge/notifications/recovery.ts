@@ -58,7 +58,12 @@ export class NotificationRecoveryService {
     if (!session) return;
     if (!await this.deps.handleRecoveryTaskComplete(session)) {
       await this.deps.notifyCompactCompleted(session);
-      await this.deps.clearSessionStatus(session);
+      // Compaction can finish inside a running turn; only turn completion owns Done.
+      if (this.deps.getActiveTurnId(threadId)) {
+        await this.deps.setSessionStatus(session, "Working", { immediate: true });
+      } else {
+        await this.deps.clearSessionStatus(session);
+      }
     }
   }
 

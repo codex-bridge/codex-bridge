@@ -108,13 +108,14 @@ export class StatusLifecycleService {
       return;
     }
 
-    if (this.deps.isCompactStatusUpdate(update)) {
+    const compact = this.deps.isCompactStatusUpdate(update);
+    if (compact) {
       await this.deps.notifyCompactStarted(session, "runtime");
     }
     if (canRefresh?.() === false) return;
     const activation = this.preparations.get(session.id);
     this.preparations.delete(session.id);
-    await this.setSessionStatus(session, update.label ?? "Working", undefined, canRefresh, undefined, activation);
+    await this.setSessionStatus(session, update.label ?? "Working", compact ? { immediate: true } : undefined, canRefresh, undefined, activation);
     // Typing is disposable and must never hold up chronological notifications.
     void this.deps.sendTypingOnce(session, canRefresh).catch(error => logger.warn("bridge.status.typing_failed", { error: String(error) }));
   }

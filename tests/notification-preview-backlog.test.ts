@@ -340,6 +340,29 @@ test("metadata is transparent globally, while terminal and older-turn statuses c
   assert.equal(late().canRefreshStatus?.(), false);
 });
 
+test("Compact survives later queued statuses and completion while stale Compact cannot refresh Working", () => {
+  const backlog = new NotificationPreviewBacklog();
+  const compact = (turnId = "turn"): AppServerNotification => ({ method: "item/started", params: {
+    threadId: "thread", turnId, item: { id: "compact", type: "contextCompaction" }
+  } });
+  backlog.track("thread", { method: "turn/started", params: { threadId: "thread", turn: { id: "turn" } } });
+  const before = backlog.track("thread", progress("before"));
+  const start = backlog.track("thread", compact());
+  const after = backlog.track("thread", progress("after"));
+  assert.equal(before().canRefreshStatus?.(), false);
+  assert.equal(before().suppressPreview, undefined, "Compact preserves the preceding phase boundary");
+  assert.equal(start().canRefreshStatus?.(), true);
+  assert.equal(after().canRefreshStatus?.(), true);
+  backlog.track("thread", { method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "completed" } } });
+  assert.equal(start().canRefreshStatus?.(), true, "FIFO must show Compact before the queued completion");
+  assert.equal(after().canRefreshStatus?.(), false, "ordinary queued labels remain replaceable");
+  assert.equal(backlog.track("thread", compact())().canRefreshStatus?.(), false);
+  backlog.track("thread", { method: "turn/started", params: { threadId: "thread", turn: { id: "new" } } });
+  assert.equal(backlog.track("thread", compact("turn"))().canRefreshStatus?.(), false);
+  backlog.reset();
+  assert.equal(start().canRefreshStatus?.(), false, "listener reset invalidates urgent queued status too");
+});
+
 test("missing turn identity cannot coalesce, and reset cannot cross listener generations", () => {
   const backlog = new NotificationPreviewBacklog();
   const missing = progress("missing"); (missing.params as { turnId?: string }).turnId = undefined;

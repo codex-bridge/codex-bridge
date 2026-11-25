@@ -88,6 +88,24 @@ for (const boundary of ["compact-started", "compact-completed-only", "assistant"
   });
 }
 
+test("Compact completion keeps the running turn on the same Working card until turn completion", async t => {
+  const f = await harness(t);
+  await f.send({ method: "item/started", params: { threadId: "thread", turnId: "turn",
+    item: { id: "compact", type: "contextCompaction" } } });
+  const original = f.sent.find(w => w.spec.kind === "working")!;
+  assert.ok(original);
+  await f.send({ method: "item/completed", params: { threadId: "thread", turnId: "turn",
+    item: { id: "compact", type: "contextCompaction" } } });
+  const compactFinish = f.edits.at(-1)!;
+  assert.equal(compactFinish.id, original.id);
+  assert.match(renderLegacyMessage(compactFinish.spec), /Working · Working/);
+  assert.ok(!f.edits.some(w => /Working · Done/.test(renderLegacyMessage(w.spec))));
+  await f.called("after-compact");
+  assert.equal(f.sent.filter(w => w.spec.kind === "working").length, 1);
+  await f.send({ method: "turn/completed", params: { threadId: "thread", turn: { id: "turn", status: "completed" } } });
+  assert.ok(f.edits.some(w => w.id === original.id && /Working · Done/.test(renderLegacyMessage(w.spec))));
+});
+
 test("duplicate standalone notifications do not split a newer phase", async t => {
   const f = await harness(t);
   await f.called("first"); await f.assistant(); await f.called("second");
