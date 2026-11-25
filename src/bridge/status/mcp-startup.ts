@@ -1,8 +1,9 @@
 import type { AppServerMcpStartupStatusEvent } from "../../codex/client.js";
+import { mcpRegistrationKey } from "../../codex/mcp-registration.js";
 
 export type McpStartupStatus = AppServerMcpStartupStatusEvent & { updatedAt: number; failureActive: boolean };
-export function mcpStartupKey(event: Pick<AppServerMcpStartupStatusEvent, "threadId" | "name">): string {
-  return JSON.stringify([event.threadId, event.name]);
+export function mcpStartupKey(event: Pick<AppServerMcpStartupStatusEvent, "threadId" | "name" | "environmentId">): string {
+  return JSON.stringify([event.threadId, event.environmentId ?? null, event.name]);
 }
 export function isMcpReady(status: string | null): boolean {
   return ["ready", "running", "started", "connected"].includes(status?.toLowerCase() ?? "");
@@ -37,18 +38,19 @@ export class McpStartupTracker {
 
   forThread(threadId: string): Map<string, McpStartupStatus> {
     const result = new Map<string, McpStartupStatus>();
-    for (const state of this.statuses.values()) if (state.threadId === null) result.set(state.name, state);
+    for (const state of this.statuses.values()) if (state.threadId === null) result.set(mcpRegistrationKey(state.name, state.environmentId), state);
     for (const state of this.statuses.values()) if (state.threadId === threadId) {
       // An intermediate local observation cannot clear a known global incident.
-      if (result.get(state.name)?.failureActive && !state.failureActive && !(state.source === "startup" && isMcpReady(state.status))) continue;
-      result.set(state.name, state);
+      const key = mcpRegistrationKey(state.name, state.environmentId);
+      if (result.get(key)?.failureActive && !state.failureActive && !(state.source === "startup" && isMcpReady(state.status))) continue;
+      result.set(key, state);
     }
     return result;
   }
 
   unavailableForThread(threadId: string): string[] {
-    return [...this.forThread(threadId).values()].filter(state => state.failureActive)
-      .map(state => state.name).sort((a, b) => a.localeCompare(b));
+    return [...new Set([...this.forThread(threadId).values()].filter(state => state.failureActive)
+      .map(state => state.name))].sort((a, b) => a.localeCompare(b));
   }
 
   clear(): void { this.statuses.clear(); }

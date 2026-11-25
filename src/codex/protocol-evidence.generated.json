@@ -1,6 +1,6 @@
 {
-  "version": "0.170.0",
-  "generatedAt": "2026-11-24",
+  "version": "0.172.0",
+  "generatedAt": "2026-11-25",
   "includesExperimental": true,
   "schemaMethods": {
     "request": [
@@ -80,6 +80,7 @@
       "model/list",
       "modelProvider/capabilities/read",
       "modelProvider/config/write",
+      "modelProvider/default/set",
       "modelProvider/list",
       "permissionProfile/list",
       "plugin/install",
@@ -159,6 +160,7 @@
       "thread/realtime/appendAudio",
       "thread/realtime/appendSpeech",
       "thread/realtime/appendText",
+      "thread/realtime/list",
       "thread/realtime/listVoices",
       "thread/realtime/start",
       "thread/realtime/stop",
@@ -167,6 +169,9 @@
       "thread/sample",
       "thread/sample/cancel",
       "thread/search",
+      "thread/search/cancel",
+      "thread/search/stream",
+      "thread/search/stream/cancel",
       "thread/searchOccurrences",
       "thread/section/move",
       "thread/settings/update",
@@ -196,7 +201,6 @@
       "account/chatgptAuthTokens/refresh",
       "applyPatchApproval",
       "attestation/generate",
-      "currentTime/read",
       "execCommandApproval",
       "item/commandExecution/requestApproval",
       "item/fileChange/requestApproval",
@@ -280,6 +284,7 @@
       "thread/realtime/transcript/delta",
       "thread/realtime/transcript/done",
       "thread/reverted",
+      "thread/search/partial",
       "thread/section/changed",
       "thread/settings/updated",
       "thread/started",
@@ -373,6 +378,7 @@
     "model/list",
     "modelProvider/capabilities/read",
     "modelProvider/config/write",
+    "modelProvider/default/set",
     "modelProvider/list",
     "permissionProfile/list",
     "plugin/install",
@@ -452,6 +458,7 @@
     "thread/realtime/appendAudio",
     "thread/realtime/appendSpeech",
     "thread/realtime/appendText",
+    "thread/realtime/list",
     "thread/realtime/listVoices",
     "thread/realtime/start",
     "thread/realtime/stop",
@@ -460,6 +467,9 @@
     "thread/sample",
     "thread/sample/cancel",
     "thread/search",
+    "thread/search/cancel",
+    "thread/search/stream",
+    "thread/search/stream/cancel",
     "thread/searchOccurrences",
     "thread/section/move",
     "thread/settings/update",
@@ -810,18 +820,18 @@
   },
   "liveVerification": {
     "server/diagnostics": {
-      "version": "0.170.0",
-      "verifiedAt": "2026-11-18",
+      "version": "0.172.0",
+      "verifiedAt": "2026-11-25",
       "scenario": "read-only capabilities"
     },
     "configRequirements/read": {
-      "version": "0.170.0",
-      "verifiedAt": "2026-11-18",
+      "version": "0.172.0",
+      "verifiedAt": "2026-11-25",
       "scenario": "read-only capabilities"
     },
     "modelProvider/capabilities/read": {
-      "version": "0.170.0",
-      "verifiedAt": "2026-11-18",
+      "version": "0.172.0",
+      "verifiedAt": "2026-11-25",
       "scenario": "read-only capabilities"
     }
   },

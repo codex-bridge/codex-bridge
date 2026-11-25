@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { extractWarningEvent, extractMcpStartupStatusEvent } from "../src/codex/notification-events.js";
+import { mcpRegistrationKey } from "../src/codex/mcp-registration.js";
 import { McpStartupTracker, formatMcpUnavailableSummary } from "../src/bridge/status/mcp-startup.js";
 import { NotificationNoticeService } from "../src/bridge/notifications/notices.js";
 import { NotificationDispatcher } from "../src/bridge/notifications/dispatcher.js";
@@ -20,6 +21,24 @@ import { KeyedQueue } from "../src/shared/keyed-queue.js";
 const failure: AppServerMcpStartupStatusEvent = { threadId: null, source: "startup", name: "tools", status: "failed",
   error: "Could not connect", failureReason: "reauthenticationRequired" };
 const ready: AppServerMcpStartupStatusEvent = { ...failure, status: "ready", error: null, failureReason: null };
+
+test("same-named MCP registrations cannot clear failures in another environment", () => {
+  const tracker = new McpStartupTracker();
+  for (const [environmentId, event] of [["a", failure], ["b", ready]] as const) {
+    const parsed = extractMcpStartupStatusEvent({ method: "mcpServer/startupStatus/updated", params: { ...event, threadId: "thread", environmentId } });
+    assert.ok(parsed); tracker.remember(parsed);
+  }
+  assert.equal(tracker.forThread("thread").size, 2);
+  assert.deepEqual(tracker.unavailableForThread("thread"), ["tools"]);
+  assert.match(formatMcpStartupStatusCache(null, tracker.forThread("thread"))!, /1\/2 ready, 1 failed \(tools \[a\]\)/);
+  assert.match(formatMcpStartupFailureDetails(tracker.forThread("thread"))!, /tools \[a\]:/);
+  tracker.remember({ ...failure, threadId: "thread", environmentId: "b" });
+  assert.deepEqual(tracker.unavailableForThread("thread"), ["tools"], "summary counts names, not duplicate registrations");
+  tracker.remember({ ...ready, threadId: "thread", environmentId: "a" });
+  assert.deepEqual(tracker.unavailableForThread("thread"), ["tools"]);
+  tracker.remember({ ...ready, threadId: "thread", environmentId: "b" });
+  assert.deepEqual(tracker.unavailableForThread("thread"), []);
+});
 
 test("warning extraction follows declared scopes and never stringifies private payloads", () => {
   assert.deepEqual(extractWarningEvent({ method: "warning", params: { threadId: "a", message: "Public message", private: "omit" } }),
@@ -48,12 +67,12 @@ test("MCP incidents are scoped; only actual ready status rearms failure notices"
   assert.deepEqual(tracker.remember(failure), { failed: false, recovered: false });
   assert.deepEqual(tracker.remember({ ...failure, threadId: "a" }), { failed: true, recovered: false });
   tracker.remember({ ...ready, threadId: "b" });
-  assert.equal(tracker.forThread("a").get("tools")!.status, "failed");
-  assert.equal(tracker.forThread("b").get("tools")!.status, "ready");
-  assert.equal(tracker.forThread("c").get("tools")!.status, "failed");
+  assert.equal(tracker.forThread("a").get(mcpRegistrationKey("tools"))!.status, "failed");
+  assert.equal(tracker.forThread("b").get(mcpRegistrationKey("tools"))!.status, "ready");
+  assert.equal(tracker.forThread("c").get(mcpRegistrationKey("tools"))!.status, "failed");
   assert.deepEqual(tracker.remember(ready), { failed: false, recovered: true });
   assert.deepEqual(tracker.remember(failure), { failed: true, recovered: false });
-  assert.equal(tracker.forThread("b").get("tools")!.status, "ready");
+  assert.equal(tracker.forThread("b").get(mcpRegistrationKey("tools"))!.status, "ready");
   tracker.clear(); assert.equal(tracker.forThread("a").size, 0);
 });
 
@@ -374,6 +393,6 @@ test("direct-child notices reach their parent session instead of being swallowed
   await queue.run("child", async () => {});
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent.every(s => s.spec.session!.id === parent.id), true);
-  assert.equal(f.tracker.forThread("child").get("tools")!.status, "failed");
+  assert.equal(f.tracker.forThread("child").get(mcpRegistrationKey("tools"))!.status, "failed");
   assert.equal(f.tracker.forThread("a").size, 0);
 });

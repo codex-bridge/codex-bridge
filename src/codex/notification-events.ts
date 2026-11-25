@@ -344,13 +344,15 @@ export function extractMcpStartupStatusEvent(
 
   const params = asRecord(notification.params);
   if (params?.threadId != null && (typeof params.threadId !== "string" || !params.threadId.trim())) return null;
+  if (params?.environmentId != null && (typeof params.environmentId !== "string" || !params.environmentId.trim())) return null;
+  const environment = params && "environmentId" in params ? { environmentId: firstString(params.environmentId) ?? null } : {};
   const threadId = firstString(params?.threadId) ?? null;
   if (notification.method === "mcpServer/oauthLogin/completed") {
     if (typeof params?.success !== "boolean") return null;
     const name = firstString(params?.name);
     if (!name) return null;
     return {
-      threadId, source: "oauth", failureReason: null,
+      threadId, ...environment, source: "oauth", failureReason: null,
       name,
       status: params?.success === true ? "authenticated" : "error",
       error: params?.success === true ? null : firstString(params?.error) ?? "OAuth login failed"
@@ -363,7 +365,7 @@ export function extractMcpStartupStatusEvent(
   }
 
   return {
-    threadId, source: "startup",
+    threadId, ...environment, source: "startup",
     name,
     status: firstString(server?.status, server?.state, server?.phase) ?? null,
     error: extractErrorMessage(server?.error) ?? firstString(server?.errorMessage, server?.message) ?? null,

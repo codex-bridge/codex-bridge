@@ -60,13 +60,19 @@ export interface AppServerMethodCapability extends AppServerMethodDefinition {
 }
 
 export const APP_SERVER_PROTOCOL_PROBE = {
-  codexCliVersion: "0.170.0",
-  probedAt: "2026-11-19",
+  codexCliVersion: "0.172.0",
+  probedAt: "2026-11-25",
   source: "Codex-generated TypeScript bindings, runtime method discovery, and targeted local probes"
 } as const;
 
 export const APP_SERVER_METHOD_DEFINITIONS = [
   { method: "initialize", kind: "request", group: "lifecycle" },
+  { method: "modelProvider/default/set", kind: "request", group: "models" },
+  { method: "thread/realtime/list", kind: "request", group: "realtime" },
+  { method: "thread/search/cancel", kind: "request", group: "search" },
+  { method: "thread/search/stream", kind: "request", group: "search" },
+  { method: "thread/search/stream/cancel", kind: "request", group: "search" },
+  { method: "thread/search/partial", kind: "notification", group: "search" },
   { method: "mcpServer/event/stream/start", kind: "request", group: "mcp" },
   { method: "mcpServer/event/stream/stop", kind: "request", group: "mcp" },
   { method: "plugin/reconcile", kind: "request", group: "plugins" },

@@ -248,6 +248,7 @@ export interface AppServerMcpServerStatus {
   error: string | null;
   servers: Array<{
     name: string;
+    environmentId?: string | null;
     status: string | null;
     toolCount: number | null;
   }>;
@@ -257,6 +258,7 @@ export interface AppServerMcpStartupStatusEvent {
   threadId: string | null;
   source: "startup" | "oauth";
   name: string;
+  environmentId?: string | null;
   status: string | null;
   error: string | null;
   failureReason: string | null;

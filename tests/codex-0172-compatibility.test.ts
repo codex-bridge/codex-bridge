@@ -8,14 +8,14 @@ import {
   getAppServerMethodCapability
 } from "../src/codex/protocol-registry.js";
 
-test("Codex 0.170.0 inventory covers the generated protocol and independent runtime discovery", () => {
+test("Codex 0.172.0 inventory covers the generated protocol and independent runtime discovery", () => {
   const evidence = APP_SERVER_PROTOCOL_EVIDENCE;
-  assert.equal(APP_SERVER_PROTOCOL_PROBE.codexCliVersion, "0.170.0");
-  assert.equal(evidence.version, "0.170.0");
+  assert.equal(APP_SERVER_PROTOCOL_PROBE.codexCliVersion, "0.172.0");
+  assert.equal(evidence.version, "0.172.0");
   assert.equal(evidence.includesExperimental, true);
-  assert.equal(evidence.schemaMethods.request.length, 187);
-  assert.equal(evidence.schemaMethods.serverRequest.length, 11);
-  assert.equal(evidence.schemaMethods.notification.length, 88);
+  assert.equal(evidence.schemaMethods.request.length, 192);
+  assert.equal(evidence.schemaMethods.serverRequest.length, 10);
+  assert.equal(evidence.schemaMethods.notification.length, 89);
   assert.equal(evidence.schemaItemTypes.length, 19);
   assert.deepEqual(evidence.runtimeRequests, evidence.schemaMethods.request);
   for (const [kind, methods] of Object.entries(evidence.schemaMethods)) {
@@ -28,7 +28,7 @@ test("Codex 0.170.0 inventory covers the generated protocol and independent runt
     "configRequirements/read", "modelProvider/capabilities/read", "server/diagnostics"
   ]);
   for (const verification of Object.values(evidence.liveVerification)) {
-    assert.equal(verification.version, "0.170.0");
+    assert.equal(verification.version, "0.172.0");
     assert.equal(verification.scenario, "read-only capabilities");
   }
 });

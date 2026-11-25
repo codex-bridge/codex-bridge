@@ -20,13 +20,14 @@ export const APP_SERVER_MESSAGE_COVERAGE: MessageCoverage = {
       "item/tool/call"
     ] },
     { disposition: "unsupported", reason: "Not implemented by this client; attestation is explicitly disabled during initialization.", names: [
-      "attestation/generate", "account/chatgptAuthTokens/refresh", "currentTime/read"
+      "attestation/generate", "account/chatgptAuthTokens/refresh"
     ] },
     { disposition: "unsupported", reason: "Legacy approval callbacks are not supported; modern approval handlers remain separate.", names: [
       "applyPatchApproval", "execCommandApproval"
     ] }
   ],
   notification: [
+    { disposition: "ignored", reason: "Search partial batches belong to their connection-bound search request, not a conversation notification.", names: ["thread/search/partial"] },
     { disposition: "handled", reason: "Turn lifecycle, errors and pending-request resolution use the existing session route.", names: [
       "error", "turn/started", "turn/completed", "serverRequest/resolved", "thread/compacted"
     ] },

@@ -9,6 +9,7 @@ import type {
 } from "../../codex/client.js";
 import { getRateLimitLeftPercent } from "../notifications/rate-limit-policy.js";
 import { isMcpFailure, isMcpReady } from "./mcp-startup.js";
+import { mcpRegistrationKey, mcpRegistrationLabel } from "../../codex/mcp-registration.js";
 
 export function formatRateLimitWindow(window: AppServerRateLimitWindow): string {
   const resolvedLeftPercent = getRateLimitLeftPercent(window);
@@ -242,27 +243,32 @@ export function formatModelToolCallStatus(version: string | null): string {
   return `requires probe${version ? ` for ${version}` : ""}`;
 }
 
+type McpStatusDisplay = { name?: string; environmentId?: string | null; status: string | null; error: string | null; failureReason?: string | null };
+
 export function formatMcpStartupStatusCache(
   currentStatus: AppServerMcpServerStatus | null,
-  startupStatuses: Map<string, { status: string | null; error: string | null; failureReason?: string | null }>
+  startupStatuses: Map<string, McpStatusDisplay>
 ): string | null {
-  const statusesByName = new Map<string, { status: string | null; error: string | null; failureReason?: string | null }>();
+  const statusesByName = new Map<string, McpStatusDisplay>();
   if (currentStatus && !currentStatus.error) {
-    for (const server of currentStatus.servers) statusesByName.set(server.name, { status: server.status, error: null });
+    for (const server of currentStatus.servers) statusesByName.set(mcpRegistrationKey(server.name, server.environmentId), { ...server, error: null });
   }
-  for (const [name, startup] of startupStatuses) statusesByName.set(name, startup);
+  for (const [key, startup] of startupStatuses) {
+    const name = startup.name ?? key;
+    statusesByName.set(mcpRegistrationKey(name, startup.environmentId), { ...startup, name });
+  }
   if (statusesByName.size === 0) return null;
 
   let running = 0;
   let failed = 0;
   let unknown = 0;
   const failedNames: string[] = [];
-  for (const [name, entry] of statusesByName) {
+  for (const entry of statusesByName.values()) {
     if (isMcpReady(entry.status)) {
       running += 1;
     } else if (isMcpFailure(entry)) {
       failed += 1;
-      failedNames.push(name);
+      failedNames.push(mcpRegistrationLabel(entry.name ?? "MCP", entry.environmentId));
     } else {
       unknown += 1;
     }
@@ -277,18 +283,19 @@ export function formatMcpStartupStatusCache(
 }
 
 export function formatMcpStartupFailureDetails(
-  startupStatuses: Map<string, { status: string | null; error: string | null; failureReason?: string | null }>
+  startupStatuses: Map<string, McpStatusDisplay>
 ): string | null {
   const failures = [...startupStatuses]
     .filter(([, entry]) => isMcpFailure(entry))
     .slice(0, 3)
-    .map(([name, entry]) => {
+    .map(([key, entry]) => {
+      const name = entry.name ?? key;
       const error = entry.error?.replace(/\s+/g, " ").trim() || entry.failureReason || "connection failed";
       const loginHint = entry.failureReason === "reauthenticationRequired" || /(oauth|token|credential|auth)/i.test(error)
         ? ` Run: codex mcp login ${name}`
         : "";
       const reason = entry.failureReason && entry.failureReason !== error ? ` (${entry.failureReason})` : "";
-      return `${name}: ${error}${reason}${loginHint}`;
+      return `${mcpRegistrationLabel(name, entry.environmentId)}: ${error}${reason}${loginHint}`;
     });
   return failures.length > 0 ? failures.join("\n") : null;
 }

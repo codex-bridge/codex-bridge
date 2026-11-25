@@ -167,7 +167,8 @@ export function extractMcpServerStatus(value: unknown): AppServerMcpServerStatus
     const status = firstString(server?.status, server?.state, server?.phase) ?? null;
     const tools = asRecord(server?.tools);
     const toolCount = tools ? Object.keys(tools).length : Array.isArray(server?.tools) ? server.tools.length : null;
-    return { name, status, toolCount };
+    return { name, status, toolCount,
+      ...(server && "environmentId" in server ? { environmentId: firstString(server.environmentId) ?? null } : {}) };
   });
   const running = servers.filter((server) => isRunningMcpStatus(server.status)).length;
   const failed = servers.filter((server) => isFailedMcpStatus(server.status)).length;
