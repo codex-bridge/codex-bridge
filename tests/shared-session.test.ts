@@ -25,7 +25,7 @@ test("shared dispatch blocks handoff while start waits for its real turn id, the
   let finish!: () => void;
   let signalStarted!: () => void;
   const started = new Promise<void>((resolve) => { signalStarted = resolve; });
-  const sender = new IncomingTurnService({ store, turnRouteQueue: new KeyedQueue(), inFlightTurnIdByThread: active,
+  const sender = new IncomingTurnService({ beginPreparation: () => ({ finish: () => {} }), store, turnRouteQueue: new KeyedQueue(), inFlightTurnIdByThread: active,
     runDispatch: (value, operation) => binding.runDispatch(value, operation),
     codexClient: { sendTurn: async () => {
       signalStarted(); await new Promise<void>((resolve) => { finish = resolve; }); return { turnId: "real-turn" };

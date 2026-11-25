@@ -23,7 +23,7 @@ import { WebAttentionService } from "../web/attention.js";
 import { WebMessageTransport } from "../web/transport.js";
 import { WebDecisionService } from "../web/decisions.js";
 import { WebAttachmentStorage } from "../web/attachments.js";
-import { NotificationDeliveryTargets } from "./notifications/delivery-target.js";
+import { NotificationDeliveryTargets, canDeliverSession } from "./notifications/delivery-target.js";
 import { SessionBindingService, bindingEventText } from "./sessions/binding.js";
 import { WEB_SOURCE_ID } from "../shared/source-address.js";
 import { SessionReader } from "./sessions/reader.js";
@@ -630,7 +630,7 @@ export class BridgeService {
       resolveNotificationSession: (threadId) => this.notificationDeliveryTargets.resolve(threadId),
       getSessionDirectory: (session) => this.getSessionDirectory(session),
       cancelGoShortcut: (threadId) => this.goShortcutService.cancel(threadId),
-      setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label),
+      setSessionStatus: (session, label, update) => this.statusLifecycleService.setSessionStatus(session, label, update),
       sendDecisionMessage: (session, decision) => this.decisionDelivery.sendDecisionMessage(session, decision),
       syncBatchDecisionMessage: (session) => this.decisionDelivery.syncBatchDecisionMessage(session),
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec)
@@ -702,7 +702,17 @@ export class BridgeService {
       createIncomingPromptSpec: (kind, text, session) => this.runtimePromptFactory.createIncoming(kind, text, session),
       createSessionActionSpec,
       sendLongSpec: (chatId, messageSpec) => this.messageOperations.sendLongSpec(chatId, messageSpec),
-      refreshSessionStatus: (session) => this.statusLifecycleService.refreshSessionStatus(session)
+      refreshSessionStatus: (session) => this.statusLifecycleService.refreshSessionStatus(session),
+      beginPreparation: (session, assertCurrent) => {
+        const owner = store.getSessionLease(session.id)?.ownerBindingId;
+        return this.statusLifecycleService.beginPreparation(session, async () => {
+          try {
+            assertCurrent?.();
+            return !!owner && store.getSessionLease(session.id)?.ownerBindingId === owner &&
+              await canDeliverSession(store, session);
+          } catch { return false; }
+        });
+      }
     });
     this.userInputService = new UserInputService({ store, client: codexClient,
       refresh: (session, decision) => this.decisionDelivery.sendDecisionMessage(session, decision, true),
@@ -744,7 +754,7 @@ export class BridgeService {
         this.notificationDeliveryTargets.remember(session);
       },
       resumeThread: (threadId, cwd) => this.codexClient.resumeThread(threadId, cwd),
-      setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label),
+      setSessionStatus: (session, label, update) => this.statusLifecycleService.setSessionStatus(session, label, update),
       sendSystemErrorMessage: async (session, stage, message) => { await this.sendSystemErrorMessage(session, stage, message); },
       sendLongSpec: (chatId, messageSpec, options) => this.messageOperations.sendLongSpec(chatId, messageSpec, options)
     });
@@ -881,7 +891,7 @@ export class BridgeService {
       isRuntimeConnected: () => this.isRuntimeConnected(),
       createSessionCommandResultSpec,
       clearTypingState: (sessionId) => this.typingService.clear(sessionId),
-      setSessionStatus: (session, label) => this.statusLifecycleService.setSessionStatus(session, label)
+      setSessionStatus: (session, label, update) => this.statusLifecycleService.setSessionStatus(session, label, update)
     });
     this.sessionCompactService = new SessionCompactService({
       store,

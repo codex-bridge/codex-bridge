@@ -276,7 +276,7 @@ test("Working panel updates do not split workflow phases", async t => {
   const f = await harness(t);
   await f.called("first"); const first = f.latest();
   for (const label of ["Working", "Waiting"]) {
-    now += 5_000;
+    now += 20_000;
     await f.internal.applyStatusUpdate(f.session, { threadId: "thread", kind: "running", label, detail: null, detailMode: null });
   }
   assert.ok(f.sent.some(entry => entry.spec.kind === "working"));

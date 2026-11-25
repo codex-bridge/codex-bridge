@@ -7,6 +7,7 @@ import type { MessageSpec } from "../messages/types.js";
 import type { BridgeMessageOptions } from "../transport.js";
 import type { SessionOwnershipService } from "./ownership.js";
 import type { WorkflowAppend } from "../progress/workflow-sequence.js";
+import type { WorkingUpdate } from "../status/working-window.js";
 
 export type CompactEventSource = "manual" | "bridge-auto" | "runtime";
 
@@ -37,7 +38,7 @@ export type CompactServiceDependencies = {
   isMissingRuntimeThreadError: (error: unknown) => boolean;
   resumeThread: (threadId: string, cwd?: string) => Promise<{ displayPath: string | null; messages: unknown[] }>;
   rememberNotificationSession: (session: SessionRecord) => void;
-  setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
+  setSessionStatus: (session: SessionRecord, label: string, update?: WorkingUpdate) => Promise<void>;
   sendSystemErrorMessage: (session: SessionRecord, stage: "stream" | "error", message: string) => Promise<void>;
   sendLongSpec: (chatId: string, messageSpec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<void>;
 };
@@ -75,7 +76,7 @@ export class CompactService {
       if (this.deps.isMissingRuntimeThreadError(resumeErr)) {
         const resumeMessage = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
         this.compactEventsByThread.delete(threadId);
-        await this.deps.setSessionStatus(session, "Compact failed");
+        await this.deps.setSessionStatus(session, "Compact failed", { immediate: true });
         return this.errorResult(session, `Compact failed.\n${resumeMessage}`);
       }
       resumeWarning = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
@@ -94,11 +95,11 @@ export class CompactService {
           ? `\nResume warning: ${resumeWarning}`
           : "";
         this.compactEventsByThread.delete(threadId);
-        await this.deps.setSessionStatus(session, "Compact failed");
+        await this.deps.setSessionStatus(session, "Compact failed", { immediate: true });
         return this.errorResult(session, `Compact failed.\n${message}${fallbackReason}`);
       }
       this.compactEventsByThread.delete(session.codexThreadId);
-      await this.deps.setSessionStatus(session, "Compact failed");
+      await this.deps.setSessionStatus(session, "Compact failed", { immediate: true });
       return this.errorResult(session, `Compact failed.\n${message}`);
     }
   }
@@ -192,7 +193,7 @@ export class CompactService {
       return false;
     }
     this.sessionRecovery.set(session.id, { originalText: recovery.originalText, phase: "retrying" });
-    await this.deps.setSessionStatus(session, "Retrying");
+    await this.deps.setSessionStatus(session, "Retrying", { immediate: true });
     await this.notifyCompactCompleted(session, { next: "Retrying last message" });
     await this.deps.codexClient.sendTurn(session.codexThreadId, recovery.originalText, this.deps.getSessionDirectory(session));
     return true;

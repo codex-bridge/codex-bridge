@@ -34,7 +34,7 @@ async function sendFixture(t: TestContext, attachmentRoot?: string) {
   let mutate: () => Promise<void> = async () => {};
   let pending = false;
   const turnRouteQueue = new KeyedQueue();
-  const sender = new IncomingTurnService({ store, turnRouteQueue, inFlightTurnIdByThread: active,
+  const sender = new IncomingTurnService({ beginPreparation: () => ({ finish: () => {} }), store, turnRouteQueue, inFlightTurnIdByThread: active,
     codexClient: {
       sendTurn: async (_thread: string, text: string, _cwd: string,
         options: { assertCurrent?: () => void; timeoutMs?: number; inputParts?: CodexTurnInputPart[] }) => {

@@ -319,16 +319,18 @@ test("Bridge queues global warnings without historical fanout and flushes them o
   await assert.rejects(api.sendText({ threadId: session.codexThreadId, requestId: "invalid", text: "hello" }, () => { throw new Error("revoked"); }));
   assert.equal(sent.length, 0);
   assert.equal((await api.sendText({ threadId: session.codexThreadId, requestId: "one", text: "hello" }, () => {})).accepted, true);
-  assert.deepEqual(sent.map(s => s.sourceId), ["web:local"]);
-  assert.equal(sent[0]!.spec.session!.id, session.id);
-  assert.equal(sent[0]!.spec.title, "Configuration warning · .../_inbox/codex-bridge");
-  assert.equal(sent[0]!.spec.presentation, "activity");
+  const warnings = () => sent.filter(s => s.spec.kind !== "working");
+  assert.deepEqual(warnings().map(s => s.sourceId), ["web:local"]);
+  assert.ok(sent.every(s => s.sourceId === "web:local"), "Preparing and notices stay in the initiating conversation");
+  assert.equal(warnings()[0]!.spec.session!.id, session.id);
+  assert.equal(warnings()[0]!.spec.title, "Configuration warning · .../_inbox/codex-bridge");
+  assert.equal(warnings()[0]!.spec.presentation, "activity");
   notify({ method: "configWarning", params: { summary: "Another warning" } });
   await new Promise(resolve => setImmediate(resolve));
   await api.sendText({ threadId: session.codexThreadId, requestId: "one", text: "hello" }, () => {});
-  assert.equal(sent.length, 1, "duplicate input must not consume a newly pending warning");
+  assert.equal(warnings().length, 1, "duplicate input must not consume a newly pending warning");
   await api.sendText({ threadId: session.codexThreadId, requestId: "two", text: "again" }, () => {});
-  assert.equal(sent.length, 2); assert.equal(turns, 2);
+  assert.equal(warnings().length, 2); assert.equal(turns, 2);
   assert.equal(api.readServiceNotices().length, 2);
 });
 

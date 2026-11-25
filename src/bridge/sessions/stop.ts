@@ -4,6 +4,7 @@ import type { SessionRecord } from "../../shared/types.js";
 import { BridgeStore } from "../../store/index.js";
 import type { MessageSpec } from "../messages/types.js";
 import { SessionOwnershipService } from "./ownership.js";
+import type { WorkingUpdate } from "../status/working-window.js";
 
 export type SessionStopDependencies = {
   store: BridgeStore;
@@ -13,7 +14,7 @@ export type SessionStopDependencies = {
   isRuntimeConnected: () => boolean;
   createSessionCommandResultSpec: (session: SessionRecord | null, kind: MessageSpec["kind"], text: string) => MessageSpec;
   clearTypingState: (sessionId: string) => void;
-  setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
+  setSessionStatus: (session: SessionRecord, label: string, update?: WorkingUpdate) => Promise<void>;
 };
 
 export class SessionStopService {
@@ -46,7 +47,7 @@ export class SessionStopService {
     try {
       await this.deps.codexClient.interruptThread(session.codexThreadId, turnId);
       this.deps.clearTypingState(session.id);
-      await this.deps.setSessionStatus(session, "Interrupted");
+      await this.deps.setSessionStatus(session, "Interrupted", { immediate: true });
       logger.info("bridge.session.stop_requested", {
         chatId: sourceId,
         sessionId: session.id,
@@ -63,10 +64,10 @@ export class SessionStopService {
       });
       this.deps.clearTypingState(session.id);
       if (message.includes("timed out")) {
-        await this.deps.setSessionStatus(session, "Interrupt timeout");
+        await this.deps.setSessionStatus(session, "Interrupt timeout", { immediate: true });
         return this.deps.createSessionCommandResultSpec(session, "error", "Interrupt request timed out.\nThe Codex backend did not acknowledge within 5s, so the run may still continue.");
       }
-      await this.deps.setSessionStatus(session, "Interrupt failed");
+      await this.deps.setSessionStatus(session, "Interrupt failed", { immediate: true });
       return this.deps.createSessionCommandResultSpec(session, "error", `Interrupt failed.\n${message}`);
     }
   }

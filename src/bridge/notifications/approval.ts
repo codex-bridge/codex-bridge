@@ -8,6 +8,7 @@ import { actionRow, helpAction, sessionAction } from "../messages/actions.js";
 import { SubagentTracker } from "./subagent-tracker.js";
 import { canDeliverSession } from "./delivery-target.js";
 import type { WorkflowAppend } from "../progress/workflow-sequence.js";
+import type { WorkingUpdate } from "../status/working-window.js";
 
 const SUPPORTED_MCP_ELICITATION_MODES = new Set([
   "form",
@@ -30,7 +31,7 @@ export type NotificationApprovalDependencies = {
   resolveNotificationSession: (threadId: string) => Promise<SessionRecord | null>;
   getSessionDirectory: (session: SessionRecord) => string;
   cancelGoShortcut: (threadId: string) => void;
-  setSessionStatus: (session: SessionRecord, label: string) => Promise<void>;
+  setSessionStatus: (session: SessionRecord, label: string, update?: WorkingUpdate) => Promise<void>;
   sendDecisionMessage: (session: SessionRecord, decision: Awaited<ReturnType<BridgeStore["createOrReplacePendingDecision"]>>) => Promise<void>;
   syncBatchDecisionMessage: (session: SessionRecord) => Promise<void>;
   sendLongSpec: (chatId: string, messageSpec: ReturnType<typeof createMessage>) => Promise<void>;
@@ -140,7 +141,7 @@ export class NotificationApprovalService {
     if (request.method === USER_INPUT_METHOD) decision = await this.deps.store.resolveDecision(decision.id, "awaitingInput") ?? decision;
 
     if (await canDeliverSession(this.deps.store, session)) {
-      await this.deps.setSessionStatus(session, request.method === USER_INPUT_METHOD ? "Waiting for answers" : "Waiting for approval");
+      await this.deps.setSessionStatus(session, request.method === USER_INPUT_METHOD ? "Waiting for answers" : "Waiting for approval", { immediate: true });
       const deliver = async () => {
         await this.deps.sendDecisionMessage(session, decision);
         await this.deps.syncBatchDecisionMessage(session);

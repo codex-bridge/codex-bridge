@@ -19,6 +19,7 @@ function fixture() {
   const sent: MessageSpec[] = [], edits: Array<{ id: string; spec: MessageSpec }> = [];
   let edit = async (): Promise<boolean> => true;
   const deps: StatusLifecycleDependencies = {
+    getRefreshPolicy: () => ({ typingEnabled: true, progressIntervalMs: 5_000, workingIntervalMs: 5_000 }),
     store: { countPendingQueuedSubmissions: async () => 0, getSessionById: async () => session },
     statusMessageBySession: new Map(), statusStartedAtBySession: new Map(), statusLabelBySession: new Map(),
     statusDetailBySession: new Map(), statusLastEditAtBySession: new Map(), statusOpBySession: new Map(),
@@ -53,6 +54,98 @@ test("Telegram summary-only progress retains Working with a twenty-second change
   t.mock.timers.tick(60_000); await new Promise(setImmediate);
   assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Done/);
   assert.equal(f.edits.length, 3, "completion cancels the pending status and bypasses its interval");
+});
+
+test("shared Working windows keep ordered changes, including a return to the displayed state", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = undefined;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  t.mock.timers.tick(5_000);
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  await f.lifecycle.setSessionStatus(session, "Working");
+  t.mock.timers.tick(14_999); await settleStatus(f);
+  assert.equal(f.edits.length, 0);
+  t.mock.timers.tick(1); await settleStatus(f);
+  const text = renderLegacyMessage(f.edits[0]!.spec);
+  assert.match(text, /Working · Working · 20s/);
+  assert.match(text, /Recent: Thinking → Running command → Thinking → Working/);
+  t.mock.timers.tick(60_000); await settleStatus(f);
+  assert.equal(f.edits.length, 1, "no changes means no polling writes");
+});
+
+test("errors update Working immediately, deduplicate and restart the ordinary window at delivery", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  f.deps.isThreadBusy = () => true;
+  f.deps.waitForThreadIdle = (_thread, signal) => new Promise(resolve => {
+    if (signal.aborted) resolve(false);
+    else signal.addEventListener("abort", () => resolve(false), { once: true });
+  });
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  t.mock.timers.tick(8_000);
+  const error = { immediate: true, detail: "Issue · connection lost", detailMode: "replace" as const };
+  await f.lifecycle.setSessionStatus(session, "Recovering", error);
+  assert.equal(f.edits.length, 1, "urgent errors bypass foreground-idle and interval waits");
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Recent: Running command → Recovering \(Issue · connection lost\)/);
+  t.mock.timers.tick(1_000);
+  await f.lifecycle.setSessionStatus(session, "Recovering", error);
+  await settleStatus(f);
+  assert.equal(f.edits.length, 1);
+  f.deps.isThreadBusy = () => false;
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  t.mock.timers.tick(18_999); await settleStatus(f);
+  assert.equal(f.edits.length, 1);
+  t.mock.timers.tick(1); await settleStatus(f);
+  assert.equal(f.edits.length, 2, "duplicate errors did not move the 28s deadline");
+  assert.match(renderLegacyMessage(f.edits[1]!.spec), /Working · Running command · 28s/);
+  assert.doesNotMatch(renderLegacyMessage(f.edits[1]!.spec), /connection lost/);
+});
+
+test("interaction urgency is event-owned and window content stays bounded", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = undefined;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  for (let i = 0; i < 30; i++) await f.lifecycle.setSessionStatus(session, `Operation ${i} ${"x".repeat(40)}`);
+  await f.lifecycle.setSessionStatus(session, "Waiting for answers", { immediate: true });
+  assert.equal(f.edits.length, 1);
+  const recent = f.edits[0]!.spec.body.find(part => part.type === "text" && part.text.startsWith("Recent:"));
+  assert.ok(recent?.type === "text");
+  assert.ok(Array.from(recent.text.replace(/^Recent: /, "")).length <= 240);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Waiting for answers/);
+  await f.lifecycle.clearSessionStatus(session);
+  t.mock.timers.tick(40_000); await settleStatus(f);
+  await f.lifecycle.setSessionStatus(session, "Working");
+  assert.doesNotMatch(renderLegacyMessage(f.sent[1]!), /Recent:/);
+});
+
+test("a refresh queued during delivery cannot restore an older state over a newer observation", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = undefined;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  f.setEdit(async () => { entered(); await blocked; return true; });
+  t.mock.timers.tick(20_000);
+  const delivering = f.lifecycle.setSessionStatus(session, "Running command");
+  await ready;
+  const newer = f.lifecycle.setSessionStatus(session, "Waiting");
+  f.deps.store.countPendingQueuedSubmissions = async () => 2;
+  const refresh = f.lifecycle.refreshSessionStatus(session);
+  await new Promise(setImmediate);
+  release(); await Promise.all([delivering, newer, refresh]);
+  f.setEdit(async () => true);
+  t.mock.timers.tick(20_000); await settleStatus(f);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Waiting · 40s/);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Recent: Waiting/);
 });
 
 test("queue-only changes refresh Working through the same interval", async t => {
@@ -194,6 +287,7 @@ test("Working preserves its ID and clock across repeated timeouts, retries ident
   now += 10_000;
   await f.lifecycle.setSessionStatus(session, "Thinking", { detail: "**Planning**", detailMode: "replace" });
   assert.equal(f.sent.length, 1);
+  assert.equal(f.deps.statusLastEditAtBySession.get(session.id), 100_000, "failed writes never move the confirmed-delivery clock");
   now += 1_000;
   await f.lifecycle.setSessionStatus(session, "Thinking");
   assert.equal(f.edits.length, 1, "a pending edit is still throttled");
@@ -203,7 +297,7 @@ test("Working preserves its ID and clock across repeated timeouts, retries ident
   f.setEdit(async () => true);
   now += 5_000;
   await f.lifecycle.setSessionStatus(session, "Thinking");
-  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Thinking · 21s$/);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Thinking · 21s/);
   now += 5_000;
   await f.lifecycle.clearSessionStatus(session);
   assert.equal(f.sent.length, 1);
@@ -224,7 +318,7 @@ test("only a confirmed missing message is replaced, preserving elapsed time on S
     now += 12_000;
     await f.lifecycle.setSessionStatus(session, "Thinking");
     assert.equal(f.sent.length, 2);
-    assert.match(renderLegacyMessage(f.sent[1]!), /Working · Thinking · 12s$/);
+    assert.match(renderLegacyMessage(f.sent[1]!), /Working · Thinking · 12s/);
     f.setEdit(async () => true);
     now += 5_000;
     await f.lifecycle.clearSessionStatus(session);
@@ -290,7 +384,7 @@ test("Working omits Thinking summaries on every transport while recovery detail 
   assert.equal(presentWebMessage(spec).body.length, 1);
   now += 5_000;
   await f.lifecycle.setSessionStatus(session, "Recovering", { detail: "Issue · `connection lost`", detailMode: "replace" });
-  assert.deepEqual(f.edits[0]!.spec.body[1], { type: "text", text: "Issue · `connection lost`" });
+  assert.deepEqual(f.edits[0]!.spec.body.at(-1), { type: "text", text: "Issue · `connection lost`" });
 });
 
 test("the Slack transport keeps one Working through an update timeout and completion", async t => {
@@ -364,4 +458,120 @@ test("Working intervals start at confirmed delivery rather than time spent waiti
   t.mock.timers.tick(1); await new Promise(setImmediate);
   assert.equal(f.edits.length, 1);
   assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Thinking · 35s/);
+});
+
+async function settleStatus(f: ReturnType<typeof fixture>): Promise<void> {
+  await Promise.allSettled([...f.deps.statusOpBySession.values()]);
+  await new Promise(setImmediate);
+}
+
+test("Preparing creates one panel without controls and activates immediately before ordinary throttled updates", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  const preparing = f.lifecycle.beginPreparation(session, async () => true);
+  await settleStatus(f);
+  assert.equal(f.sent.length, 1);
+  assert.match(renderLegacyMessage(f.sent[0]!), /Working · Preparing · 0s/);
+  assert.deepEqual(f.sent[0]!.actions, []);
+  preparing.finish(true); await settleStatus(f);
+  assert.equal(f.sent.length, 1); assert.equal(f.edits.length, 1);
+  assert.equal(f.edits[0]!.id, "status-1");
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Working · 0s/);
+  assert.equal(f.edits[0]!.spec.actions.length, 2);
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  t.mock.timers.tick(19_999); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 1);
+  t.mock.timers.tick(1); await new Promise(setImmediate);
+  assert.equal(f.edits.length, 2);
+  assert.match(renderLegacyMessage(f.edits[1]!.spec), /Running command/);
+  assert.match(renderLegacyMessage(f.edits[1]!.spec), /Recent: Thinking → Running command/);
+});
+
+test("a real runtime status owns the panel before a late local preparation failure", async t => {
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  const preparation = f.lifecycle.beginPreparation(session, async () => true);
+  await settleStatus(f);
+  await f.lifecycle.applyStatusUpdate(session, { threadId: "thread", kind: "running", label: "Thinking", detail: null, detailMode: null });
+  preparation.finish(false); await settleStatus(f);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Thinking/);
+  assert.equal(f.edits.length, 1);
+  await f.lifecycle.clearSessionStatus(session);
+  preparation.finish(true); await settleStatus(f);
+  assert.equal(f.sent.length, 1);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Done/);
+});
+
+test("a rejected start finalizes a delivered Preparing panel without controls", async t => {
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  const preparation = f.lifecycle.beginPreparation(session, async () => true);
+  await settleStatus(f);
+  preparation.finish(false); await settleStatus(f);
+  assert.equal(f.sent.length, 1); assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Start failed/);
+  assert.deepEqual(f.edits[0]!.spec.actions, []);
+  assert.equal(f.deps.statusMessageBySession.size, 0);
+});
+
+test("quick completion cancels a queued Preparing create and late acceptance cannot revive it", async t => {
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const send = f.deps.sendMessageSpec;
+  f.deps.sendMessageSpec = async (...args) => {
+    entered(); await blocked;
+    if (await args[2]?.canSend?.() === false) return null;
+    return send(...args);
+  };
+  const preparation = f.lifecycle.beginPreparation(session, async () => true); await ready;
+  const finished = f.lifecycle.clearSessionStatus(session);
+  release(); await finished;
+  preparation.finish(true); await settleStatus(f);
+  assert.equal(f.sent.length, 0); assert.equal(f.edits.length, 0);
+});
+
+test("Preparing rechecks delivery permission after waiting for its send slot", async t => {
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  let current = true, release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const send = f.deps.sendMessageSpec;
+  f.deps.sendMessageSpec = async (...args) => {
+    entered(); await blocked;
+    if (await args[2]?.canSend?.() === false) return null;
+    return send(...args);
+  };
+  const preparation = f.lifecycle.beginPreparation(session, async () => current); await ready;
+  current = false; release(); await settleStatus(f);
+  preparation.finish(false); await settleStatus(f);
+  assert.equal(f.sent.length, 0); assert.equal(f.edits.length, 0);
+});
+
+test("an in-flight Preparing create finishes before startup failure closes its known message ID", async t => {
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const send = f.deps.sendMessageSpec;
+  f.deps.sendMessageSpec = async (...args) => { const result = await send(...args); entered(); await blocked; return result; };
+  const preparation = f.lifecycle.beginPreparation(session, async () => true); await ready;
+  preparation.finish(false); release(); await settleStatus(f);
+  assert.equal(f.sent.length, 1); assert.equal(f.edits.length, 1);
+  assert.equal(f.edits[0]!.id, "status-1");
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Start failed/);
+});
+
+test("an unknown initial Working send is not automatically duplicated by activation or later status", async t => {
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  let attempts = 0;
+  f.deps.sendMessageSpec = async () => { attempts++; throw new Error("network outcome unknown"); };
+  const preparation = f.lifecycle.beginPreparation(session, async () => true);
+  await settleStatus(f); preparation.finish(true); await settleStatus(f);
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  assert.equal(attempts, 1);
+  await f.lifecycle.clearSessionStatus(session);
+  f.lifecycle.beginPreparation(session, async () => true); await settleStatus(f);
+  assert.equal(attempts, 2, "a new turn has a new status generation");
 });

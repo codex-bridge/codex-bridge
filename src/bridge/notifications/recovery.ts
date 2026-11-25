@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { AppServerErrorEvent, AppServerTurnLifecycleEvent } from "../../codex/client.js";
 import { logger } from "../../logging/logger.js";
 import type { SessionRecord } from "../../shared/types.js";
+import type { WorkingUpdate } from "../status/working-window.js";
 
 export type NotificationRecoveryDependencies = {
   errorSeenByThread: Map<string, boolean>;
@@ -12,7 +13,7 @@ export type NotificationRecoveryDependencies = {
   setSessionStatus: (
     session: SessionRecord,
     label: string,
-    update?: { detail: string | null; detailMode: "replace" | "append" | null }
+    update?: WorkingUpdate
   ) => Promise<void>;
   formatRecoveryIssue: (event: AppServerErrorEvent) => string;
   autoCompactOnIncompatibleHistory: boolean;
@@ -91,7 +92,8 @@ export class NotificationRecoveryService {
     this.deps.clearTypingState(session.id);
     await this.deps.setSessionStatus(session, "Recovering", {
       detail: this.deps.formatRecoveryIssue(errorEvent),
-      detailMode: "replace"
+      detailMode: "replace",
+      immediate: true
     });
     if (errorEvent.retrying) return;
     if (

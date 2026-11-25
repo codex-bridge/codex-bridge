@@ -117,9 +117,9 @@ test("routes Slack thread notifications to the session that started the turn", a
       }
     });
 
-    assert.equal(sentMessages.length, 1);
-    assert.equal(sentMessages[0]?.chatId, threadChatId);
-    assert.match(sentMessages[0]?.text ?? "", /Here\./);
+    assert.ok(sentMessages.every(message => message.chatId === threadChatId));
+    const replies = sentMessages.filter(message => /Here\./.test(message.text));
+    assert.equal(replies.length, 1);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -195,9 +195,9 @@ test("routes Telegram notifications to the chat that started the turn", async ()
       }
     });
 
-    assert.equal(sentMessages.length, 1);
-    assert.equal(sentMessages[0]?.chatId, "tg-chat-active");
-    assert.match(sentMessages[0]?.text ?? "", /Here\./);
+    assert.ok(sentMessages.every(message => message.chatId === "tg-chat-active"));
+    const replies = sentMessages.filter(message => /Here\./.test(message.text));
+    assert.equal(replies.length, 1);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });

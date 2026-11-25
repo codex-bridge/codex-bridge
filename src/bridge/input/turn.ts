@@ -7,6 +7,7 @@ import { logger } from "../../logging/logger.js";
 import { createMessage } from "../messages/factory.js";
 import { helpAction, messageAction, sessionAction } from "../messages/actions.js";
 import type { MessageSpec } from "../messages/types.js";
+import type { StatusPreparation } from "../status/lifecycle.js";
 import { SessionOwnershipService } from "../sessions/ownership.js";
 import type { SessionProviderMismatch } from "../sessions/provider-state.js";
 import type { IncomingTextInput } from "./preflight.js";
@@ -55,6 +56,7 @@ export type IncomingTurnDependencies = {
   ) => MessageSpec;
   sendLongSpec: (chatId: string, messageSpec: MessageSpec) => Promise<void>;
   refreshSessionStatus: (session: SessionRecord) => Promise<void>;
+  beginPreparation: (session: SessionRecord, assertCurrent?: () => void) => StatusPreparation;
   runDispatch?: <T>(session: SessionRecord, operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -147,31 +149,89 @@ export class IncomingTurnService {
         await this.deps.refreshSessionStatus(routedSession);
         return { routed: true };
       }
-      if (!activeTurnId) {
-        if (typeof this.deps.codexClient.readCodexConfigSnapshot === "function") {
-          try {
-            configSnapshot = await this.deps.codexClient.readCodexConfigSnapshot(
-              this.deps.getSessionDirectory(routedSession)
-            );
-            const mismatch = await this.deps.findProviderMismatch(routedSession, configSnapshot);
-            if (mismatch) {
-              const text = [
-                `This session uses provider ${mismatch.threadProvider}.`,
-                `Codex config now uses ${mismatch.configProvider}.`,
-                "No message was sent to Codex. Choose another session to continue."
-              ].join("\n");
+      const preparation = !activeTurnId ? this.deps.beginPreparation(
+        { ...routedSession, telegramChatId: input.telegramChatId }, options?.assertCurrent
+      ) : null;
+      let started = false;
+      try {
+        if (!activeTurnId) {
+          if (typeof this.deps.codexClient.readCodexConfigSnapshot === "function") {
+            try {
+              configSnapshot = await this.deps.codexClient.readCodexConfigSnapshot(
+                this.deps.getSessionDirectory(routedSession)
+              );
+              const mismatch = await this.deps.findProviderMismatch(routedSession, configSnapshot);
+              if (mismatch) {
+                const text = [
+                  `This session uses provider ${mismatch.threadProvider}.`,
+                  `Codex config now uses ${mismatch.configProvider}.`,
+                  "No message was sent to Codex. Choose another session to continue."
+                ].join("\n");
+                return {
+                  routed: false,
+                  prompt: this.deps.createSessionActionSpec(
+                    routedSession,
+                    "error",
+                    text,
+                    [sessionAction(), helpAction()]
+                  )
+                };
+              }
+            } catch (error) {
+              logger.warn("bridge.message.config_sync_failed", {
+                chatId: input.telegramChatId,
+                sessionId: routedSession.id,
+                threadId: routedSession.codexThreadId,
+                error: error instanceof Error ? error.message : String(error)
+              });
               return {
                 routed: false,
                 prompt: this.deps.createSessionActionSpec(
                   routedSession,
                   "error",
-                  text,
+                  formatConfigSyncError(error),
                   [sessionAction(), helpAction()]
                 )
               };
             }
-          } catch (error) {
-            logger.warn("bridge.message.config_sync_failed", {
+          }
+        }
+        await options?.beforeSend();
+        options?.assertCurrent();
+        await this.deps.deliverPendingNotices?.(routedSession, input.telegramChatId, options?.assertCurrent);
+        options?.assertCurrent();
+        try {
+          if (activeTurnId) {
+            turn = await this.deps.codexClient.steerTurn(routedSession.codexThreadId, activeTurnId, input.text,
+              input.inputParts, options?.assertCurrent, options?.rpcTimeoutMs);
+            route = "steer";
+          } else {
+            turn = await this.deps.codexClient.sendTurn(
+              routedSession.codexThreadId,
+              input.text,
+              this.deps.getSessionDirectory(routedSession),
+              {
+                inputParts: input.inputParts,
+                configSnapshot,
+                assertCurrent: options?.assertCurrent,
+                timeoutMs: options?.rpcTimeoutMs
+              }
+            );
+          }
+        } catch (error) {
+          if (activeTurnId && this.deps.isStaleActiveTurnError(error)) {
+            await options?.beforeSend();
+            options?.assertCurrent();
+            this.deps.inFlightTurnIdByThread.delete(routedSession.codexThreadId);
+            turn = await this.deps.codexClient.sendTurn(
+              routedSession.codexThreadId,
+              input.text,
+              this.deps.getSessionDirectory(routedSession),
+              { inputParts: input.inputParts, assertCurrent: options?.assertCurrent, timeoutMs: options?.rpcTimeoutMs }
+            );
+            route = "steer-fallback-start";
+          } else if (this.deps.isMissingRuntimeThreadError(error)) {
+            logger.warn("bridge.message.session_unavailable", {
               chatId: input.telegramChatId,
               sessionId: routedSession.id,
               threadId: routedSession.codexThreadId,
@@ -182,116 +242,65 @@ export class IncomingTurnService {
               prompt: this.deps.createSessionActionSpec(
                 routedSession,
                 "error",
-                formatConfigSyncError(error),
-                [sessionAction(), helpAction()]
+                "This Codex session could not be restored. No replacement session was created, so its history remains unchanged. Select the session again or choose New session from the session menu.",
+                [messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(routedSession.id)), sessionAction(), helpAction()]
               )
             };
+          } else if (this.deps.isActiveWriterConflictError(error)) {
+            const lease = this.deps.store.markSessionExternalUnknown(routedSession.id);
+            logger.warn("bridge.message.active_writer_conflict", {
+              chatId: input.telegramChatId,
+              sessionId: routedSession.id,
+              threadId: routedSession.codexThreadId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            const ownershipPrompt = options ? null : await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(routedSession, input.telegramChatId, { retryExternal: false });
+            const fallbackText = "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, try Use this session next again.";
+            const fallbackSpec = this.deps.createSessionActionSpec(routedSession, "error", fallbackText, [
+              messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(routedSession.id, lease.version))
+            ]);
+            return { routed: false, prompt: ownershipPrompt ?? fallbackSpec };
+          } else {
+            throw error;
           }
         }
-      }
-      await options?.beforeSend();
-      options?.assertCurrent();
-      await this.deps.deliverPendingNotices?.(routedSession, input.telegramChatId, options?.assertCurrent);
-      options?.assertCurrent();
-      try {
-        if (activeTurnId) {
-          turn = await this.deps.codexClient.steerTurn(routedSession.codexThreadId, activeTurnId, input.text,
-            input.inputParts, options?.assertCurrent, options?.rpcTimeoutMs);
-          route = "steer";
-        } else {
-          turn = await this.deps.codexClient.sendTurn(
-            routedSession.codexThreadId,
-            input.text,
-            this.deps.getSessionDirectory(routedSession),
-            {
-              inputParts: input.inputParts,
-              configSnapshot,
-              assertCurrent: options?.assertCurrent,
-              timeoutMs: options?.rpcTimeoutMs
-            }
-          );
-        }
-      } catch (error) {
-        if (activeTurnId && this.deps.isStaleActiveTurnError(error)) {
-          await options?.beforeSend();
-          options?.assertCurrent();
-          this.deps.inFlightTurnIdByThread.delete(routedSession.codexThreadId);
-          turn = await this.deps.codexClient.sendTurn(
-            routedSession.codexThreadId,
-            input.text,
-            this.deps.getSessionDirectory(routedSession),
-            { inputParts: input.inputParts, assertCurrent: options?.assertCurrent, timeoutMs: options?.rpcTimeoutMs }
-          );
-          route = "steer-fallback-start";
-        } else if (this.deps.isMissingRuntimeThreadError(error)) {
-          logger.warn("bridge.message.session_unavailable", {
-            chatId: input.telegramChatId,
+        started = true;
+        if (turn.turnId) {
+          this.deps.inFlightTurnIdByThread.set(routedSession.codexThreadId, turn.turnId);
+          const binding = this.deps.store.getSessionBinding(routedSession.id, input.telegramChatId);
+          this.deps.store.recordTurnRoute({
+            turnId: turn.turnId,
             sessionId: routedSession.id,
-            threadId: routedSession.codexThreadId,
-            error: error instanceof Error ? error.message : String(error)
+            codexThreadId: routedSession.codexThreadId,
+            bindingId: binding?.id ?? null,
+            sourceId: input.telegramChatId
           });
-          return {
-            routed: false,
-            prompt: this.deps.createSessionActionSpec(
-              routedSession,
-              "error",
-              "This Codex session could not be restored. No replacement session was created, so its history remains unchanged. Select the session again or choose New session from the session menu.",
-              [messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(routedSession.id)), sessionAction(), helpAction()]
-            )
-          };
-        } else if (this.deps.isActiveWriterConflictError(error)) {
-          const lease = this.deps.store.markSessionExternalUnknown(routedSession.id);
-          logger.warn("bridge.message.active_writer_conflict", {
-            chatId: input.telegramChatId,
-            sessionId: routedSession.id,
-            threadId: routedSession.codexThreadId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-          const ownershipPrompt = options ? null : await this.deps.sessionOwnershipService.getSessionOwnershipPrompt(routedSession, input.telegramChatId, { retryExternal: false });
-          const fallbackText = "This session is occupied outside the Bridge. Wait for the external Codex operation to finish, try Use this session next again.";
-          const fallbackSpec = this.deps.createSessionActionSpec(routedSession, "error", fallbackText, [
-            messageAction("handoff", "Use this session next", this.deps.sessionHandoffCallback(routedSession.id, lease.version))
-          ]);
-          return { routed: false, prompt: ownershipPrompt ?? fallbackSpec };
-        } else {
-          throw error;
+          const setOwnerTurn = () => this.deps.store.setSessionOwnerTurn(routedSession.id, input.telegramChatId, turn.turnId!);
+          if (!(this.deps.preserveTurnLease ? this.deps.preserveTurnLease(routedSession.id, setOwnerTurn) : setOwnerTurn())) {
+            logger.warn("bridge.session.owner_turn_not_recorded", {
+              chatId: input.telegramChatId,
+              sessionId: routedSession.id,
+              threadId: routedSession.codexThreadId,
+              turnId: turn.turnId
+            });
+          }
         }
-      }
-      if (turn.turnId) {
-        this.deps.inFlightTurnIdByThread.set(routedSession.codexThreadId, turn.turnId);
-        const binding = this.deps.store.getSessionBinding(routedSession.id, input.telegramChatId);
-        this.deps.store.recordTurnRoute({
-          turnId: turn.turnId,
+        this.deps.lastUserInputBySession.set(routedSession.id, input.text);
+        logger.info("bridge.message.routed", {
+          chatId: input.telegramChatId,
           sessionId: routedSession.id,
-          codexThreadId: routedSession.codexThreadId,
-          bindingId: binding?.id ?? null,
-          sourceId: input.telegramChatId
+          threadId: routedSession.codexThreadId,
+          turnId: turn.turnId,
+          route
         });
-        const setOwnerTurn = () => this.deps.store.setSessionOwnerTurn(routedSession.id, input.telegramChatId, turn.turnId!);
-        if (!(this.deps.preserveTurnLease ? this.deps.preserveTurnLease(routedSession.id, setOwnerTurn) : setOwnerTurn())) {
-          logger.warn("bridge.session.owner_turn_not_recorded", {
-            chatId: input.telegramChatId,
-            sessionId: routedSession.id,
-            threadId: routedSession.codexThreadId,
-            turnId: turn.turnId
-          });
-        }
-      }
-      this.deps.lastUserInputBySession.set(routedSession.id, input.text);
-      logger.info("bridge.message.routed", {
-        chatId: input.telegramChatId,
-        sessionId: routedSession.id,
-        threadId: routedSession.codexThreadId,
-        turnId: turn.turnId,
-        route
-      });
-      await this.deps.store.addMessage({
-        sessionId: routedSession.id,
-        role: "user",
-        text: input.text,
-        codexTurnId: turn.turnId,
-        telegramMessageId: input.telegramMessageId
-      });
-      return { routed: true };
+        await this.deps.store.addMessage({
+          sessionId: routedSession.id,
+          role: "user",
+          text: input.text,
+          codexTurnId: turn.turnId,
+          telegramMessageId: input.telegramMessageId
+        });
+        return { routed: true };
+      } finally { preparation?.finish(started); }
   }
 }
