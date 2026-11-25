@@ -1,9 +1,27 @@
 # Codex compatibility and verification scope
 
-The current protocol baseline is Codex CLI **0.170.0**, checked on **2026-11-19**.
-Use the `0.170` family (`>=0.170.0 <0.171.0`) as the recommended range; only
-`0.170.0` was exercised. Retained compatibility code for older versions is not
+The current protocol baseline is Codex CLI **0.172.0**, checked on **2026-11-25**.
+Use the `0.172` family (`>=0.172.0 <0.173.0`) as the recommended range; only
+`0.172.0` was exercised. Retained compatibility code for older versions is not
 evidence that every newer Bridge feature works on those versions.
+
+## 0.172 integration scope
+
+The 0.172 refresh verified 192 client requests, 89 notifications, 10 server
+requests and 19 ThreadItem kinds. Independent parser discovery matched the
+bindings. Existing config/list/capability reads and streaming search were
+exercised against an isolated CLI. Two deterministic local-model turns retained
+one session while switching Sol to Astra from the latest configuration.
+A temporary default-provider write succeeded; the existing thread retained its
+original provider, so Bridge's provider compatibility checks remain necessary.
+No production credentials, remote model, microphone or bot messages were used.
+
+MCP environment isolation, cancellation/window takeover, error detail deduplication,
+Web endpoint guards and next-turn configuration have automated regressions.
+The browser fixture covers search, binding, provider controls and existing voice
+history. New features are described in [Codex session tools](codex-session-tools.md).
+The broader feature evidence below was originally established with 0.170;
+this refresh does not claim to have repeated every real CLI approval scenario.
 
 ## Evidence
 
@@ -25,7 +43,7 @@ global Codex configuration. Local model-response timing is not a remote-model
 performance measurement. Feature flags needed by that fixture were confined to
 its temporary configuration; Bridge does not enable them globally.
 
-The automated baseline finished with **953 passing tests**, plus type, lint,
+The original 0.170 integration baseline finished with **953 passing tests**, plus type, lint,
 language, protocol-evidence and build checks. Browser checks used an isolated
 fixture at desktop and 390px widths. These are scoped compatibility checks,
 not certification of every provider, operating system or network path.

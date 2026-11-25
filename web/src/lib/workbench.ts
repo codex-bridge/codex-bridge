@@ -56,6 +56,40 @@ export function isSelectedOperation(state: WorkbenchState, kind?: WorkbenchOpera
 
 /** Permissions, reads, stream lifecycle and mutation receipts; no presentation. */
 export class WorkbenchController {
+  async searchSessions(query: string, archived: boolean, cursor: string | undefined, signal: AbortSignal,
+    onPartial: (rows: import("./protocol").ThreadSearchResult[]) => void): Promise<import("./protocol").ThreadSearchPage> {
+    const grant = this.grant, generation = this.generation;
+    if (!grant || this.state.connection !== "connected" || !this.api.search) throw new Error("Connect to Bridge before searching.");
+    const page = await this.api.search(grant, query, archived, cursor, signal, rows => {
+      if (this.valid(grant, generation) && !signal.aborted) onPartial(rows);
+    });
+    if (!this.valid(grant, generation) || signal.aborted) throw new Error("Search was cancelled.");
+    return page;
+  }
+
+  async readProviders(signal?: AbortSignal): Promise<import("./protocol").ModelProviderCatalog> {
+    const grant = this.grant, generation = this.generation;
+    if (!grant || this.state.connection !== "connected" || !this.api.providers) throw new Error("Connect to Bridge before reading providers.");
+    const result = await this.api.providers(grant, signal);
+    if (!this.valid(grant, generation)) throw new Error("Window connection changed.");
+    return result;
+  }
+
+  async setProvider(providerId: string): Promise<void> {
+    const grant = this.grant, generation = this.generation;
+    if (!grant || this.state.connection !== "connected" || !this.api.setProvider) throw new Error("Connect to Bridge before changing providers.");
+    await this.api.setProvider(grant, providerId);
+    if (!this.valid(grant, generation)) throw new Error("Provider result is unknown after connection changed; do not retry automatically.");
+    await this.refresh();
+  }
+
+  async readRealtime(cursor?: string, snapshotEnd?: number, signal?: AbortSignal): Promise<import("./protocol").RealtimeHistoryPage> {
+    const grant = this.grant, generation = this.generation, entry = selectedEntry(this.state);
+    if (!grant || !entry || !canInteract(this.state) || !this.api.realtime) throw new Error("Acquire this session before reading realtime history.");
+    const page = await this.api.realtime(grant, entry.threadId, entry.ownership!.version, cursor, snapshotEnd, signal);
+    if (!this.valid(grant, generation) || !this.sameSelection(entry)) throw new Error("Session changed.");
+    return page;
+  }
   private state: WorkbenchState = { connection: "idle", occupied: false, catalog: null, catalogFresh: false,
     selected: null, viewableSessionId: null, ready: false, loading: false, catalogError: null,
     operation: null, feedback: null,

@@ -20,10 +20,14 @@ import { createConversationActions } from "./lib/conversation-actions";
 import { sessionControls } from "./lib/session-controls";
 import { BrowserNotificationPlatform, WebNotifications } from "./lib/notifications";
 import { NotificationControl } from "./components/notification-control";
+import { CodexFeatureTools } from "./components/codex-feature-tools";
 
 export function App({ controller }: { controller: WorkbenchController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const catalogActions = useMemo(() => createCatalogActions(controller), [controller]);
+  const historySearch = useMemo(() => ({ search: controller.searchSessions.bind(controller), select: controller.select.bind(controller) }), [controller]);
+  const featureTools = useMemo(() => ({ providers: controller.readProviders.bind(controller),
+    setProvider: controller.setProvider.bind(controller), realtime: controller.readRealtime.bind(controller) }), [controller]);
   const conversationActions = useMemo(() => createConversationActions(controller), [controller]);
   const entry = selectedEntry(state);
   const items = state.selected && canViewSelectedTimeline(state)
@@ -45,6 +49,9 @@ export function App({ controller }: { controller: WorkbenchController }) {
 
   return <WorkbenchShell navigation={<SessionCatalog actions={catalogActions} catalog={state.catalog} catalogFresh={state.catalogFresh}
       catalogError={state.catalogError} connection={state.connection}
+      historySearch={historySearch}
+      codexTools={<CodexFeatureTools key={`${state.connection}:${state.selected}`} port={featureTools}
+        canReadRealtime={allowed} disabled={state.connection !== "connected"} />}
       notificationControl={controller.notifications && <NotificationControl notifications={controller.notifications} />}
       serviceConnection={<ServiceConnectionControl connection={state.connection} occupied={state.occupied}
         onConnect={() => { void controller.connect(state.occupied); }} />}

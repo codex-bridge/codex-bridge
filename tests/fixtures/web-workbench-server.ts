@@ -59,6 +59,22 @@ function publish(threadId: string, messageId: string, message: MessageSpec, oper
 const history = new Map(sessions.map((session) => [session.codexThreadId, Array.from({ length: 5 }, (_, i) => ({
   role: i % 2 ? "user" as const : "assistant" as const, text: `Recent message ${i + 1}` }))]));
 const api: WebBridgeApi = {
+  searchSessions: async (query, options, check) => {
+    check();
+    const data = sessions.filter(session => `${session.codexThreadId} Recent message`.includes(query)).map(session => ({
+      threadId: session.codexThreadId, name: "Conversation demo", directory: session.pathKey,
+      archived: false, modelProvider: "fixture", snippet: "Recent message matched the full conversation search." }));
+    options.onPartial?.(data.slice(0, 1));
+    return { data, nextCursor: null };
+  },
+  listProviders: async check => { check(); return { data: [{ id: "fixture", name: "Fixture" }, { id: "other", name: "Other fixture" }],
+    defaultProviderId: "fixture", canChangeDefault: true }; },
+  setDefaultProvider: async (_id, check) => { check(); },
+  readRealtimeHistory: async (threadId, version, _options, check) => {
+    const owned = await access.requireOwned(threadId, "web:local", version, check); owned.assertCurrent();
+    return { coverage: "ready", nextCursor: null, snapshotEnd: 1, projectedThroughItemIndex: 1,
+      data: [{ id: "voice-1", position: 0, sessionId: "voice", type: "transcriptSegment", role: "user", text: "Fixture voice transcript.", observedAtMs: null, turnId: null }] };
+  },
   readServiceNotices: () => notices.snapshot(),
   listCatalog: async () => ({ directories: [...new Set([...sessions.map((session) => session.pathKey), ...store.listWebDirectories()])].sort(), sessions: sessions.map((session, index) => {
     const lease = store.getSessionLease(session.id);

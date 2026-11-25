@@ -42,18 +42,18 @@ session, not across the entire group.
 ## Compatibility
 
 Codex App Server schemas are version-specific. The Bridge baseline verified on
-2026-11-19 is:
+2026-11-25 is:
 
-**Latest verified Codex CLI baseline: `0.170.0`.**
+**Latest verified Codex CLI baseline: `0.172.0`.**
 
 | Component | Supported range | Verified version |
 | --- | --- | --- |
-| Codex CLI | `>=0.170.0 <0.171.0` (recommended) | `0.170.0` |
+| Codex CLI | `>=0.172.0 <0.173.0` (recommended) | `0.172.0` |
 | Node.js | `>=22.23.5 <23` | `22.23.5` |
 | Yarn | `4.8.x` | `4.8.1` |
 
 Use the Node and Yarn versions pinned in `package.json`. The recommended Codex
-range follows the verified `0.170` protocol family; only `0.170.0` was tested.
+range follows the verified `0.172` protocol family; only `0.172.0` was tested.
 Older versions and other providers are not covered by a blanket compatibility
 guarantee. See [verification scope and known limits](docs/codex-compatibility.md)
 and [runtime setup](docs/operations.md#pm2-lifecycle).

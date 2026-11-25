@@ -20,6 +20,9 @@ rejects Codex config or feature overrides.
 
 ## Web listener
 
+For conversation search, Codex default provider settings and existing realtime
+history controls, see [Codex session tools](codex-session-tools.md).
+
 ```dotenv
 WEB_ENABLED=true
 WEB_HOST=127.0.0.1
@@ -44,6 +47,9 @@ Available commands:
 
 - `/help`
 - `/sessions`
+- `/search <text>` searches saved conversation contents.
+- `/provider` lists configured providers; `/provider <id>` changes Codex's global default.
+- `/realtime` reads existing realtime history for the session owned by this conversation.
 - `/session_new`
 - `/interrupt`
 - `/codex_status`
@@ -57,6 +63,10 @@ Available commands:
 
 For the complete Socket Mode, OAuth scope, event, and verification workflow,
 see [Slack setup](slack-setup.md).
+
+The explicit `/search`, `/provider`, and `/realtime` text commands are available
+in the Bot root conversation. Bound Slack threads continue to forward ordinary
+text to Codex; they do not intercept these keywords.
 
 ```dotenv
 SLACK_ENABLED=true

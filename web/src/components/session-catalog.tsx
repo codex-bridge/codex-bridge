@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { InfoHint } from "./info-hint";
 import { SessionEntry } from "./session-entry";
 import { DirectorySection } from "./directory-section";
+import { SessionHistorySearch, type SessionHistorySearchPort } from "./session-history-search";
 import { AddDirectoryDialog, SessionManagementDialog, type SessionDialog } from "./session-dialogs";
 import { LocateIcon, PlusIcon, RefreshIcon } from "./icons";
 import type { CatalogActions } from "../lib/catalog-actions";
@@ -18,6 +19,8 @@ export type SessionCatalogProps = {
   connection: WorkbenchState["connection"];
   serviceConnection: ReactNode;
   notificationControl?: ReactNode;
+  codexTools?: ReactNode;
+  historySearch?: SessionHistorySearchPort;
   selected: string | null;
   selectedEntry?: SessionEntryData;
   busy: boolean;
@@ -28,8 +31,9 @@ export type SessionCatalogProps = {
 type CatalogLocation = { directory: string; threadId?: string };
 
 export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, catalogFresh, catalogError,
-  connection, serviceConnection, notificationControl, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
+  connection, serviceConnection, notificationControl, codexTools, historySearch, selected, selectedEntry, busy, operation, directoryFeedback }: SessionCatalogProps) {
   const [filter, setFilter] = useState("");
+  const [historyQuery, setHistoryQuery] = useState<string | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogMode, setCatalogMode] = useState<CatalogMode>("active");
   const [directoryDialogOpen, setDirectoryDialogOpen] = useState(false);
@@ -83,12 +87,15 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
   const hasOpenDirectory = groups.some((group) => group.open);
 
   return <>
+    {historyQuery && historySearch && connection === "connected" && <SessionHistorySearch query={historyQuery}
+      archived={catalogMode === "archived"} port={historySearch} onClose={() => setHistoryQuery(null)} />}
     {catalogOpen && <div className="catalog-backdrop" aria-hidden="true" onMouseDown={() => setCatalogOpen(false)} />}
     <aside className="sidebar" aria-label="Directories and sessions" data-catalog-open={catalogOpen ? "true" : "false"}>
       <div className="sidebar-heading">
         <div className="brand"><h1>Codex Bridge</h1></div>
         <div className="sidebar-utilities">
           {notificationControl}
+          {codexTools}
           {connection === "connected" && serviceConnection}
           {catalog && <Button className="catalog-toggle" variant="ghost" aria-expanded={catalogOpen} aria-controls="session-catalog"
             onClick={() => setCatalogOpen((open) => !open)}>{catalogOpen ? "Hide directories"
@@ -107,6 +114,8 @@ export const SessionCatalog = memo(function SessionCatalog({ actions, catalog, c
             if (event.key !== "Escape" || !filter) return;
             event.preventDefault(); event.stopPropagation(); setFilter("");
           }} placeholder={catalogMode === "archived" ? "Find archived sessions" : "Find directories or sessions"} />
+        {historySearch && filter.trim() && <Button variant="ghost" disabled={connection !== "connected"}
+          onClick={() => setHistoryQuery(filter.trim())}>Search conversation history</Button>}
         <div className="catalog-header"><div className="heading-with-hint"><h2>{catalogMode === "archived" ? "Archived" : "Sessions"}</h2>
           <InfoHint text={catalogMode === "archived"
             ? "Archived sessions are excluded from the normal list, search, and sorting. Restored sessions return to Sessions."

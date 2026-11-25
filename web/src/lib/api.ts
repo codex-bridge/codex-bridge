@@ -49,6 +49,12 @@ export async function* decodeEvents(body: ReadableStream<Uint8Array>): AsyncGene
 }
 
 export interface WorkbenchApi {
+  search?(grant: Grant, query: string, archived: boolean, cursor: string | undefined, signal: AbortSignal,
+    onPartial: (rows: import("./protocol").ThreadSearchResult[]) => void): Promise<import("./protocol").ThreadSearchPage>;
+  providers?(grant: Grant, signal?: AbortSignal): Promise<import("./protocol").ModelProviderCatalog>;
+  setProvider?(grant: Grant, providerId: string): Promise<void>;
+  realtime?(grant: Grant, threadId: string, leaseVersion: number, cursor?: string, snapshotEnd?: number,
+    signal?: AbortSignal): Promise<import("./protocol").RealtimeHistoryPage>;
   holder(): Promise<{ holderWindowId: string | null }>;
   acquire(windowId: string, takeover: boolean): Promise<Grant>;
   resume(grant: Grant): Promise<unknown>;
@@ -77,6 +83,40 @@ export interface WorkbenchApi {
 
 export class HttpWorkbenchApi implements WorkbenchApi {
   constructor(private readonly request: typeof fetch = globalThis.fetch.bind(globalThis)) {}
+  async search(grant: Grant, query: string, archived: boolean, cursor: string | undefined, signal: AbortSignal,
+    onPartial: (rows: import("./protocol").ThreadSearchResult[]) => void): Promise<import("./protocol").ThreadSearchPage> {
+    const response = await this.request("/api/web/search", { method: "POST", headers: { ...this.headers(grant), "Content-Type": "application/json" },
+      body: JSON.stringify({ query, archived, cursor }), signal, cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) {
+      const error = await response.json() as { error?: string };
+      throw new ApiError(response.status, error.error ?? "Search failed.");
+    }
+    if (!response.body) throw new Error("Search response is empty.");
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let pending = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        pending += decoder.decode(value, { stream: !done });
+        if (pending.length > 1_048_576) throw new Error("Search response is too large.");
+        let newline: number;
+        while ((newline = pending.indexOf("\n")) >= 0) {
+          const line = pending.slice(0, newline); pending = pending.slice(newline + 1);
+          if (!line.trim()) continue;
+          const batch = JSON.parse(line) as { type: string; data?: import("./protocol").ThreadSearchResult[]; nextCursor?: string | null; message?: string };
+          if (batch.type === "error") throw new Error(batch.message ?? "Search failed.");
+          if (batch.type === "partial" && Array.isArray(batch.data)) onPartial(batch.data);
+          if (batch.type === "result" && Array.isArray(batch.data)) return { data: batch.data, nextCursor: batch.nextCursor ?? null };
+        }
+        if (done) throw new Error("Search ended before the final result.");
+      }
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  }
+  providers(grant: Grant, signal?: AbortSignal) { return this.json<import("./protocol").ModelProviderCatalog>("providers", grant, undefined, signal); }
+  async setProvider(grant: Grant, providerId: string): Promise<void> { await this.json("providers/default", grant, { providerId }); }
+  realtime(grant: Grant, threadId: string, leaseVersion: number, cursor?: string, snapshotEnd?: number, signal?: AbortSignal) {
+    return this.json<import("./protocol").RealtimeHistoryPage>("session/realtime", grant, { threadId, leaseVersion, cursor, snapshotEnd }, signal);
+  }
   private headers(grant?: Grant): Record<string, string> {
     return grant ? { "X-Bridge-Window-Id": grant.windowId, Authorization: `Bearer ${grant.token}` } : {};
   }

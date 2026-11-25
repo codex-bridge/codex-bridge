@@ -268,3 +268,5 @@ button { cursor: pointer; }
   .session-details dl { grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); }
   .session-details dd { margin-bottom: var(--space-sm); }
 }
+
+.codex-feature-result { white-space: pre-wrap; overflow-wrap: anywhere; margin-block: 0.75rem; }

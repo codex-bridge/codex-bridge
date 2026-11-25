@@ -2,6 +2,9 @@ import type { WebActionSpec, WebMessageSpec } from "../../../src/web/message-pre
 import type { TranscriptMessage } from "../../../src/shared/types";
 export type MessageSpec = WebMessageSpec;
 export type { WebActionSpec };
+export type { ThreadSearchPage, ThreadSearchResult } from "../../../src/codex/thread-search-api";
+export type { ModelProviderCatalog } from "../../../src/codex/provider-api";
+export type { RealtimeHistoryPage } from "../../../src/codex/realtime-history-api";
 export type Grant = { windowId: string; token: string };
 export type SessionEntry = {
   threadId: string; sessionId: string | null; name: string | null; directory: string;
