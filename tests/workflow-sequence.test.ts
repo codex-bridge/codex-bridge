@@ -158,9 +158,9 @@ test("all Compact sources and manual returned results share the boundary, withou
   await f.called("first");
   const reply = await f.internal.compactService.compactSession(f.session);
   assert.equal(f.latest().state, "active", "the RPC does not hold or close the delivery queue");
-  await f.service.deliverCompactResult("chat", reply, async () => {
-    assert.equal(f.latest().state, "phase_complete", "boundary precedes manual reply delivery");
-  });
+  await f.service.deliverCompactResult("chat", reply, async () => assert.fail("Compact owns its shared delivery receipt"));
+  assert.equal(f.latest().state, "phase_complete", "boundary precedes manual reply delivery");
+  assert.ok(f.sent.some(entry => entry.spec.kind === "compact-started"));
 });
 
 test("sequence isolates turns, sessions and sources, preserves results and recovers after delivery failure", async t => {

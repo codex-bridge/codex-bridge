@@ -124,7 +124,8 @@ test("explicit-session stop and compact replies use their target without resolvi
       rememberNotificationSession: unexpected,
       setSessionStatus: unexpected,
       sendSystemErrorMessage: unexpected,
-      sendLongSpec: unexpected
+      sendMessageSpec: unexpected,
+      editMessageSpec: unexpected
     });
     for (const reply of [await stop.stopSession(session, "web"), await compact.compactSession(session)]) {
       assert.equal(reply.title, "Codex error · /workspace/target");

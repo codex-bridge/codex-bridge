@@ -8,6 +8,10 @@ import type { BridgeMessageOptions } from "../transport.js";
 import type { SessionOwnershipService } from "./ownership.js";
 import type { WorkflowAppend } from "../progress/workflow-sequence.js";
 import type { WorkingUpdate } from "../status/working-window.js";
+import { KeyedQueue } from "../../shared/keyed-queue.js";
+import { formatDuration } from "../../shared/duration.js";
+import { classifyMessageEditError } from "../messages/edit-result.js";
+import { logger } from "../../logging/logger.js";
 
 export type CompactEventSource = "manual" | "bridge-auto" | "runtime";
 
@@ -15,8 +19,11 @@ type CompactEventState = {
   completedAt: number | null;
   completedNotified: boolean;
   source: CompactEventSource;
-  startedAt: number;
+  startedAt: number | null;
   startedNotified: boolean;
+  reason?: string;
+  message: { sourceId: string; messageId: string } | null;
+  attemptedSource: string | null;
 };
 
 type RecoveryState = {
@@ -40,7 +47,8 @@ export type CompactServiceDependencies = {
   rememberNotificationSession: (session: SessionRecord) => void;
   setSessionStatus: (session: SessionRecord, label: string, update?: WorkingUpdate) => Promise<void>;
   sendSystemErrorMessage: (session: SessionRecord, stage: "stream" | "error", message: string) => Promise<void>;
-  sendLongSpec: (chatId: string, messageSpec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<void>;
+  sendMessageSpec: (chatId: string, messageSpec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<{ message_id: string } | null>;
+  editMessageSpec: (chatId: string, messageId: string, messageSpec: MessageSpec, options?: Omit<BridgeMessageOptions, "messageSpec">) => Promise<boolean>;
 };
 
 export type SessionCompactDependencies = {
@@ -52,6 +60,8 @@ export type SessionCompactDependencies = {
 export class CompactService {
   private readonly compactEventsByThread = new Map<string, CompactEventState>();
   private readonly sessionRecovery = new Map<string, RecoveryState>();
+  private readonly deliveries = new KeyedQueue();
+  private readonly manualResults = new WeakMap<MessageSpec, CompactEventState>();
 
   constructor(private readonly deps: CompactServiceDependencies) {}
 
@@ -104,34 +114,39 @@ export class CompactService {
     }
   }
 
-  async deliverResult<T>(sourceId: string, message: MessageSpec, operation: () => Promise<T>): Promise<T> {
-    if (message.kind !== "compact-started" || !message.session?.id) return operation();
+  /** Compact owns its send receipt; the caller delivers errors and ownership prompts. */
+  async deliverResult(sourceId: string, message: MessageSpec, deliverFallback: () => Promise<void>): Promise<void> {
+    if (message.kind !== "compact-started" || !message.session?.id) return deliverFallback();
     const session = await this.deps.store.getSessionById(message.session.id);
-    return session ? this.deps.appendWorkflowMessage(session, operation, { sourceId }) : operation();
+    const state = this.manualResults.get(message);
+    if (!session || !state || state.completedAt !== null || this.compactEventsByThread.get(session.codexThreadId) !== state) return;
+    await this.deliveries.run(session.codexThreadId, async () => {
+      if (state.completedAt !== null || state.attemptedSource === sourceId) return;
+      await this.deps.appendWorkflowMessage(session, () => this.sendActivity(sourceId, message, state), { sourceId });
+    });
   }
 
   markCompactStarted(session: SessionRecord, source: CompactEventSource): boolean {
     const existing = this.compactEventsByThread.get(session.codexThreadId);
-    if (existing?.startedNotified && !existing.completedAt) return false;
+    if (existing?.startedNotified && existing.completedAt === null) return false;
     this.compactEventsByThread.set(session.codexThreadId, {
       completedAt: null,
       completedNotified: false,
       source,
       startedAt: Date.now(),
-      startedNotified: true
+      startedNotified: true,
+      message: null,
+      attemptedSource: null
     });
     return true;
   }
 
   async notifyCompactStarted(session: SessionRecord, source: CompactEventSource, options?: { reason?: string; next?: string }): Promise<void> {
     if (!this.markCompactStarted(session, source)) return;
-    await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(
-      session.telegramChatId,
-      this.startedSpec(session, source, options),
-      {
-        disable_notification: true
-      }
-    ));
+    const state = this.compactEventsByThread.get(session.codexThreadId)!;
+    state.reason = options?.reason;
+    await this.deliveries.run(session.codexThreadId, () => this.deps.appendWorkflowMessage(session,
+      () => this.sendActivity(session.telegramChatId, this.startedSpec(session, source, options), state)));
   }
 
   renderCompactStartedMessage(session: SessionRecord, source: CompactEventSource, options?: { reason?: string; next?: string }): string {
@@ -140,23 +155,61 @@ export class CompactService {
   }
 
   async notifyCompactCompleted(session: SessionRecord, options?: { next?: string }): Promise<void> {
-    const existing = this.compactEventsByThread.get(session.codexThreadId);
-    if (existing?.completedNotified) return;
-    this.compactEventsByThread.set(session.codexThreadId, {
-      completedAt: Date.now(),
-      completedNotified: true,
-      source: existing?.source ?? "runtime",
-      startedAt: existing?.startedAt ?? Date.now(),
-      startedNotified: existing?.startedNotified ?? false
-    });
+    const state: CompactEventState = this.compactEventsByThread.get(session.codexThreadId) ?? {
+      completedAt: null, completedNotified: false, source: "runtime", startedAt: null,
+      startedNotified: false, message: null, attemptedSource: null
+    };
+    if (state.completedNotified) return;
+    const firstCompletion = state.completedAt === null;
+    state.completedAt ??= Date.now();
+    state.completedNotified = true;
+    this.compactEventsByThread.set(session.codexThreadId, state);
     const messageSpec = createActivityMessage({
       kind: "compact-completed",
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
-      body: options?.next ? [{ type: "field", label: "Next", value: options.next }] : []
+      body: [
+        ...(state.startedNotified ? [{ type: "text" as const, text: this.triggeredBy(state.source) }] : []),
+        ...(state.reason ? [{ type: "field" as const, label: "Reason", value: state.reason }] : []),
+        ...(state.startedAt !== null ? [{ type: "text" as const, text: `Elapsed ${formatDuration(state.completedAt - state.startedAt)}` }] : []),
+        ...(options?.next ? [{ type: "field" as const, label: "Next", value: options.next }] : [])
+      ]
     });
-    await this.deps.appendWorkflowMessage(session, () => this.deps.sendLongSpec(session.telegramChatId, messageSpec, {
-      disable_notification: true
-    }));
+    const deliver = async () => {
+      const sourceId = session.telegramChatId;
+      if (state.message?.sourceId === sourceId) {
+        try {
+          if (await this.deps.editMessageSpec(sourceId, state.message.messageId, messageSpec, { disable_notification: true })) return;
+          logger.warn("bridge.compact.edit_unavailable", { threadId: session.codexThreadId });
+          return;
+        } catch (error) {
+          const result = classifyMessageEditError(error);
+          if (result === "synced") return;
+          if (result !== "missing") {
+            state.completedNotified = result !== "retryable";
+            logger.warn("bridge.compact.edit_failed", { threadId: session.codexThreadId, result });
+            return;
+          }
+          state.message = null;
+          state.attemptedSource = null;
+        }
+      }
+      await this.sendActivity(sourceId, messageSpec, state);
+    };
+    await this.deliveries.run(session.codexThreadId, () => firstCompletion
+      ? this.deps.appendWorkflowMessage(session, deliver) : deliver());
+  }
+
+  private async sendActivity(sourceId: string, message: MessageSpec, state: CompactEventState): Promise<void> {
+    if (state.attemptedSource === sourceId) return;
+    // A missing receipt can mean an unknown send outcome; never duplicate it.
+    state.attemptedSource = sourceId;
+    const sent = await this.deps.sendMessageSpec(sourceId, message, { disable_notification: true });
+    if (sent) state.message = { sourceId, messageId: sent.message_id };
+    else logger.warn("bridge.compact.send_unknown", { sourceId });
+  }
+
+  private triggeredBy(source: CompactEventSource): string {
+    return `Triggered by ${source === "manual" ? "you" : source === "bridge-auto" ? "Bridge" : "Codex"}`;
   }
 
   isCompactStatusUpdate(update: AppServerStatusUpdate): boolean {
@@ -204,7 +257,10 @@ export class CompactService {
   }
 
   private startedResult(session: SessionRecord, source: CompactEventSource, prefix?: string): MessageSpec {
-    return this.startedSpec(session, source, undefined, prefix);
+    const message = this.startedSpec(session, source, undefined, prefix);
+    const state = this.compactEventsByThread.get(session.codexThreadId);
+    if (state) this.manualResults.set(message, state);
+    return message;
   }
 
   private startedSpec(
@@ -218,7 +274,7 @@ export class CompactService {
       session: { id: session.id, directory: this.deps.getSessionDirectory(session) },
       body: [
         ...(prefix ? [{ type: "text" as const, text: prefix }] : []),
-        { type: "text", text: `Triggered by ${source === "manual" ? "you" : source === "bridge-auto" ? "Bridge" : "Codex"}` },
+        { type: "text", text: this.triggeredBy(source) },
         ...(options?.reason ? [{ type: "field" as const, label: "Reason", value: options.reason }] : []),
         ...(options?.next ? [{ type: "field" as const, label: "Next", value: options.next }] : [])
       ]

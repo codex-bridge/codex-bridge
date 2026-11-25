@@ -757,7 +757,8 @@ export class BridgeService {
       resumeThread: (threadId, cwd) => this.codexClient.resumeThread(threadId, cwd),
       setSessionStatus: (session, label, update) => this.statusLifecycleService.setSessionStatus(session, label, update),
       sendSystemErrorMessage: async (session, stage, message) => { await this.sendSystemErrorMessage(session, stage, message); },
-      sendLongSpec: (chatId, messageSpec, options) => this.messageOperations.sendLongSpec(chatId, messageSpec, options)
+      sendMessageSpec: (chatId, messageSpec, options) => this.messageOperations.sendMessageSpec(chatId, messageSpec, options),
+      editMessageSpec: (chatId, messageId, messageSpec, options) => this.messageOperations.editMessageSpec(chatId, messageId, messageSpec, options)
     });
     this.typingService = new TypingService({
       waitForThreadIdle: (threadId, signal) => this.notificationQueue.waitForIdle(threadId, signal),
@@ -1004,8 +1005,8 @@ export class BridgeService {
     return this.sessionCompactService.compact(telegramChatId);
   }
 
-  async deliverCompactResult(chatId: string, message: MessageSpec, operation: () => Promise<void>): Promise<void> {
-    return this.compactService.deliverResult(chatId, message, operation);
+  async deliverCompactResult(chatId: string, message: MessageSpec, deliverFallback: () => Promise<void>): Promise<void> {
+    return this.compactService.deliverResult(chatId, message, deliverFallback);
   }
 
   async statusActiveSessionMessage(telegramChatId: string, full = false): Promise<MessageSpec> {

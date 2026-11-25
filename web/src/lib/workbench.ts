@@ -571,7 +571,7 @@ export class WorkbenchController {
       const receipt = await this.mutation((signal) => this.api.sessionTool(grant, entry.threadId, tool,
         entry.ownership!.version, full, signal));
       if (!this.valid(grant, generation)) return;
-      this.timeline(entry.threadId, [...this.state.timelines[entry.threadId] ?? [],
+      if (receipt.messageDelivery !== "stream") this.timeline(entry.threadId, [...this.state.timelines[entry.threadId] ?? [],
         { id: `tool-${createClientId()}`, origin: "live", message: receipt.message }]);
       if (this.sameSelection(entry) && !receipt.ok) this.update({ feedback: { source: "operation", surface: "conversation",
         tone: "error", threadId: entry.threadId, message: "The operation did not complete. The reason is shown in the conversation." } });

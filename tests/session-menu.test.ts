@@ -4028,11 +4028,12 @@ test("contextCompaction item/completed notification sends compact completed", as
   }
 });
 
-test("contextCompaction item lifecycle sends compact started before completed", async () => {
+test("contextCompaction item lifecycle updates its original compact block with elapsed time", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-bridge-compact-context-lifecycle-test-"));
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
   const sends: string[] = [];
+  const edits: Array<{ id: string; text: string }> = [];
   const service = new BridgeService(
     testConfig(databasePath),
     store,
@@ -4045,7 +4046,7 @@ test("contextCompaction item lifecycle sends compact started before completed", 
       sends.push(text);
       return { message_id: String(sends.length) };
     },
-    editMessageText: async () => true,
+    editMessageText: async (_chat, id, text) => { edits.push({ id, text }); return true; },
     deleteMessage: async () => true,
     clearMessageActions: async () => true,
     sendTyping: async () => undefined
@@ -4079,9 +4080,12 @@ test("contextCompaction item lifecycle sends compact started before completed", 
     });
 
     const compactEvents = sends.filter((text) => text.startsWith("Compact "));
-    assert.equal(compactEvents.length, 2);
+    assert.equal(compactEvents.length, 1);
     assert.match(compactEvents[0] ?? "", /^Compact started · \/workspace\/project/);
-    assert.match(compactEvents[1] ?? "", /^Compact completed · \/workspace\/project/);
+    const completed = edits.find(edit => edit.text.startsWith("Compact completed"))!;
+    assert.ok(completed);
+    assert.equal(completed.id, String(sends.indexOf(compactEvents[0]!) + 1));
+    assert.match(completed.text, /Elapsed \d+s/);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
@@ -4201,7 +4205,7 @@ test("manual compact completion finalizes working status to Done", async () => {
       params: { threadId: "thread-compact" }
     });
 
-    assert.match(sends.join("\n"), /Compact completed · \/workspace\/project/);
+    assert.match(edits.map(edit => edit.text).join("\n"), /Compact completed · \/workspace\/project/);
     assert.match(edits.at(-1)?.text ?? "", /Working · Done · \d+s/);
   } finally {
     store.close();
@@ -4264,7 +4268,7 @@ test("auto-compact recovery completion does not clear status via compacted event
     });
 
     assert.match(turns.join("|"), /compact|retry me/);
-    assert.match(sends.join("\n"), /Compact completed · \/workspace\/project/);
+    assert.match(edits.join("\n"), /Compact completed · \/workspace\/project/);
     assert.equal(
       edits.filter((text) => /Working · Done/.test(text)).length,
       0
@@ -4345,6 +4349,7 @@ test("bridge auto compact completion includes retry next step", async () => {
   const databasePath = join(directory, "bridge.sqlite");
   const store = new BridgeStore(databasePath);
   const sends: string[] = [];
+  const edits: string[] = [];
   const turns: string[] = [];
   const service = new BridgeService(
     testConfig(databasePath),
@@ -4363,7 +4368,7 @@ test("bridge auto compact completion includes retry next step", async () => {
       sends.push(text);
       return { message_id: String(sends.length) };
     },
-    editMessageText: async () => true,
+    editMessageText: async (_chat, _id, text) => { edits.push(text); return true; },
     deleteMessage: async () => true,
     clearMessageActions: async () => true,
     sendTyping: async () => undefined
@@ -4392,7 +4397,7 @@ test("bridge auto compact completion includes retry next step", async () => {
     assert.match(sends.join("\n"), /Compact started · \/workspace\/project/);
     assert.match(sends.join("\n"), /Reason: incompatible history/);
     assert.match(sends.join("\n"), /Triggered by Bridge/);
-    assert.match(sends.join("\n"), /Compact completed · \/workspace\/project\nNext: Retrying last message/);
+    assert.match(edits.join("\n"), /Compact completed · \/workspace\/project[\s\S]*Elapsed \d+s\nNext: Retrying last message/);
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });

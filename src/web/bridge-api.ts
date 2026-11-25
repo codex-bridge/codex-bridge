@@ -49,7 +49,7 @@ export type WebSendResult = { accepted: boolean; requestId: string; prompt?: Web
 export type WebSessionCreateResult = { threadId: string; sessionId: string; leaseVersion: number };
 export type WebSessionManageInput = { threadId: string; leaseVersion?: number } &
   ({ action: "rename"; name: string } | { action: "archive" | "restore" | "release" });
-export type WebOperationResult = { ok: boolean; message: WebMessageSpec };
+export type WebOperationResult = { ok: boolean; message: WebMessageSpec; messageDelivery?: "stream" };
 export type WebSessionTool = "help" | "status" | "compact" | "interrupt";
 export type WebQueueEntry = Pick<QueuedSubmissionRecord, "id" | "summary" | "state" | "createdAt">;
 export type WebQueueSnapshot = { threadId: string; sessionId: string; leaseVersion: number; running: boolean; entries: WebQueueEntry[] };
@@ -305,12 +305,12 @@ export class LocalWebBridgeApi implements WebBridgeApi {
       ? this.operations!.compact.compactSession(access.session)
       : this.operations!.stop.stopSession(access.session, WEB_SOURCE_ID));
     access.assertCurrent();
-    return tool === "compact"
-      ? this.operations.compact.deliverResult(WEB_SOURCE_ID, message, async () => {
-        access.assertCurrent();
-        return this.operationResult(message);
-      })
-      : this.operationResult(message);
+    if (tool === "compact" && message.kind === "compact-started") {
+      await this.operations.compact.deliverResult(WEB_SOURCE_ID, message, async () => {});
+      access.assertCurrent();
+      return { ...this.operationResult(message), messageDelivery: "stream" };
+    }
+    return this.operationResult(message);
   }
 
   async readQueue(threadId: string, leaseVersion: number | undefined,

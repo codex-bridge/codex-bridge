@@ -1,4 +1,5 @@
 import type { ThreadHistoryEntry } from "../../codex/thread-history.js";
+import { formatDuration } from "../../shared/duration.js";
 import { createProgressHistoryMessageSpec } from "./progress.js";
 import { createActivityMessage, createMessage } from "../messages/factory.js";
 import { renderLegacyMessage } from "../messages/legacy-adapter.js";
@@ -159,11 +160,4 @@ export function createThreadHistoryEntrySpec(input: {
 
 function formatTurnStatus(status: Extract<ThreadHistoryEntry, { kind: "turn" }>["status"]): string {
   return status === "inProgress" ? "in progress" : status;
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }

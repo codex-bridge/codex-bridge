@@ -659,6 +659,20 @@ test("typed session tools use the structured tool endpoint and append the result
   assert.equal(f.controller.getSnapshot().timelines.a!.at(-1)?.message.title, "result-status");
 });
 
+test("stream-owned Compact uses one timeline block even when completion arrives before the tool receipt", async t => {
+  const f = fixture({ sessionTool: async () => {
+    const data = { messageId: "compact", threadId: "a", sessionId: "session-a", leaseVersion: 1 };
+    f.event({ name: "message", data: { ...data, operation: "send", message: message("Compact started", "compact-started") } });
+    f.event({ name: "message", data: { ...data, operation: "edit", message: message("Compact completed", "compact-completed") } });
+    return { ok: true, message: message("Compact started", "compact-started"), messageDelivery: "stream" };
+  } });
+  t.after(() => f.controller.dispose()); await open(f);
+  await f.controller.runSessionTool("compact");
+  const blocks = f.controller.getSnapshot().timelines.a!.filter(item => item.message.kind.startsWith("compact-"));
+  assert.equal(blocks.length, 1); assert.equal(blocks[0]!.id, "compact");
+  assert.equal(blocks[0]!.message.kind, "compact-completed");
+});
+
 test("asynchronous option actions are scoped, one-use per question and preserve the composer draft", async (t) => {
   const sent: unknown[] = [];
   const f = fixture({ send: async (_, thread, text, requestId, __, ___, ____, token) => {

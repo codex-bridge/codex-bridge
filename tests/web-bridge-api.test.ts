@@ -589,6 +589,29 @@ test("Web directory registration accepts any accessible existing directory witho
     new DirectoryRegistrationError("not_directory", "Path is not a directory."));
 });
 
+test("Web Compact receipts designate the stream as the only message owner while errors stay in the receipt", async t => {
+  const { store, session } = await historyFixture(t);
+  const catalog = new SessionCatalogService({ store, getSessionDirectory: () => "/work", readEffectiveProvider: async () => null,
+    codexClient: { listThreadsForCwd: async () => [], listArchivedThreadsForCwd: async () => [] } });
+  let failed = false, deliveries = 0;
+  const api = new LocalWebBridgeApi(catalog, undefined, undefined, undefined, undefined, {
+    store, access: new SessionAccessService(store),
+    binding: new SessionBindingService({ store, inFlightTurnIdByThread: new Map(),
+      getSessionDirectory: () => "/work", notify: async () => {} }),
+    compact: {
+      compactSession: async () => createMessage({ kind: failed ? "error" : "compact-started",
+        session: { id: session.id, directory: "/work" }, body: [] }),
+      deliverResult: async (source: string) => { assert.equal(source, "web:local"); deliveries++; }
+    }
+  } as never);
+  const leaseVersion = store.getSessionLease(session.id)!.version;
+  const result = await api.runSessionTool(session.codexThreadId, leaseVersion, "compact", false, () => {});
+  assert.equal(result.messageDelivery, "stream"); assert.equal(deliveries, 1);
+  failed = true;
+  const error = await api.runSessionTool(session.codexThreadId, leaseVersion, "compact", false, () => {});
+  assert.equal(error.ok, false); assert.equal(error.messageDelivery, undefined); assert.equal(deliveries, 1);
+});
+
 test("Web session mutations refuse result delivery after window revocation or ownership transfer", async (t) => {
   for (const change of ["window", "session"] as const) {
     const { store, session } = await historyFixture(t);

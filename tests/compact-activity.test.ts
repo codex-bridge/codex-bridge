@@ -17,6 +17,7 @@ async function harness(t: test.TestContext, connected = true, overrides: Partial
   });
   await store.setActiveSession("chat", session.id);
   const sent: Array<{ spec: MessageSpec; options: Omit<BridgeMessageOptions, "messageSpec"> | undefined }> = [];
+  const edits: Array<{ source: string; id: string; spec: MessageSpec; options: Omit<BridgeMessageOptions, "messageSpec"> | undefined }> = [];
   const service = new CompactService({
     appendWorkflowMessage: (_session, operation) => operation(),
     store,
@@ -34,10 +35,11 @@ async function harness(t: test.TestContext, connected = true, overrides: Partial
     rememberNotificationSession: () => {},
     setSessionStatus: async () => {},
     sendSystemErrorMessage: async () => {},
-    sendLongSpec: async (_chat, spec, options) => { sent.push({ spec, options }); },
+    sendMessageSpec: async (_chat, spec, options) => { sent.push({ spec, options }); return { message_id: `compact-${sent.length}` }; },
+    editMessageSpec: async (source, id, spec, options) => { edits.push({ source, id, spec, options }); return true; },
     ...overrides
   });
-  return { service, session, sent };
+  return { service, session, sent, edits };
 }
 
 function assertActivity(spec: MessageSpec, expected: string[]) {
@@ -74,15 +76,21 @@ test("manual and auto-recovery Compact request immediate Working updates", async
 });
 
 test("compact notifications keep source, recovery details and quiet delivery without Help", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 100_000 });
   for (const [source, label] of [["runtime", "Codex"], ["bridge-auto", "Bridge"], ["manual", "you"]] as const) {
-    const { service, session, sent } = await harness(t);
+    const { service, session, sent, edits } = await harness(t);
     await service.notifyCompactStarted(session, source, { reason: "incompatible history", next: "retrying once" });
+    t.mock.timers.tick(102_000);
     await service.notifyCompactCompleted(session, { next: "Retrying last message" });
-    assert.equal(sent.length, 2);
+    assert.equal(sent.length, 1);
     assertActivity(sent[0]!.spec, ["Compact started · /workspace/project", `Triggered by ${label}`,
       "Reason: incompatible history", "Next: retrying once"]);
-    assertActivity(sent[1]!.spec, ["Compact completed · /workspace/project", "Next: Retrying last message"]);
+    assert.equal(edits.length, 1);
+    assert.equal(edits[0]!.id, "compact-1");
+    assertActivity(edits[0]!.spec, ["Compact completed · /workspace/project", `Triggered by ${label}`,
+      "Reason: incompatible history", "Elapsed 1m 42s", "Next: Retrying last message"]);
     assert.ok(sent.every(({ options }) => options?.disable_notification === true));
+    assert.ok(edits.every(({ options }) => options?.disable_notification === true));
   }
 });
 
@@ -101,4 +109,99 @@ test("compact errors retain the ordinary error presentation", async (t) => {
   assert.equal(spec.kind, "error");
   assert.equal(spec.presentation, undefined);
   assert.equal(spec.title, "Codex error · /workspace/project");
+});
+
+test("manual Compact retains its receipt and duplicate events neither add blocks nor reset elapsed time", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: 100_000 });
+  const f = await harness(t);
+  const reply = await f.service.compactSession(f.session);
+  await f.service.deliverResult("chat", reply, async () => assert.fail("shared Compact send owns the receipt"));
+  await f.service.notifyCompactStarted(f.session, "runtime");
+  t.mock.timers.tick(5_000);
+  await f.service.notifyCompactCompleted(f.session);
+  t.mock.timers.tick(50_000);
+  await f.service.notifyCompactCompleted(f.session);
+  await f.service.deliverResult("chat", reply, async () => assert.fail("no obsolete start"));
+  assert.equal(f.sent.length, 1); assert.equal(f.edits.length, 1);
+  assertActivity(f.edits[0]!.spec, ["Compact completed · /workspace/project", "Triggered by you", "Elapsed 5s"]);
+  await f.service.notifyCompactStarted(f.session, "runtime");
+  t.mock.timers.tick(2_000);
+  await f.service.notifyCompactCompleted(f.session);
+  assert.equal(f.sent.length, 2); assert.equal(f.edits[1]!.id, "compact-2");
+  assertActivity(f.edits[1]!.spec, ["Compact completed · /workspace/project", "Triggered by Codex", "Elapsed 2s"]);
+});
+
+test("completion during the manual RPC cannot be followed by an obsolete started block", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: 100_000 });
+  const client = {
+    startCompactThread: async () => {},
+    resumeThread: async () => ({ displayPath: null, messages: [] }), sendTurn: async () => {}
+  };
+  const fast = await harness(t, true, { codexClient: client });
+  client.startCompactThread = async () => { t.mock.timers.tick(3_000); await fast.service.notifyCompactCompleted(fast.session); };
+  const reply = await fast.service.compactSession(fast.session);
+  await fast.service.deliverResult("chat", reply, async () => assert.fail("no obsolete start"));
+  assert.equal(fast.sent.length, 1); assert.equal(fast.edits.length, 0);
+  assertActivity(fast.sent[0]!.spec, ["Compact completed · /workspace/project", "Triggered by you", "Elapsed 3s"]);
+});
+
+test("completion waits for the original start receipt before editing it", async t => {
+  let release!: () => void, sending!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { sending = resolve; });
+  const f = await harness(t, true, { sendMessageSpec: async () => { sending(); await blocked; return { message_id: "in-flight" }; } });
+  const start = f.service.notifyCompactStarted(f.session, "runtime");
+  await entered;
+  const finish = f.service.notifyCompactCompleted(f.session);
+  release(); await Promise.all([start, finish]);
+  assert.equal(f.edits.length, 1); assert.equal(f.edits[0]!.id, "in-flight");
+});
+
+test("unknown first-send outcomes are not duplicated at completion", async t => {
+  let sends = 0;
+  const f = await harness(t, true, { sendMessageSpec: async () => { sends++; return null; } });
+  await f.service.notifyCompactStarted(f.session, "runtime");
+  await f.service.notifyCompactCompleted(f.session);
+  assert.equal(sends, 1); assert.equal(f.edits.length, 0);
+});
+
+test("only a confirmed missing Compact block is replaced", async t => {
+  for (const missing of [false, true]) {
+    const f = await harness(t, true, { editMessageSpec: async () => {
+      throw missing ? { error_code: 400, description: "message to edit not found" } : new Error("connection lost");
+    } });
+    await f.service.notifyCompactStarted(f.session, "runtime");
+    await f.service.notifyCompactCompleted(f.session);
+    assert.equal(f.sent.length, missing ? 2 : 1);
+    if (missing) assert.equal(f.sent[1]!.spec.kind, "compact-completed");
+  }
+});
+
+test("a retryable completion edit retains its original duration and never resends the start", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: 100_000 });
+  let attempts = 0;
+  let boundaries = 0;
+  const f = await harness(t, true, {
+    appendWorkflowMessage: async (_session, operation) => { boundaries++; return operation(); },
+    editMessageSpec: async (_source, id, spec) => {
+    attempts++;
+    if (attempts === 1) throw new Error("network unavailable");
+    assert.equal(id, "compact-1");
+    assertActivity(spec, ["Compact completed · /workspace/project", "Triggered by Codex", "Elapsed 5s"]);
+    return true;
+  } });
+  await f.service.notifyCompactStarted(f.session, "runtime");
+  t.mock.timers.tick(5_000);
+  await f.service.notifyCompactCompleted(f.session);
+  t.mock.timers.tick(30_000);
+  await f.service.notifyCompactCompleted(f.session);
+  assert.equal(attempts, 2); assert.equal(f.sent.length, 1);
+  assert.equal(boundaries, 2, "a delivery retry cannot split a later workflow phase");
+});
+
+test("Compact receipts from another source are never edited with the current source", async t => {
+  const f = await harness(t);
+  await f.service.notifyCompactStarted(f.session, "runtime");
+  await f.service.notifyCompactCompleted({ ...f.session, telegramChatId: "other-chat" });
+  assert.equal(f.sent.length, 2); assert.equal(f.edits.length, 0);
 });
