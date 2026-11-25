@@ -65,6 +65,7 @@ export class StatusLifecycleService {
     await Promise.allSettled(this.deps.statusOpBySession.values());
     await Promise.allSettled([...this.idleRefreshes.values()].map(entry => entry.task));
     await Promise.allSettled(this.preparationTasks);
+    this.windows.clear();
   }
 
   beginPreparation(session: SessionRecord, canSend: () => Promise<boolean>): StatusPreparation {
@@ -276,7 +277,7 @@ export class StatusLifecycleService {
         await this.deps.editMessageSpec(
           session.telegramChatId,
           existing.messageId,
-          this.createSessionStatusMessageSpec(session, label, startedAt, now, "", 0, true)
+          this.createSessionStatusMessageSpec(session, label, startedAt, now, "", 0, true, this.windows.get(session.id)?.summary() ?? "")
         );
       } catch (error) {
         if (classifyMessageEditError(error) !== "synced") logger.warn("bridge.status.finalize_failed", {
@@ -306,7 +307,8 @@ export class StatusLifecycleService {
         await this.deps.editMessageSpec(
           session.telegramChatId,
           status.messageId,
-          this.createSessionStatusMessageSpec(session, "Interrupted", startedAt, now, "Runtime connection closed before this status finished.", 0, true)
+          this.createSessionStatusMessageSpec(session, "Interrupted", startedAt, now, "Runtime connection closed before this status finished.", 0, true,
+            this.windows.get(sessionId)?.summary() ?? "")
         );
       } catch (error) {
         if (classifyMessageEditError(error) !== "synced") logger.warn("bridge.status.interrupt_finalize_failed", {
@@ -318,6 +320,7 @@ export class StatusLifecycleService {
         this.clearStatusState(sessionId);
       }
     }
+    this.windows.clear();
   }
 
   formatRecoveryIssue(event: AppServerErrorEvent): string {
@@ -388,7 +391,6 @@ export class StatusLifecycleService {
     for (const entry of this.idleRefreshes.values()) entry.controller.abort();
     this.generations.clear();
     this.preparations.clear();
-    this.windows.clear();
     this.retryNotBefore.clear();
   }
 

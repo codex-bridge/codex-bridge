@@ -77,6 +77,69 @@ test("shared Working windows keep ordered changes, including a return to the dis
   assert.equal(f.edits.length, 1, "no changes means no polling writes");
 });
 
+test("Done flushes unseen Recent immediately without waiting for the twenty-second window", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  t.mock.timers.tick(3_000);
+  await f.lifecycle.clearSessionStatus(session);
+  assert.equal(f.edits.length, 1);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Working · Done · 3s\nRecent: Thinking → Running command/);
+  assert.deepEqual(f.edits[0]!.spec.actions, []);
+  t.mock.timers.tick(30_000); await settleStatus(f);
+  assert.equal(f.edits.length, 1, "a cancelled timer cannot rewrite the final panel");
+  await f.lifecycle.setSessionStatus(session, "Working");
+  assert.doesNotMatch(renderLegacyMessage(f.sent[1]!), /Recent:/);
+});
+
+test("Done includes only changes not acknowledged by earlier successful updates", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Thinking");
+  t.mock.timers.tick(20_000); await settleStatus(f);
+  assert.match(renderLegacyMessage(f.edits[0]!.spec), /Recent: Thinking/);
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  await f.lifecycle.clearSessionStatus(session);
+  const text = renderLegacyMessage(f.edits.at(-1)!.spec);
+  assert.match(text, /Recent: Running command/);
+  assert.doesNotMatch(text, /Thinking/);
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.clearSessionStatus(session);
+  assert.doesNotMatch(renderLegacyMessage(f.edits.at(-1)!.spec), /Recent:/);
+});
+
+test("unsynchronized edits remain unseen and appear in the final Recent", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  f.setEdit(async () => false);
+  await f.lifecycle.setSessionStatus(session, "Running command");
+  t.mock.timers.tick(20_000); await settleStatus(f);
+  f.setEdit(async () => true);
+  await f.lifecycle.clearSessionStatus(session);
+  assert.match(renderLegacyMessage(f.edits.at(-1)!.spec), /Working · Done · 20s\nRecent: Running command/);
+  assert.equal(f.sent.length, 1);
+});
+
+test("runtime interruption finalizes unseen Recent through the same terminal renderer", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
+  const f = fixture(); t.after(() => f.lifecycle.stop());
+  f.deps.getRefreshPolicy = () => telegramRefreshPolicy;
+  await f.lifecycle.setSessionStatus(session, "Working");
+  await f.lifecycle.setSessionStatus(session, "Waiting");
+  await f.lifecycle.clearAllSessionStatusMessages();
+  const text = renderLegacyMessage(f.edits.at(-1)!.spec);
+  assert.match(text, /Working · Interrupted/); assert.match(text, /Recent: Waiting/);
+  t.mock.timers.tick(30_000); await settleStatus(f);
+  assert.equal(f.edits.length, 1);
+});
+
 test("errors update Working immediately, deduplicate and restart the ordinary window at delivery", async t => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 100_000 });
   const f = fixture(); t.after(() => f.lifecycle.stop());
