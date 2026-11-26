@@ -139,7 +139,7 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
     const { updates, failed } = aggregate.run;
     // A persisted card already has one successfully sent preview; updates counts later edits.
     if (aggregate.summaryOnly && aggregate.itemCountReliable === false) {
-      return [...lines, "Execution count unavailable", ...(failed > 0 ? [`Failed ×${failed}`] : [])];
+      return ["Execution count unavailable", ...(failed > 0 ? [`Failed ×${failed}`] : [])];
     }
     const displayedUpdates = aggregate.summaryOnly ? (aggregate.items?.length ?? 0) : updates + 1;
     // Display policy: only explicit failures count as failed; all other displayed runs count as succeeded.
@@ -149,6 +149,7 @@ function summaryLines(record: ProgressPhaseMessageRecord): string[] {
       `Succeeded ×${succeeded}`,
       ...(failed > 0 ? [`Failed ×${failed}`] : [])
     ].join(" · ");
+    if (aggregate.summaryOnly) return [statistics];
     const runLines = record.state === "step_failed" || record.state === "failed"
       ? [statistics, ...runFailureLines(record.failureReason)]
       : [...(record.state === "completed" ? [] : lines), statistics];

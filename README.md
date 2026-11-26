@@ -172,8 +172,9 @@ also lets you release ownership back to external Codex when Bridge permits it.
 - Acquiring a session restores up to five recent user/assistant messages.
   Temporary progress statistics are not a complete conversation archive.
 - Slack and Web retain live workflow activity. Telegram shows phase-end
-  summaries, with Run blocks hidden, and coalesces Working status changes at a
-  minimum 20-second interval; its clock does not refresh continuously.
+  summaries, with Run limited to execution statistics, and coalesces Working
+  status changes at a minimum 20-second interval; its clock does not refresh
+  continuously.
 - Successful automatic approval reviews stay quiet. Review problems, approval
   requests and questions remain visible. MCP connection status appears as a
   separate subdued message before Actions, once per changed session state.

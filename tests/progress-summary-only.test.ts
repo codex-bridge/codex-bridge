@@ -9,6 +9,7 @@ import { renderLegacyMessage } from "../src/bridge/messages/legacy-adapter.js";
 const event = (id: string | undefined, label = "Run", completed = true, failed = false) => ({ threadId: "thread", itemId: id,
   label, completed, failed, text: failed ? "timeout" : "observed", toolName: label === "Called" ? "tools.inspect" : "command",
   action: null, target: null, input: null, changes: null });
+const hiddenRunPolicy: MessageRefreshPolicy = { ...telegramRefreshPolicy, hiddenPhaseKinds: ["run"] };
 
 async function fixture(t: test.TestContext, failSend = false, policy: MessageRefreshPolicy = {
   typingEnabled: false, workingIntervalMs: 20_000, progressMode: "summary"
@@ -25,7 +26,7 @@ async function fixture(t: test.TestContext, failSend = false, policy: MessageRef
 }
 
 test("summary-only aggregates silently and sends each phase once in chronological order", async t => {
-  const f = await fixture(t);
+  const f = await fixture(t, false, telegramRefreshPolicy);
   for (let index = 0; index < 20; index++) {
     await f.service.sendProgressMessage(f.session, event(String(index), "Run", false), "turn");
     await f.service.sendProgressMessage(f.session, event(String(index)), "turn");
@@ -35,6 +36,7 @@ test("summary-only aggregates silently and sends each phase once in chronologica
   assert.equal(phase.platformMessageId, null); assert.equal(phase.deliveryState, "unsent");
   await f.service.sendProgressMessage(f.session, event("called", "Called"), "turn");
   assert.equal(f.writes.length, 1); assert.match(f.writes[0]!.text, /Run ×20 · Succeeded ×20/);
+  assert.equal(f.writes[0]!.text, "Run · /project\nRun ×20 · Succeeded ×20");
   await f.service.clearProgressMessageForThread("thread", { turnId: "turn" });
   assert.equal(f.writes.length, 2); assert.match(f.writes[1]!.text, /Called/);
   assert.ok(f.writes.every(write => !write.edit));
@@ -42,11 +44,11 @@ test("summary-only aggregates silently and sends each phase once in chronologica
 });
 
 test("failed steps form their own final boundary and new actions retain history", async t => {
-  const f = await fixture(t);
+  const f = await fixture(t, false, telegramRefreshPolicy);
   await f.service.sendProgressMessage(f.session, event("one"), "turn");
   await f.service.sendProgressMessage(f.session, event("two", "Run", true, true), "turn");
   assert.equal(f.writes.length, 1);
-  assert.match(f.writes[0]!.text, /Run ×2 · Succeeded ×1 · Failed ×1\nReason: timeout/);
+  assert.equal(f.writes[0]!.text, "Run · /project\nRun ×2 · Succeeded ×1 · Failed ×1");
   await f.service.sendProgressMessage(f.session, event("three"), "turn");
   await f.service.clearProgressMessageForThread("thread", { turnId: "turn" });
   assert.equal(f.writes.length, 2); assert.match(f.writes[1]!.text, /Run ×1 · Succeeded ×1/);
@@ -81,8 +83,8 @@ test("new chronological messages follow the final summary of the phase they clos
   assert.match(f.writes[0]!.text, /Run ×1/); assert.equal(f.writes[1]!.text, "Assistant reply");
 });
 
-test("Telegram suppresses Run summaries while retaining counts, failures and phase boundaries", async t => {
-  const f = await fixture(t, false, telegramRefreshPolicy);
+test("explicitly hidden Run summaries retain counts, failures and phase boundaries", async t => {
+  const f = await fixture(t, false, hiddenRunPolicy);
   await f.service.sendProgressMessage(f.session, event("one"), "turn");
   await f.service.sendProgressMessage(f.session, event("two", "Run", true, true), "turn");
   const failed = f.store.getLatestProgressPhaseMessage("thread", "turn")!;
@@ -107,7 +109,7 @@ test("Telegram suppresses Run summaries while retaining counts, failures and pha
 
 test("late failures cannot revive or consume background admission for a suppressed Run", async t => {
   let admissions = 0;
-  const f = await fixture(t, false, telegramRefreshPolicy, async () => { admissions++; return true; });
+  const f = await fixture(t, false, hiddenRunPolicy, async () => { admissions++; return true; });
   await f.service.sendProgressMessage(f.session, event("run", "Run", false), "turn");
   await f.service.clearProgressMessageForThread("thread", { turnId: "turn" });
   const run = f.store.getLatestProgressPhaseMessage("thread", "turn")!;
@@ -125,7 +127,7 @@ test("late failures cannot revive or consume background admission for a suppress
 
 test("restart recovery suppresses older pending Run sends instead of publishing them", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const f = await fixture(t, false, telegramRefreshPolicy);
+  const f = await fixture(t, false, hiddenRunPolicy);
   await f.service.sendProgressMessage(f.session, event("run"), "turn");
   const run = f.store.getActiveProgressPhaseMessage("thread", "turn")!;
   await f.service.stop();
@@ -135,4 +137,26 @@ test("restart recovery suppresses older pending Run sends instead of publishing 
   assert.equal(f.store.getProgressPhaseMessage(run.id)!.deliveryState, "suppressed");
   assert.deepEqual(f.writes, []);
   assert.equal(f.store.listPendingProgressPhaseFinalDelivery().length, 0);
+});
+
+test("previously suppressed Run history stays hidden when Telegram resumes statistics", async t => {
+  let policy: MessageRefreshPolicy = hiddenRunPolicy;
+  const f = await fixture(t, false, policy);
+  await f.service.sendProgressMessage(f.session, event("old"), "turn");
+  await f.service.clearProgressMessageForThread("thread", { turnId: "turn" });
+  const old = f.store.getLatestProgressPhaseMessage("thread", "turn")!;
+  assert.equal(old.deliveryState, "suppressed");
+  policy = telegramRefreshPolicy;
+  const resumed = fixtureProgressService(f.store, (_id, spec, edit) => {
+    f.writes.push({ id: "resumed", text: renderLegacyMessage(spec), edit });
+  }, () => false, { getRefreshPolicy: () => policy });
+  t.after(() => resumed.stop());
+  await resumed.sendProgressMessage(f.session, event("old", "Run", true, true), "turn");
+  await resumed.retryPendingFinalDeliveries();
+  assert.equal(f.store.getProgressPhaseMessage(old.id)!.deliveryState, "suppressed");
+  assert.deepEqual(f.writes, []);
+  await resumed.sendProgressMessage(f.session, event("new"), "next-turn");
+  await resumed.clearProgressMessageForThread("thread", { turnId: "next-turn" });
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.writes[0]!.text, "Run · /project\nRun ×1 · Succeeded ×1");
 });
